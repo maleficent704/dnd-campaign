@@ -1,0 +1,115 @@
+{
+  "upstream": {
+    "repo": "https://github.com/5e-bits/5e-database",
+    "tag": "v5.10.0",
+    "commit": "3f5593ea004c4f5a2af95603087ce4de72689d9f",
+    "path": "src/2014/en"
+  },
+  "edition": "D&D 5e SRD 5.1 (2014 rules)",
+  "fetched": "2026-07-27",
+  "locales_vendored": [
+    "en"
+  ],
+  "files": {
+    "raw/2014/en/5e-SRD-Ability-Scores.json": {
+      "sha256": "4d5192c8e67b5c0b1dff6618e97ff8f9174e0681958c8dfa04626c3cb97927fa",
+      "bytes": 5535
+    },
+    "raw/2014/en/5e-SRD-Alignments.json": {
+      "sha256": "f2f9af2b138f059b30b9ac3a3670b679c7e1988699eef57d8317532e351236f8",
+      "bytes": 3126
+    },
+    "raw/2014/en/5e-SRD-Backgrounds.json": {
+      "sha256": "f6d5ad26cb61472dad450ff8e0529944f316b230a8973f47f10c4b9fdad9e896",
+      "bytes": 12173
+    },
+    "raw/2014/en/5e-SRD-Classes.json": {
+      "sha256": "3530639d002d100972388e7c88de9c425dd9512abafd7405d497bec81e5fa3de",
+      "bytes": 155266
+    },
+    "raw/2014/en/5e-SRD-Conditions.json": {
+      "sha256": "cdd8abcc168d3694ae031f324096d250e2fd035826754b9036ac507aadfb58a2",
+      "bytes": 7281
+    },
+    "raw/2014/en/5e-SRD-Damage-Types.json": {
+      "sha256": "6c2279169121437466185538b50ed958f1e9fbd798f293062cb200a473546300",
+      "bytes": 3020
+    },
+    "raw/2014/en/5e-SRD-Equipment-Categories.json": {
+      "sha256": "3ca22f9bda21a094e75113e57505f3ea704ccce6ad36d8bd94ed9f9de7222cdd",
+      "bytes": 142647
+    },
+    "raw/2014/en/5e-SRD-Equipment.json": {
+      "sha256": "ffc220b5c6c2d47c5ce51fc7bf43f828b3892408cd510c6d06555452eee2f188",
+      "bytes": 183364
+    },
+    "raw/2014/en/5e-SRD-Feats.json": {
+      "sha256": "650409c1885d99ca8e8a73a90900943f10b17a4f1c9ed13af6556842db0aacfa",
+      "bytes": 761
+    },
+    "raw/2014/en/5e-SRD-Features.json": {
+      "sha256": "b2d0e23049b256a433f02bbba1b38a4849adcfd85538e07a5633d91ce475aaa1",
+      "bytes": 364729
+    },
+    "raw/2014/en/5e-SRD-Languages.json": {
+      "sha256": "8eeeec5c43333880d1e9d3d48da118c18b8144c035dc8a3c263c0f63cf66b5c5",
+      "bytes": 4165
+    },
+    "raw/2014/en/5e-SRD-Levels.json": {
+      "sha256": "8b04ec8b9d2edafb5f7ae7fc23735b270133a0046c4d9379408e68c01cae752c",
+      "bytes": 234698
+    },
+    "raw/2014/en/5e-SRD-Magic-Items.json": {
+      "sha256": "4cdec9baaa6d8d249c61c8336c71babe8e678ebc13a7ee4a6b5b527e34dbd212",
+      "bytes": 443612
+    },
+    "raw/2014/en/5e-SRD-Magic-Schools.json": {
+      "sha256": "38b92e3936b6813215d384ea5977445e66f9abf15f7fee50cde7eed2a1fc0c7b",
+      "bytes": 3025
+    },
+    "raw/2014/en/5e-SRD-Monsters.json": {
+      "sha256": "1d3f841eba31ef8537300de38d4e3dabb65c5248d20bcd6a3a85e525166a84db",
+      "bytes": 1386284
+    },
+    "raw/2014/en/5e-SRD-Proficiencies.json": {
+      "sha256": "c0c747cc7db4ee50acd43c1a74c3c6185725764561ebec87b888c7964a6185de",
+      "bytes": 48721
+    },
+    "raw/2014/en/5e-SRD-Races.json": {
+      "sha256": "7b5e5e3034fbe89eaa13d3e74c3912abc2c972d6daec203abdc11da383087f40",
+      "bytes": 27040
+    },
+    "raw/2014/en/5e-SRD-Rule-Sections.json": {
+      "sha256": "58ba90ee3df0ee2e6fd908d281a725fb2958e480cd443c2c72fff260e256f503",
+      "bytes": 196855
+    },
+    "raw/2014/en/5e-SRD-Rules.json": {
+      "sha256": "e2cb2890a5dc2ee263cf32c6f2280551e3ff85708b4f6654b292e2c977d59731",
+      "bytes": 9652
+    },
+    "raw/2014/en/5e-SRD-Skills.json": {
+      "sha256": "beee0fc147ef1e3a569ea23eae4bdec3da19413a4dd19ce9cfecc36ddfb4eab1",
+      "bytes": 9802
+    },
+    "raw/2014/en/5e-SRD-Spells.json": {
+      "sha256": "53a1af8175e8a289f15488eec594da4da75155d427ef50a3919cc49c2e95e6fa",
+      "bytes": 623604
+    },
+    "raw/2014/en/5e-SRD-Subclasses.json": {
+      "sha256": "77c5541345c57166f447c8aef6009c9fffdd28e8df78092c768d1a284486a84d",
+      "bytes": 55991
+    },
+    "raw/2014/en/5e-SRD-Subraces.json": {
+      "sha256": "704002dd3e794fa89c49606ca95d9635070e7aea1783215f4981e70b088bdae0",
+      "bytes": 3764
+    },
+    "raw/2014/en/5e-SRD-Traits.json": {
+      "sha256": "1010d561b7b7b157cd917e87b8bbaa38734ddd5ce5a6509321cc6979f43bef9e",
+      "bytes": 57276
+    },
+    "raw/2014/en/5e-SRD-Weapon-Properties.json": {
+      "sha256": "81aeaca4d89a94f83c82cc40f97b700c58905d3607b3630b7a11673da7392ee8",
+      "bytes": 4001
+    }
+  }
+}
