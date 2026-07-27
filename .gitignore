@@ -1,0 +1,15 @@
+.env
+logs/
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+analysis/*.ipynb_checkpoints/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Campaign save state is data, not code — keep the campaign definition, drop the saves.
+campaigns/*/saves/

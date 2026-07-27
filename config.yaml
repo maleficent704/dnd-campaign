@@ -1,0 +1,32 @@
+# config.yaml — model seats, endpoints, session defaults
+# Never hardcode models/URLs in code — everything routes through this file.
+
+billing:
+  default: api            # api | subscription — sticky default; CLI asks at session start
+  api_monthly_cap_note: "Console spend cap set by Kelly (~$20-25/mo) — safety rail"
+
+seats:
+  gm:
+    backend: gmbackend    # resolved by billing choice at runtime
+    model_default: claude-sonnet-5
+    model_threshold: claude-opus-5     # authored threshold moments only (D-004)
+  npc:
+    backend: ollama
+    endpoint: http://192.168.50.11:11434   # toto-llm (dual 3090)
+    model: llama3.3:70b
+  utility:
+    backend: ollama
+    endpoint: http://192.168.50.11:11434   # move to sam-pc when installed (Phase 4+)
+    model: llama3.1:8b
+
+ollama_endpoints:         # routing table (Phase 4 router consumes this)
+  toto-llm: http://192.168.50.11:11434
+  sam-pc: http://192.168.50.161:11434     # not yet installed — register only
+
+gameplay:
+  scaffolding: high       # high | low | off — D-006 new-player option surfacing
+  play_mode: hotseat      # hotseat until Phase 6 GUI (OD-4)
+
+logging:
+  dir: logs/
+  stamp_commit_sha: true
