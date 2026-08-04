@@ -50,6 +50,7 @@ src/dndc/
   models/              GMBackend (api, subscription adapters), ollama adapter, seats
   schema/              pydantic types: sheets, monsters, spells, canon entries, events
   rules/               dice, checks, combat resolution, initiative — pure functions
+  srd/                 SRD ingestion, validation, repository (added P0.2, ratified)
   gm/                  prompt assembly, canon ledger, NPC gating, threshold escalation
   memory/              session log / canon ledger / chronicle layers, compression jobs
   game/                turn loop, character co-creation flow, CLI (rich)

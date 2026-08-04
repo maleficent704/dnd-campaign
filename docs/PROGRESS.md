@@ -15,16 +15,17 @@ blockers into this list.
 
 ### Open now
 
-- **OD-8 — SRD content license, OGL vs CC-BY (non-blocking; P0.2 shipped either way).**
-  OD-7 records the dataset as CC-BY-4.0. The upstream repo's own README says the
-  underlying material is released under **OGL 1.0a**, and its `LICENSE.md` is **MIT**
-  (covering the JSON structure, not the game text). Both routes describe the same SRD
-  5.1 content, and WotC has offered SRD 5.1 under CC-BY-4.0 direct from the rights
-  holder since Jan 2023 — a downstream README cannot revoke that — so OD-7's CC-BY
-  route holds and upstream's statement is simply stale. `data/srd/ATTRIBUTION.md`
-  therefore attributes under **both**: CC-BY-4.0 for the content (with WotC's required
-  attribution paragraph verbatim) and MIT for the database. Ruling wanted only on
-  whether to amend OD-7's wording to say so explicitly; nothing is blocked meanwhile.
+- **OD-9 — two D-008 vocabulary additions (non-blocking; ratify or remove before Phase 1
+  writes to them).** D-008 says extend the vocabulary in DESIGN-DECISIONS.md *first*,
+  then in code, so P0.5 flags both rather than assuming them:
+  1. **`CallStatus` (`pending`/`complete`/`failed`) on `gm_narration` and `npc_turn`** —
+     implements D-008's stated pending-state discipline ("log intent before external
+     calls so crashes are reconstructable"), but the field itself is new. It makes a
+     model call two writes; no correlation id was invented to pair them. If exact
+     pairing is wanted, that is a third field and is worth deciding before P1.1.
+  2. **`session_meta.dirty_worktree`** — D-008 says "includes commit SHA"; a SHA from a
+     dirty tree does not describe the code that ran, so this records whether it was.
+     Strictly an addition.
 
 ### Protocol in effect (Fable, 2026-07-27)
 
@@ -34,6 +35,24 @@ blockers into this list.
   exists.
 - **A Fable ruling takes effect only once recorded in the repo.**
 - **One session, one commit. No code edits under a live play session.**
+
+### Ruled 2026-07-27 (Fable, after P0.2 handoff)
+
+- **OD-8 — license wording:** CC's analysis ratified. Rights-holder grant (WotC,
+  SRD 5.1 under CC-BY-4.0 since Jan 2023) controls; upstream's OGL README is stale
+  and cannot revoke it. The shipped three-layer ATTRIBUTION.md (CC-BY-4.0 content
+  with WotC's paragraph verbatim + MIT database structure) stands as-is —
+  conservative and correct. **OD-7 amended:** read its "CC-BY-4.0" as "content under
+  CC-BY-4.0 per the rights holder; database structure under MIT; attribute under
+  both" — no further doc changes needed.
+- **Layout addition `src/dndc/srd/` approved** and ratified into the CLAUDE.md
+  target layout (edited same day). Correct call: ingestion is none of
+  rules/gm/memory/game; typed models correctly landed in `schema/`.
+- **P0.2 deviations 1–3 approved.** Subclass-row filter (real corruption bug, test
+  pinned); `IngestScope` as parameter with task defaults; `srd verify` beyond task
+  scope — the pin is now enforced, which OD-7's research rationale requires.
+- Known issues accepted (venv pytest note, console encoding, first-AC-entry with
+  provenance kept, `srd` re-export shadow — all cosmetic or Phase-3-revisit).
 
 ### Ruled 2026-07-27 (Fable, after P0.1/P0.3/P0.4 handoff)
 
@@ -56,6 +75,112 @@ blockers into this list.
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-08-04 — P0.5 CLI + JSONL logger — **Phase 0 complete** (Claude Code, kelly-pc)
+
+**Completed: P0.5.** 267 tests passing (77 new), still zero network, GPU, or API key.
+**Phase 0 is done** — P0.1–P0.5 all landed. Next phase is P1.1 (model adapters), which
+is the first task that needs Kelly's API key in `.env`.
+
+### D-008 event vocabulary, typed
+
+`schema/events.py` implements all nine families — `session_meta`, `player_input`,
+`rules_resolution`, `gm_adjudication`, `gm_narration`, `npc_turn`, `canon_write`,
+`escalation`, `cost` — as frozen pydantic models behind a discriminated union on `type`.
+A test asserts the family set is exactly D-008's nine, so drift between the doc and the
+code is a test failure rather than a discovery in Phase 7.
+
+Typing the whole vocabulary now (rather than only `session_meta`, which is all P0.5
+strictly required) means Phases 1–4 emit into a fixed contract instead of inventing
+fields as they go. Two fields carry the load for the research side:
+
+- `rules_resolution` records the seed, the expression, and **every individual die face**,
+  not just the total — a logged session replays exactly.
+- `gm_adjudication.resolution_seq` points at the `rules_resolution` it governed, so
+  "was the GM fair?" is a query over pairs rather than a reading exercise.
+
+### Logger
+
+- `logging/emitter.py` — `SessionLog`, append-only, one JSON object per line, opened in
+  append mode and flushed per write. Nothing rewrites or truncates a written line.
+- `seq` is assigned by the emitter, never by callers, so two components cannot race to
+  the same number. **Reopening a log resumes `seq` from the highest value on disk** —
+  the npc-village continuity rider, which otherwise bites the first time a process
+  restarts mid-session. Tested.
+- Reading is deliberately tolerant: a truncated final line from a hard crash is skipped
+  rather than poisoning the rest of the session.
+- `session_meta` stamps the commit SHA **and** a `dirty_worktree` flag, plus the resolved
+  seats read from `config.yaml` (never a hardcoded model id), gameplay settings, and the
+  master seed.
+
+### CLI
+
+`new-campaign`, `roll`, `sheet show`, `sheet validate` — plus `campaigns` (listing).
+`roll` always resolves and prints a seed even when none was given, because an unrecorded
+roll is not reproducible and reproducibility is the entire point of the deterministic
+core. `--log` writes a real `session_meta` + `rules_resolution` pair, which is what
+proves the logger end to end. `sheet show` renders abilities/saves/skills/inventory/slots
+via rich; `sheet validate` reports the offending field rather than a stack trace.
+
+`schema/campaign.py` + `game/campaign.py` lay out `campaigns/<slug>/` with
+`characters/` and `saves/`. Creation **refuses to touch an existing directory** — from
+Phase 2 that would destroy the canon ledger, which is not something to do as a side
+effect of a mistyped name. `slugify` escapes the Windows reserved device names
+(`nul`, `con`, `aux`, `prn`, `com1-9`, `lpt1-9`) rather than rejecting them.
+
+### Logging-shadow question — resolved (owed to Fable's 2026-07-27 ruling)
+
+**`src/dndc/logging/` is safe; keeping it.** Python 3 has no implicit relative imports,
+so an absolute `import logging` anywhere — including inside the package itself —
+resolves to the standard library. The shadow exists *only* for the expression
+`from dndc import logging`, which nothing does. Confirmed two ways: an in-process
+assertion that `sys.modules["logging"]` is untouched, and a subprocess that imports
+`dndc.logging` **first** and then asserts a bare `import logging` still lands on the
+stdlib file. The CLAUDE.md layout stands unchanged.
+
+### Deviations
+
+1. **Typed all nine D-008 families, not just `session_meta`.** See above — the contract
+   is cheaper to fix now than after four phases have written to it.
+2. **Added `dndc campaigns`** beyond the four named commands. Five lines, tested, and it
+   answers "where did my campaign go" without a filesystem hunt.
+3. **Two fields beyond D-008's literal text** — flagged below for ratification.
+
+### Known issues / notes
+
+- `roll --log` opens a *new* session log per invocation; there is no persistent session
+  object until the Phase 1 turn loop. Fine for a one-shot roll, not a session.
+- The `cost` event is typed but nothing emits one yet. Populating `usd` in subscription
+  mode needs an API price table, which does not exist in `config.yaml` — that belongs to
+  P1.1 ("would-have-cost calc") and should probably live in config rather than code, so
+  a price change is data maintenance.
+- `_write` flushes but does not `fsync`. Durable against a process crash, not against a
+  power cut. Correct trade for a play session; revisit only if it ever bites.
+- Test suite is 0.95s and still needs no network, GPU, or key.
+- Run tests as `./.venv/Scripts/python.exe -m pytest` — the global Python has a broken
+  `logfire` pytest plugin that crashes collection before any test runs.
+
+### Recommended next task
+
+**P1.1 — model adapters** (`GMBackend` interface, `api` + `subscription` adapters, Ollama
+adapter, mock backend, session-start billing prompt). This is the first task that needs
+**Kelly's API key in `.env`**; the `subscription` adapter can be built and tested against
+her existing CC login without it, and the mock backend keeps the test suite offline.
+
+**FOR DESIGN:** two additions to the D-008 vocabulary, made because D-008 says to extend
+the doc *first*, so these want ratification (or removal) before Phase 1 writes to them:
+
+1. **`CallStatus` (`pending` / `complete` / `failed`) on `gm_narration` and `npc_turn`.**
+   D-008's rationale explicitly carries the mystery's pending-state lesson — "log intent
+   before external calls so crashes are reconstructable" — so this implements stated
+   intent, but the enum itself is a new field. Note it makes a model call *two* writes;
+   I did not invent a correlation id to pair them, leaving that to P1.1 when real calls
+   exist. If Fable wants exact pairing, that is a third field and worth deciding now.
+2. **`session_meta.dirty_worktree`.** D-008 says "includes commit SHA"; this adds whether
+   the tree was dirty. A SHA from a dirty tree does not describe the code that ran, so a
+   replay claim based on it alone would be false — but it is strictly an addition.
 
 ---
 

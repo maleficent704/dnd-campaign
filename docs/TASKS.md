@@ -4,7 +4,7 @@ Work in order unless PROGRESS.md's latest handoff says otherwise. Each phase is
 independently executable cold from the scaffold docs. Definition of done for any task:
 code + tests + a PROGRESS.md handoff entry.
 
-## Phase 0 — Scaffold, SRD, dice, sheets (no LLM)
+## Phase 0 — Scaffold, SRD, dice, sheets (no LLM) — **COMPLETE 2026-08-04**
 
 - **P0.1** Repo init: `pyproject.toml` (py3.11+, pydantic, pyyaml, rich, pytest),
   `.gitignore` (logs/, .env, __pycache__, campaigns/*/saves if large), package
