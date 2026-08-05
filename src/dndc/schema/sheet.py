@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Self
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from dndc.rules.checks import (
     Proficiency,
@@ -146,8 +146,19 @@ class Proficiencies(_Model):
     skills: dict[Skill, Proficiency] = Field(default_factory=dict)
     armor: list[str] = Field(default_factory=list)
     weapons: list[str] = Field(default_factory=list)
-    tools: list[str] = Field(default_factory=list)
+    #: Levelled like skills, because 5e expertise applies to tools as well ("two of
+    #: your skill proficiencies, **or one skill and thieves' tools**"). A plain list
+    #: could not say that, so a rogue's tool expertise was silently unrepresentable.
+    tools: dict[str, Proficiency] = Field(default_factory=dict)
     languages: list[str] = Field(default_factory=list)
+
+    @field_validator("tools", mode="before")
+    @classmethod
+    def _accept_a_plain_list(cls, value: object) -> object:
+        """Sheets written before tools were levelled are still hand-editable data."""
+        if isinstance(value, list):
+            return {str(name): Proficiency.PROFICIENT for name in value}
+        return value
 
     @model_validator(mode="after")
     def _no_duplicate_saves(self) -> Self:

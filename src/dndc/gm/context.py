@@ -92,10 +92,18 @@ class Turn:
     player_input: str
     narration: str
     speaker: str = "The party"
+    #: True for the GM's opening scene, which no player prompted. Kept in the window
+    #: because it is what the session is built on, but not attributed to anyone.
+    opening: bool = False
 
     def messages(self) -> tuple[Message, Message]:
+        prompt = (
+            "(the session opens)"
+            if self.opening
+            else f"{self.speaker} says:\n\n{self.player_input}"
+        )
         return (
-            Message(role=Role.USER, content=f"{self.speaker} says:\n\n{self.player_input}"),
+            Message(role=Role.USER, content=prompt),
             Message(role=Role.ASSISTANT, content=self.narration),
         )
 
@@ -172,6 +180,10 @@ class GMPromptBuilder:
             ),
         )
 
+    def opening_message(self) -> Message:
+        """The instruction that opens a session, before any player has spoken."""
+        return Message(role=Role.USER, content=render_template("opening"))
+
     def resolution_message(self, resolutions: Sequence[str]) -> Message:
         """The follow-up after the engine resolved a check the GM asked for."""
         return Message(
@@ -192,6 +204,7 @@ class GMPromptBuilder:
         effort: str | None = None,
         call_id: str | None = None,
         interim: str = "",
+        opening: bool = False,
     ) -> GMRequest:
         """Assemble one call.
 
@@ -201,7 +214,9 @@ class GMPromptBuilder:
         it the player reads the same moment twice.
         """
         turn: list[Message] = [
-            self.turn_message(
+            self.opening_message()
+            if opening
+            else self.turn_message(
                 player_input,
                 speaker=speaker,
                 resolutions=() if interim else resolutions,

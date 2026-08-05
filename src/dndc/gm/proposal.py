@@ -67,6 +67,11 @@ _KEY_ALIASES = {
     "skill": "skills",
     "proficiencies": "skills",
     "spell": "spells",
+    "ability_bonus": "ability_bonuses",
+    "bonuses": "ability_bonuses",
+    "ability_bonus_picks": "ability_bonuses",
+    "language": "languages",
+    "extra_languages": "languages",
     "gear": "equipment",
     "items": "equipment",
     "allocation": "method",
@@ -78,7 +83,7 @@ _REQUIRED = ("name", "species", "class", "priority")
 #: Every field the parser understands. A `key:` outside this set is prose, not a field.
 _KNOWN_KEYS = frozenset(
     {*_REQUIRED, "skills", "background", "method", "shape", "armor", "shield",
-     "equipment", "spells", "backstory"}
+     "equipment", "spells", "backstory", "ability_bonuses", "expertise", "languages"}
 )
 
 _TRUE = {"yes", "true", "y", "1", "shield"}
@@ -159,6 +164,9 @@ def _parse_body(body: str, player: str, raw: str) -> Concept:
         character_class=fields["class"],
         priority=_priority(fields["priority"], raw=raw),
         skills=_skills(fields.get("skills", ""), raw=raw),
+        ability_bonus_picks=_abilities(fields.get("ability_bonuses", "")),
+        expertise=_items(fields.get("expertise", "")),
+        languages=_items(fields.get("languages", "")),
         background=fields.get("background") or None,
         method=method,
         shape=_shape(fields.get("shape", "")),
@@ -227,6 +235,19 @@ def _priority(value: str, raw: str) -> tuple[Ability, ...]:
             f"ability priority must rank all six abilities, got {len(order)}: {listed}"
         )
     return tuple(order)
+
+
+def _abilities(value: str) -> tuple[Ability, ...]:
+    """A plain list of abilities — the species' floating bonus picks."""
+    picks: list[Ability] = []
+    for word in re.findall(r"[a-z]+", value.casefold()):
+        ability = _ABILITY_WORDS.get(word)
+        if ability is None:
+            if word in _PRIORITY_NOISE:
+                continue
+            raise ProposalError(f"unknown ability in ability_bonuses: {word!r}")
+        picks.append(ability)
+    return tuple(picks)
 
 
 def _skills(value: str, raw: str) -> tuple[Skill, ...]:

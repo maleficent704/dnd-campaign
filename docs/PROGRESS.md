@@ -15,7 +15,10 @@ blockers into this list.
 
 ### Open now
 
-**None.** (OD-13 and OD-14 ruled 2026-08-05 — see below.)
+- **OD-15 — what triggers D-006 scaffolding to fade?** The design says it fades as
+  players find their feet; nothing implements the fade, and the first playtest showed
+  `high` wearing out inside a single session (23 of 32 replies ending in the same
+  sentence). Raised in the 2026-08-05 playtest entry.
 
 ### Protocol in effect (Fable, 2026-07-27)
 
@@ -181,6 +184,115 @@ blockers into this list.
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-08-05 — first playtest, grant bugs, opening scene (Claude Code, kelly-pc)
+
+**Kelly played the first real session** (solo, 1h21m, 29 turns, 3 checks, **$0.4961**).
+Write-up: `docs/playtests/2026-08-05-first-play-session.md`. This entry covers that, plus
+Fable's creation-review bugs, which are now fixed. 562 tests passing (50 new), still
+offline.
+
+### The playtest
+
+It worked — Corin walked into Ashmill, drank at the Grey Hollow, eavesdropped on two
+locals, lifted a coil of rope off a junk merchant, and searched a chapel out past
+Vennhollow. Prose and pacing held for 29 turns, the co-creation backstory paid off in the
+*first paragraph*, all content was original, and **OD-11 held completely**: zero engine
+numbers in prose across 32 replies, with a failed Perception narrated as "whatever put it
+here has kept its secret".
+
+Findings, in order of how much they matter:
+
+1. **The world is not remembered, and it is now demonstrable.** A town, two villages, a
+   reeve, a sealed chapel and a bloodstained altar — none of it in the ledger, because
+   play never writes canon. Re-running immediately afterwards, the GM opened in a city
+   called *Kellmoor*; Ashmill no longer exists. Phase 2's justification, with an artifact.
+2. **Scaffolding has become a formula.** 23 of 32 replies end with the literal sentence
+   "— or anything else you'd like to try." Nothing implements D-006 fading, and the `high`
+   template's phrasing never varies. Kelly repeatedly ignored the offered options and
+   improvised instead, which is the readiness signal D-006 describes.
+3. **Every DC was 12.** Three checks of visibly different difficulty, all priced the same.
+   n=3, so this is a watch-item rather than an action, but `gm_adjudication` exists so
+   Phase 7 can audit ruling fairness and an anchored GM makes that vacuous.
+4. **The GM did not open the scene.** Kelly had to prompt the campaign into existence.
+   Fixed — `TurnEngine.open_scene()` runs a GM turn before the first prompt when a
+   campaign has no history, with an `opening.md` asking for a world already in motion.
+5. **Picked-up items never reach the sheet.** A stolen rope, a silver ring and a knife;
+   inventory unchanged. Fiction and sheet have already diverged, which is the same class
+   of desync D-001 exists to prevent. Phase 3 will make it acute.
+6. **Cost confirmed:** $0.0155/turn, ~$1.10 for a three-hour session. Inside OD-10's band.
+
+### Fable's creation-review bugs — all four fixed
+
+The review found that every omission was **a choice-point inside a species/class grant**:
+fixed grants landed, grants requiring a choice were silently dropped. Fixed as ruled —
+the data now carries the choices, `Concept` carries the answers, and `build.py` **raises**
+rather than emitting a short sheet:
+
+- `Species.ability_bonus_options` (Half-Elf's floating +1s) and `language_options` are
+  ingested; `ClassLevel.expertise_choices` reads the Rogue's expertise out of the
+  Features file, where it was nested as a choose-1-of-[choose-2-of-…].
+- `SRDData.proficiency_types` ingests the SRD's own proficiency categories. The old code
+  guessed from names with a keyword list, which is exactly why `thieves-tools` went
+  missing — it contains none of the words a tools list would look for.
+- `Proficiencies.tools` is now levelled like skills, because 5e expertise applies to
+  tools ("one skill and thieves' tools") and a plain list could not say that. Old sheets
+  still load — a `before` validator accepts the list form.
+- `dndc sheet validate` now reports incomplete grants (a warning, not a failure: sheets
+  are hand-editable data; construction is where incompleteness is fatal). Corin's
+  hand-edited sheet passes clean.
+- Test sweep over 5 species × 4 classes asserting no combination can silently skip a
+  required choice, which is the general form of all four bugs.
+
+### The interview would not converge
+
+Three live runs in a row, the GM asked another round of questions instead of proposing —
+including after the prompt was strengthened twice, once to a hard "your second reply must
+contain a proposal". So the engine now says it instead: from the player's second turn,
+until a character exists, a bracketed engine instruction rides along with the player's
+message. Converged on the second reply immediately.
+
+This is OD-12's principle in a third place. A rule the model must remember eventually
+fails; a rule carried by what enters the prompt cannot. Worth noting the pattern is now
+general enough to reach for first rather than after two prompt revisions.
+
+### Deviations
+
+1. **`Proficiencies.tools` changed shape** (list → dict of name to proficiency). A schema
+   change, made because Fable's review named tool expertise explicitly and the old shape
+   could not represent it. Backward compatible on read.
+2. **`sheet validate` warns rather than fails** on incomplete grants. Construction raises;
+   inspection reports. A hand-edited sheet mid-edit is not an error.
+3. **The engine nudge is injected into the player's message**, not the system prompt —
+   it is turn-scoped, and the system half carries the cache breakpoint.
+
+### Known issues / notes
+
+- Backgrounds are still not ingested, though `5e-SRD-Backgrounds.json` **is** in the
+  pinned raw data — this is an ingest omission, not missing data. Charlatan would grant
+  Deception + Sleight of Hand, and the class-skill picker will need to avoid
+  double-granting when it lands.
+- Starting equipment still comes through empty from ingest.
+- Corin Vale's sheet was hand-edited by Kelly per the review and now validates clean.
+- Findings 2, 3 and 5 above are untouched.
+
+### Recommended next task
+
+**P1.5 proper — a two-player session.** Sam still has no character, so `/switch` and the
+hot-seat rotation remain the only untested part of Phase 1.
+
+Then **Phase 2**, where finding 1 gets fixed. The playtest log is the test fixture: replay
+it, extract canon, and assert Ashmill survives into a second session.
+
+**FOR DESIGN:** one, non-blocking. **D-006 fading has no trigger.** The design says
+scaffolding fades as players find their feet; nothing implements the fade, and finding 2
+shows `high` wearing out inside one session. Player-initiated (`/scaffolding low`),
+turn-count, or a GM judgment call are all plausible. My instinct is player-initiated plus
+a nudge from the GM after N turns of the player ignoring the offered options, since that
+is the actual signal — and separately, the `high` template should vary its closing
+sentence even before any fade. One command would do for now.
 
 ---
 

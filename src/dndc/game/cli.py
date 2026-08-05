@@ -49,7 +49,7 @@ from dndc.models import (
     estimate_cost,
     load_prices,
 )
-from dndc.rules.build import BuildError
+from dndc.rules.build import BuildError, grant_issues
 from dndc.rules.dice import Advantage, DiceError, roll, roll_d20
 from dndc.schema.events import Cost, DiceRoll, GMNarration, RulesResolution, SeatInfo, SessionMeta
 from dndc.schema.sheet import SKILL_ABILITY, Ability, CharacterSheet, Skill
@@ -612,6 +612,22 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
     console.print(f"[dim]log -> {log.path}  ·  /help for commands[/dim]\n")
 
     try:
+        # The GM speaks first, as at a table. Without this the loop sat waiting for a
+        # player who had not been told where they were standing (first playtest).
+        if not campaign.history:
+            stream = _NarrationStream(console)
+            try:
+                engine.open_scene(on_text=stream.feed)
+            except GMBackendError as exc:
+                console.print(f"[red]error:[/red] {exc}")
+                return 1
+            except Exception as exc:  # network / rate limit
+                console.print(f"\n[red]call failed:[/red] {type(exc).__name__}: {exc}")
+                return 1
+            finally:
+                stream.finish()
+            console.print("\n")
+
         while True:
             member = sheets[active.lower()]
             try:
@@ -921,6 +937,26 @@ def _cmd_sheet_validate(console: Console, args: argparse.Namespace) -> int:
         return 1
     console.print(f"[green]valid[/green] — {sheet.name}, level {sheet.level} "
                   f"{sheet.species} {sheet.character_class}")
+
+    # Schema-valid is not the same as complete: a sheet can parse cleanly and still be
+    # missing what its species and class actually grant. That is how the first
+    # co-created character reached the table two ability points short.
+    try:
+        issues = grant_issues(sheet, SRDRepository.load())
+    except SRDIngestError as exc:
+        console.print(f"[dim]grants not checked: {exc}[/dim]")
+        return 0
+
+    if issues:
+        # A warning, not a failure: the sheet is a valid, loadable character, and sheets
+        # are hand-editable data (D-005). Construction is where incompleteness is fatal
+        # — `build_character` raises. Inspection reports.
+        console.print(f"[yellow]{len(issues)} incomplete grant(s)[/yellow] — "
+                      f"this character is missing things its species and class give it:")
+        for issue in issues:
+            console.print(f"  - {issue}")
+        return 0
+    console.print("[green]grants complete[/green] — matches SRD species and class")
     return 0
 
 

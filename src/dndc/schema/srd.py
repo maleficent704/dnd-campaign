@@ -51,6 +51,27 @@ class Subspecies(_SRDModel):
     traits: tuple[str, ...] = ()
 
 
+class AbilityBonusOptions(_SRDModel):
+    """"+1 to two abilities of your choice" — a grant with a choice inside it.
+
+    Modelled separately from `ability_bonuses` because the first playtest produced a
+    Half-Elf missing two ability points: the fixed +2 landed, the floating +1s were
+    silently dropped, and nothing complained. A choice the data does not carry is a
+    choice the engine cannot enforce.
+    """
+
+    choose: int = Field(ge=1)
+    options: tuple[Ability, ...] = ()
+    bonus: int = 1
+
+
+class ChoiceOptions(_SRDModel):
+    """"One language of your choice, from ..." — the same shape for named things."""
+
+    choose: int = Field(ge=1)
+    options: tuple[str, ...] = ()
+
+
 class Species(_SRDModel):
     """A player species (upstream calls these "races")."""
 
@@ -59,7 +80,11 @@ class Species(_SRDModel):
     speed: int = Field(ge=0)
     size: Size
     ability_bonuses: dict[Ability, int] = Field(default_factory=dict)
+    #: Floating bonuses the player picks (Half-Elf's two +1s). Empty for most species.
+    ability_bonus_options: AbilityBonusOptions | None = None
     languages: tuple[str, ...] = ()
+    #: Extra languages the player picks on top of `languages`.
+    language_options: ChoiceOptions | None = None
     traits: tuple[str, ...] = ()
     subspecies: tuple[str, ...] = ()
     # Flavour text — the GM uses this during co-creation (D-005); the engine does not.
@@ -89,6 +114,8 @@ class ClassLevel(_SRDModel):
     spell_slots: dict[int, int] = Field(default_factory=dict)
     cantrips_known: int | None = None
     spells_known: int | None = None
+    #: Proficiencies upgraded to expertise at this level (Rogue's two at level 1).
+    expertise_choices: int = Field(default=0, ge=0)
     #: Class-unique counters (rage_count, sneak_attack_dice, ...). Shape varies by class.
     class_specific: dict[str, object] = Field(default_factory=dict)
 
@@ -293,6 +320,11 @@ class SRDData(_SRDModel):
     monsters: dict[str, Monster] = Field(default_factory=dict)
     equipment: dict[str, Equipment] = Field(default_factory=dict)
     conditions: dict[str, Condition] = Field(default_factory=dict)
+    #: Proficiency index -> SRD category ("Armor", "Weapons", "Skills", "Other", ...).
+    #: Lets a class's proficiency list be sorted onto a sheet by what things *are*,
+    #: rather than by guessing from their names — which is how thieves' tools went
+    #: missing from the first co-created rogue.
+    proficiency_types: dict[str, str] = Field(default_factory=dict)
 
     def counts(self) -> dict[str, int]:
         return {

@@ -123,6 +123,27 @@ class TurnEngine:
 
     # --- the loop ----------------------------------------------------------
 
+    def open_scene(self, on_text: Callable[[str], None] | None = None) -> TurnResult:
+        """The GM's opening narration, before anyone has typed anything.
+
+        At a table the GM speaks first; the loop used to sit waiting for a player who had
+        not been told where they were standing (found in the first playtest). No
+        `player_input` event is emitted because no player spoke, and a check request is
+        stripped rather than resolved — nothing has been attempted yet.
+        """
+        response = self._call("", speaker="", resolutions=(), interim="",
+                              on_text=on_text, opening=True)
+        narration = strip_check_requests(response.text)
+        self.campaign.record(
+            Turn(player_input="", narration=narration, speaker="", opening=True)
+        )
+        return TurnResult(
+            narration=narration,
+            player="",
+            responses=[response],
+            refused=response.refused,
+        )
+
     def run(
         self,
         player_input: str,
@@ -182,6 +203,7 @@ class TurnEngine:
         resolutions: tuple[str, ...],
         interim: str,
         on_text: Callable[[str], None] | None,
+        opening: bool = False,
     ) -> GMResponse:
         # The id is minted *here*, not in the backend, because the pending write happens
         # before the response exists — an id created alongside the response could never
@@ -195,6 +217,7 @@ class TurnEngine:
             max_tokens=self.max_tokens,
             call_id=call_id,
             interim=interim,
+            opening=opening,
         )
 
         # Intent before the external call (D-008): a crash here leaves a pending row,

@@ -17,9 +17,11 @@ from dndc.rules.build import (
     allocate_by_priority,
     build_character,
     class_skill_options,
+    grant_issues,
 )
 from dndc.rules.allocate import point_buy_total
-from dndc.schema.sheet import Ability, Skill
+from dndc.rules.checks import Proficiency
+from dndc.schema.sheet import AbilityScores, Ability, Proficiencies, Skill
 from dndc.srd.repository import SRDRepository
 
 PRIORITY = (Ability.STR, Ability.CON, Ability.DEX, Ability.WIS, Ability.CHA, Ability.INT)
@@ -38,6 +40,8 @@ def concept(**overrides) -> Concept:
         character_class="Fighter",
         priority=PRIORITY,
         skills=(Skill.ATHLETICS, Skill.INTIMIDATION),
+        # Human grants one language of choice; the engine now insists it be made.
+        languages=("dwarvish",),
     )
     base.update(overrides)
     return Concept(**base)
@@ -127,6 +131,8 @@ def test_light_armor_adds_dexterity(repo):
         species="Halfling",
         priority=(Ability.DEX, Ability.CON, Ability.WIS, Ability.CHA, Ability.INT, Ability.STR),
         skills=(Skill.STEALTH, Skill.PERCEPTION, Skill.ACROBATICS, Skill.DECEPTION),
+        expertise=("stealth", "perception"),
+        languages=(),  # Halfling grants no choice
         armor="leather armor",
     )
     sheet = build_character(rogueish, repo)
@@ -140,6 +146,7 @@ def test_medium_armor_caps_the_dexterity_bonus(repo):
             character_class="Rogue",
             priority=(Ability.DEX, Ability.CON, Ability.WIS, Ability.CHA, Ability.INT, Ability.STR),
             skills=(Skill.STEALTH, Skill.PERCEPTION, Skill.ACROBATICS, Skill.DECEPTION),
+            expertise=("stealth", "perception"),
             armor="scale mail",
         ),
         repo,
@@ -153,7 +160,7 @@ def test_unarmored_is_ten_plus_dexterity(repo):
 
 
 def test_speed_and_languages_come_from_the_species(repo):
-    sheet = build_character(concept(species="Halfling", armor=None), repo)
+    sheet = build_character(concept(species="Halfling", armor=None, languages=()), repo)
     assert sheet.speed == 25
     assert "Halfling" in sheet.proficiencies.languages
 
@@ -243,3 +250,208 @@ def test_class_skill_options_read_the_srd_not_a_hand_kept_table(repo):
     allowed, choose = class_skill_options(repo.character_class("rogue"))
     assert choose == 4
     assert Skill.STEALTH in allowed and Skill.ARCANA not in allowed
+
+
+# --- choice-points inside grants (playtest bug review, 2026-08-05) ----------
+#
+# Fable's review of the first co-created character found four omissions, all the same
+# shape: a grant with a choice inside it was silently dropped. These pin each one, plus
+# a sweep asserting no species/class combination can produce a sheet that quietly
+# ignores a required choice.
+
+
+def half_elf_rogue(**overrides) -> Concept:
+    base = dict(
+        name="Corin Vale",
+        species="Half-Elf",
+        character_class="Rogue",
+        priority=(Ability.CHA, Ability.DEX, Ability.CON, Ability.WIS, Ability.INT, Ability.STR),
+        skills=(Skill.DECEPTION, Skill.PERSUASION, Skill.STEALTH, Skill.INSIGHT),
+        ability_bonus_picks=(Ability.DEX, Ability.CON),
+        expertise=("deception", "thieves' tools"),
+        languages=("dwarvish",),
+    )
+    base.update(overrides)
+    return concept(**base)
+
+
+def test_floating_species_bonuses_are_applied(repo):
+    """Bug 1: the Half-Elf's +2 Cha landed, the two floating +1s vanished."""
+    sheet = build_character(half_elf_rogue(), repo)
+    assert sheet.abilities.score(Ability.CHA) == 17  # 15 + fixed 2
+    assert sheet.abilities.score(Ability.DEX) == 15  # 14 + chosen 1
+    assert sheet.abilities.score(Ability.CON) == 14  # 13 + chosen 1
+
+
+def test_a_species_with_floating_bonuses_demands_them(repo):
+    with pytest.raises(BuildError, match="2 abilities of your choice"):
+        build_character(half_elf_rogue(ability_bonus_picks=()), repo)
+
+
+def test_the_wrong_number_of_floating_bonuses_is_rejected(repo):
+    with pytest.raises(BuildError, match="pick exactly 2"):
+        build_character(half_elf_rogue(ability_bonus_picks=(Ability.DEX,)), repo)
+
+
+def test_floating_bonuses_cannot_repeat_one_ability(repo):
+    with pytest.raises(BuildError, match="picked twice"):
+        build_character(half_elf_rogue(ability_bonus_picks=(Ability.DEX, Ability.DEX)), repo)
+
+
+def test_a_species_without_the_choice_refuses_picks(repo):
+    with pytest.raises(BuildError, match="no ability bonuses to choose"):
+        build_character(concept(ability_bonus_picks=(Ability.STR,)), repo)
+
+
+def test_thieves_tools_proficiency_comes_through(repo):
+    """Bug 2: dropped because the old keyword filter had no word for it."""
+    sheet = build_character(half_elf_rogue(), repo)
+    assert "Thieves Tools" in sheet.proficiencies.tools
+
+
+def test_class_proficiencies_are_sorted_by_srd_category(repo):
+    sheet = build_character(half_elf_rogue(), repo)
+    assert sheet.proficiencies.armor == ["Light Armor"]
+    assert "Rapiers" in sheet.proficiencies.weapons
+    # Saving throws and skills have their own fields; they must not appear twice.
+    assert not any("Saving" in p for p in sheet.proficiencies.weapons)
+    assert not any("Skill" in p for p in sheet.proficiencies.tools)
+
+
+def test_expertise_is_applied_and_doubles_the_bonus(repo):
+    """Bug 3: all four skills came out `proficient`."""
+    sheet = build_character(half_elf_rogue(), repo)
+    assert sheet.proficiencies.skills[Skill.DECEPTION] is Proficiency.EXPERTISE
+    assert sheet.proficiencies.skills[Skill.STEALTH] is Proficiency.PROFICIENT
+    # Cha 17 (+3) with PB 2 doubled.
+    assert sheet.skill_modifier(Skill.DECEPTION) == 7
+
+
+def test_a_class_with_expertise_demands_it(repo):
+    with pytest.raises(BuildError, match="expertise in exactly 2"):
+        build_character(half_elf_rogue(expertise=()), repo)
+
+
+def test_expertise_must_be_something_the_character_is_proficient_in(repo):
+    with pytest.raises(BuildError, match="must be something this character is proficient"):
+        build_character(half_elf_rogue(expertise=("athletics", "stealth")), repo)
+
+
+def test_a_class_without_expertise_refuses_it(repo):
+    with pytest.raises(BuildError, match="no expertise at level 1"):
+        build_character(concept(expertise=("athletics",)), repo)
+
+
+def test_the_chosen_extra_language_is_added(repo):
+    """Bug 4: Half-Elf's bonus language never appeared."""
+    sheet = build_character(half_elf_rogue(), repo)
+    assert sheet.proficiencies.languages == ["Common", "Elvish", "Dwarvish"]
+
+
+def test_a_species_with_a_language_choice_demands_it(repo):
+    with pytest.raises(BuildError, match="1 extra language"):
+        build_character(half_elf_rogue(languages=()), repo)
+
+
+def test_the_extra_language_cannot_be_one_already_known(repo):
+    with pytest.raises(BuildError, match="already known"):
+        build_character(half_elf_rogue(languages=("elvish",)), repo)
+
+
+def test_an_invented_language_is_rejected(repo):
+    with pytest.raises(BuildError, match="not an SRD language"):
+        build_character(half_elf_rogue(languages=("thieves cant",)), repo)
+
+
+def test_a_species_without_a_language_choice_refuses_one(repo):
+    # Elf, not Human — Human is one of the two species that *does* grant a choice.
+    with pytest.raises(BuildError, match="no extra language"):
+        build_character(concept(species="Elf", languages=("dwarvish",)), repo)
+
+
+# --- the sweep -------------------------------------------------------------
+
+
+@pytest.mark.parametrize("species_name", ["Human", "Half-Elf", "Dwarf", "Elf", "Halfling"])
+@pytest.mark.parametrize("class_name", ["Fighter", "Rogue", "Wizard", "Cleric"])
+def test_no_combination_can_silently_skip_a_required_choice(repo, species_name, class_name):
+    """The general form of all four bugs: if the SRD demands a choice and the concept
+    does not carry it, the build must fail rather than emit a short sheet."""
+    species = repo.species(species_name)
+    character_class = repo.character_class(class_name)
+    allowed, choose = class_skill_options(character_class)
+
+    # Built directly rather than through `concept()`, whose defaults already answer some
+    # of the choices — the point here is a concept that answers none of them.
+    bare = Concept(
+        name="Nobody",
+        player="Kelly",
+        species=species_name,
+        character_class=class_name,
+        priority=PRIORITY,
+        skills=tuple(sorted(allowed, key=lambda s: s.value)[:choose]),
+    )
+    demands_a_choice = (
+        species.ability_bonus_options is not None
+        or species.language_options is not None
+        or (character_class.levels.get(1) and character_class.levels[1].expertise_choices)
+    )
+
+    if demands_a_choice:
+        with pytest.raises(BuildError):
+            build_character(bare, repo)
+    else:
+        sheet = build_character(bare, repo)
+        # Fixed grants still have to be complete.
+        assert set(sheet.proficiencies.saving_throws) == set(character_class.saving_throws)
+        assert sheet.speed == species.speed
+        assert len(sheet.proficiencies.languages) == len(species.languages)
+
+
+# --- the grant validator ---------------------------------------------------
+
+
+def test_a_built_sheet_has_no_grant_issues(repo):
+    assert grant_issues(build_character(half_elf_rogue(), repo), repo) == []
+
+
+def test_the_validator_catches_all_four_original_bugs(repo):
+    """A sheet in the shape the first co-created character came out in."""
+    sheet = build_character(half_elf_rogue(), repo)
+    short = sheet.model_copy(update={
+        "abilities": AbilityScores(str=8, dex=14, con=13, int=10, wis=12, cha=17),
+        "proficiencies": Proficiencies(
+            saving_throws=list(sheet.proficiencies.saving_throws),
+            skills={skill: Proficiency.PROFICIENT for skill in sheet.proficiencies.skills},
+            armor=sheet.proficiencies.armor,
+            weapons=sheet.proficiencies.weapons,
+            tools=[],
+            languages=["Common", "Elvish"],
+        ),
+    })
+    issues = " | ".join(grant_issues(short, repo))
+    assert "abilities of your choice" in issues   # floating +1s
+    assert "expertise" in issues                  # rogue expertise
+    assert "language" in issues                   # bonus language
+    assert "Thieves Tools" in issues              # tools proficiency
+
+
+def test_the_validator_tolerates_a_hand_written_apostrophe(repo):
+    """Sheets are re-editable data (D-005); a human writes "Thieves' Tools"."""
+    sheet = build_character(half_elf_rogue(), repo)
+    edited = sheet.model_copy(update={
+        "proficiencies": Proficiencies(
+            **{
+                **sheet.proficiencies.model_dump(),
+                # Re-parsed, not copied: this is the path a hand-edited YAML takes.
+                "tools": {"Thieves' Tools": Proficiency.EXPERTISE},
+            }
+        )
+    })
+    assert grant_issues(edited, repo) == []
+
+
+def test_the_validator_reports_an_unknown_species(repo):
+    sheet = build_character(concept(), repo)
+    (issue,) = grant_issues(sheet.model_copy(update={"species": "Aarakocra"}), repo)
+    assert "no SRD species" in issue

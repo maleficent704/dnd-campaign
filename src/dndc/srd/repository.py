@@ -34,7 +34,7 @@ def load_dataset(root: Path = DEFAULT_NORMALIZED_ROOT) -> SRDData:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     payload = {"scope": manifest.get("scope", {})}
     for collection in ("species", "subspecies", "classes", "spells", "monsters",
-                       "equipment", "conditions"):
+                       "equipment", "conditions", "proficiency_types"):
         path = root / f"{collection}.json"
         payload[collection] = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     return SRDData.model_validate(payload)

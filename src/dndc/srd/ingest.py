@@ -24,7 +24,9 @@ from typing import Any
 
 from dndc.schema.sheet import Ability, AbilityScores
 from dndc.schema.srd import (
+    AbilityBonusOptions,
     AreaOfEffect,
+    ChoiceOptions,
     ArmorProfile,
     CharacterClass,
     ClassLevel,
@@ -56,10 +58,12 @@ RAW_FILES = {
     "subraces": "5e-SRD-Subraces.json",
     "classes": "5e-SRD-Classes.json",
     "levels": "5e-SRD-Levels.json",
+    "features": "5e-SRD-Features.json",
     "spells": "5e-SRD-Spells.json",
     "monsters": "5e-SRD-Monsters.json",
     "equipment": "5e-SRD-Equipment.json",
     "conditions": "5e-SRD-Conditions.json",
+    "proficiencies": "5e-SRD-Proficiencies.json",
 }
 
 _FEET_RE = re.compile(r"(\d+)")
@@ -154,6 +158,36 @@ def _ability_bonuses(raw: Any) -> dict[Ability, int]:
     return bonuses
 
 
+def _ability_bonus_options(raw: Any) -> AbilityBonusOptions | None:
+    """"Choose two abilities to gain +1" — the Half-Elf shape."""
+    if not raw:
+        return None
+    options: list[Ability] = []
+    bonus = 1
+    for opt in (raw.get("from") or {}).get("options", []) or []:
+        ability = _ability(opt.get("ability_score"))
+        if ability is not None:
+            options.append(ability)
+            bonus = int(opt.get("bonus", 1))
+    if not options:
+        return None
+    return AbilityBonusOptions(choose=int(raw.get("choose", 1)), options=tuple(options),
+                               bonus=bonus)
+
+
+def _choice_options(raw: Any) -> ChoiceOptions | None:
+    if not raw:
+        return None
+    options = [
+        index
+        for opt in (raw.get("from") or {}).get("options", []) or []
+        if (index := _ref(opt.get("item"))) is not None
+    ]
+    if not options:
+        return None
+    return ChoiceOptions(choose=int(raw.get("choose", 1)), options=tuple(options))
+
+
 def normalize_species(raw: list[dict]) -> dict[str, Species]:
     out = {}
     for r in raw:
@@ -163,7 +197,9 @@ def normalize_species(raw: list[dict]) -> dict[str, Species]:
             speed=int(r.get("speed", 30)),
             size=_size(r.get("size"), what=f"species {r['index']}"),
             ability_bonuses=_ability_bonuses(r.get("ability_bonuses")),
+            ability_bonus_options=_ability_bonus_options(r.get("ability_bonus_options")),
             languages=_refs(r.get("languages")),
+            language_options=_choice_options(r.get("language_options")),
             traits=_refs(r.get("traits")),
             subspecies=_refs(r.get("subraces")),
             age=r.get("age", ""),
@@ -228,8 +264,45 @@ def _class_level(raw: dict) -> ClassLevel:
     )
 
 
+def _expertise_count(feature: dict) -> int:
+    """How many proficiencies a feature upgrades to expertise.
+
+    Upstream nests this as a choice-of-a-choice ("choose 1 from [choose 2 from ...]"),
+    so the number that matters is the inner one. Lives in the Features file rather than
+    on the class, which is why it was missed until a playtest produced a Rogue with no
+    expertise at all.
+    """
+    options = (feature.get("feature_specific") or {}).get("expertise_options")
+    if not options:
+        return 0
+    inner = [
+        int(opt["choice"]["choose"])
+        for opt in (options.get("from") or {}).get("options", []) or []
+        if isinstance(opt.get("choice"), dict) and "choose" in opt["choice"]
+    ]
+    return max(inner) if inner else int(options.get("choose", 0))
+
+
+def _expertise_by_level(raw_features: list[dict]) -> dict[tuple[str, int], int]:
+    counts: dict[tuple[str, int], int] = {}
+    for feature in raw_features:
+        count = _expertise_count(feature)
+        if not count:
+            continue
+        class_index = _ref(feature.get("class"))
+        level = feature.get("level")
+        if class_index is None or not isinstance(level, int):
+            continue
+        key = (class_index, level)
+        counts[key] = max(counts.get(key, 0), count)
+    return counts
+
+
 def normalize_classes(
-    raw_classes: list[dict], raw_levels: list[dict], scope: IngestScope
+    raw_classes: list[dict],
+    raw_levels: list[dict],
+    scope: IngestScope,
+    raw_features: list[dict] | None = None,
 ) -> dict[str, CharacterClass]:
     # Subclass levels live in the same file and carry a "subclass" key; they must not be
     # folded into the class progression (they also lack prof_bonus, so this is load-bearing).
@@ -242,6 +315,13 @@ def normalize_classes(
         if class_index is None or level > scope.max_class_level:
             continue
         by_class.setdefault(class_index, {})[level] = _class_level(entry)
+
+    for (class_index, level), count in _expertise_by_level(raw_features or []).items():
+        existing = by_class.get(class_index, {}).get(level)
+        if existing is not None:
+            by_class[class_index][level] = existing.model_copy(
+                update={"expertise_choices": count}
+            )
 
     out = {}
     for r in raw_classes:
@@ -483,6 +563,13 @@ def normalize_conditions(raw: list[dict]) -> dict[str, Condition]:
 # --- top level -------------------------------------------------------------
 
 
+def normalize_proficiency_types(raw: list[dict]) -> dict[str, str]:
+    """Index -> SRD category. What lets a sheet sort class grants without guessing."""
+    return dict(sorted(
+        (r["index"], r.get("type", "Other")) for r in raw if r.get("index")
+    ))
+
+
 def load_raw(raw_root: Path = DEFAULT_RAW_ROOT) -> dict[str, list[dict]]:
     """Read the vendored upstream JSON files."""
     raw = {}
@@ -507,11 +594,12 @@ def normalize(raw: dict[str, list[dict]], scope: IngestScope | None = None) -> S
         scope=scope,
         species=normalize_species(raw["races"]),
         subspecies=normalize_subspecies(raw["subraces"]),
-        classes=normalize_classes(raw["classes"], raw["levels"], scope),
+        classes=normalize_classes(raw["classes"], raw["levels"], scope, raw.get("features")),
         spells=normalize_spells(raw["spells"]),
         monsters=normalize_monsters(raw["monsters"], scope),
         equipment=normalize_equipment(raw["equipment"]),
         conditions=normalize_conditions(raw["conditions"]),
+        proficiency_types=normalize_proficiency_types(raw.get("proficiencies") or []),
     )
 
 
@@ -537,7 +625,7 @@ def ingest(
     output_root.mkdir(parents=True, exist_ok=True)
     payload = data.model_dump(mode="json")
     for collection in ("species", "subspecies", "classes", "spells", "monsters",
-                       "equipment", "conditions"):
+                       "equipment", "conditions", "proficiency_types"):
         target = output_root / f"{collection}.json"
         target.write_text(
             json.dumps(payload[collection], indent=2, sort_keys=True) + "\n",

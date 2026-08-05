@@ -22,6 +22,7 @@ replayed in Phase 7.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from dndc.rules.allocate import (
@@ -64,6 +65,13 @@ DEFAULT_SHAPE = "balanced"
 #: SRD proficiency indexes are prefixed by kind: `skill-stealth`, `saving-throw-dex`.
 _SKILL_PREFIX = "skill-"
 
+#: SRD proficiency categories, grouped onto the sheet's fields. "Other" carries
+#: thieves' tools, which is why it belongs with the tools rather than being dropped.
+_ARMOR = frozenset({"Armor"})
+_WEAPONS = frozenset({"Weapons"})
+_TOOLS = frozenset({"Artisan's Tools", "Musical Instruments", "Gaming Sets", "Vehicles",
+                    "Other"})
+
 #: Every 5e character starts with at least 1 HP however punishing their constitution.
 MIN_HIT_POINTS = 1
 
@@ -93,6 +101,12 @@ class Concept:
     background: str | None = None
     method: str = STANDARD_ARRAY_METHOD
     shape: str = DEFAULT_SHAPE
+    #: Abilities taking a species' floating +1s (Half-Elf picks two).
+    ability_bonus_picks: tuple[Ability, ...] = ()
+    #: Skills (or "thieves' tools") upgraded to expertise by a class feature.
+    expertise: tuple[str, ...] = ()
+    #: Extra languages chosen from the species' options.
+    languages: tuple[str, ...] = ()
     #: SRD equipment names. Armor and shield feed AC; the rest is carried kit.
     armor: str | None = None
     shield: bool = False
@@ -179,11 +193,14 @@ def build_character(concept: Concept, repo: SRDRepository) -> CharacterSheet:
 
     base = allocate_by_priority(concept.priority, concept.method, concept.shape)
     try:
-        scores = apply_bonuses(base, species.ability_bonuses)
+        scores = apply_bonuses(base, _all_bonuses(concept, species))
     except AllocationError as exc:
         raise BuildError(str(exc)) from exc
 
     skills = _validate_skills(concept, character_class)
+    expertise = _validate_expertise(concept, character_class, skills)
+    languages = _validate_languages(concept, species)
+    types = repo.data.proficiency_types
     armor, shield = _armor(concept, repo)
     constitution = ability_modifier(scores.score(Ability.CON))
     hit_points = max(MIN_HIT_POINTS, character_class.hit_die + constitution)
@@ -198,13 +215,25 @@ def build_character(concept: Concept, repo: SRDRepository) -> CharacterSheet:
         abilities=scores,
         proficiencies=Proficiencies(
             saving_throws=list(character_class.saving_throws),
-            skills={skill: Proficiency.PROFICIENT for skill in skills},
-            armor=_proficiency_names(character_class, "armor", "shield"),
-            weapons=_proficiency_names(character_class, "weapon", "sword", "axe", "bow",
-                                       "dagger", "dart", "sling", "quarterstaff",
-                                       "crossbow", "club", "mace", "hammer", "javelin",
-                                       "spear", "rapier", "scimitar"),
-            languages=[_titled(language) for language in species.languages],
+            skills={
+                skill: (
+                    Proficiency.EXPERTISE
+                    if skill.value in expertise
+                    else Proficiency.PROFICIENT
+                )
+                for skill in skills
+            },
+            armor=_class_proficiencies(character_class, _ARMOR, types),
+            weapons=_class_proficiencies(character_class, _WEAPONS, types),
+            tools={
+                name: (
+                    Proficiency.EXPERTISE
+                    if _normalize(name) in expertise
+                    else Proficiency.PROFICIENT
+                )
+                for name in _class_proficiencies(character_class, _TOOLS, types)
+            },
+            languages=[_titled(language) for language in (*species.languages, *languages)],
         ),
         hit_points=HitPoints(maximum=hit_points, current=hit_points),
         armor_class=_armor_class(scores, armor, shield),
@@ -218,6 +247,189 @@ def build_character(concept: Concept, repo: SRDRepository) -> CharacterSheet:
 
 
 # --- pieces ----------------------------------------------------------------
+
+
+def grant_issues(sheet: CharacterSheet, repo: SRDRepository) -> list[str]:
+    """Ways a finished sheet falls short of what its species and class actually grant.
+
+    The counterpart to `build_character` for sheets that already exist — hand-edited
+    ones, and the characters built before the engine enforced choice-points. Reports
+    rather than raises: the caller is inspecting a file, not constructing one.
+    """
+    issues: list[str] = []
+    species = repo.species(sheet.species)
+    character_class = repo.character_class(sheet.character_class)
+    if species is None:
+        return [f"no SRD species called {sheet.species!r}"]
+    if character_class is None:
+        return [f"no SRD class called {sheet.character_class!r}"]
+
+    expected_saves = set(character_class.saving_throws)
+    if set(sheet.proficiencies.saving_throws) != expected_saves:
+        issues.append(
+            f"saving throws should be {', '.join(sorted(a.value for a in expected_saves))}"
+        )
+    if sheet.speed != species.speed:
+        issues.append(f"{species.name} speed is {species.speed}, sheet says {sheet.speed}")
+    if sheet.hit_dice != f"{sheet.level}d{character_class.hit_die}":
+        issues.append(f"hit dice should be {sheet.level}d{character_class.hit_die}")
+
+    fixed = sum(species.ability_bonuses.values())
+    floating = (
+        species.ability_bonus_options.choose * species.ability_bonus_options.bonus
+        if species.ability_bonus_options is not None
+        else 0
+    )
+    if floating:
+        total = sum(sheet.abilities.as_dict().values())
+        if total < sum(STANDARD_ARRAY) + fixed + floating:
+            options = species.ability_bonus_options
+            issues.append(
+                f"{species.name} grants +{options.bonus} to {options.choose} abilities of "
+                f"your choice and the scores do not include them"
+            )
+
+    languages = len(sheet.proficiencies.languages)
+    expected_languages = len(species.languages) + (
+        species.language_options.choose if species.language_options else 0
+    )
+    if languages < expected_languages:
+        issues.append(
+            f"{species.name} knows {len(species.languages)} language(s) and chooses "
+            f"{expected_languages - len(species.languages)} more; sheet has {languages}"
+        )
+
+    first = character_class.levels.get(1)
+    wanted_expertise = first.expertise_choices if first is not None else 0
+    if wanted_expertise:
+        have = sum(
+            1
+            for level in (
+                *sheet.proficiencies.skills.values(),
+                *sheet.proficiencies.tools.values(),
+            )
+            if level is Proficiency.EXPERTISE
+        )
+        if have < wanted_expertise:
+            issues.append(
+                f"{character_class.name} takes expertise in {wanted_expertise} "
+                f"proficiencies at level 1; sheet has {have}"
+            )
+
+    types = repo.data.proficiency_types
+    for field, categories in (("armor", _ARMOR), ("weapons", _WEAPONS), ("tools", _TOOLS)):
+        expected = _class_proficiencies(character_class, categories, types)
+        # Compared folded, not literally: this exists to check hand-edited sheets, and a
+        # human writing "Thieves' Tools" where the index folds to "thieves tools" has the
+        # proficiency. Flagging that would train the reader to ignore the validator.
+        have = {_normalize(name) for name in getattr(sheet.proficiencies, field)}
+        missing = [name for name in expected if _normalize(name) not in have]
+        if missing:
+            issues.append(f"missing {field} proficiencies: {', '.join(sorted(missing))}")
+    return issues
+
+
+def _all_bonuses(concept: Concept, species) -> dict[Ability, int]:
+    """Fixed species bonuses plus the floating ones the concept picked.
+
+    Raises when a species offers a choice the concept did not make. The first playtest
+    produced a Half-Elf two ability points short because this was silently skipped — a
+    quietly wrong sheet is exactly what the deterministic tier exists to prevent, so it
+    is now loud.
+    """
+    bonuses = dict(species.ability_bonuses)
+    options = species.ability_bonus_options
+    picks = concept.ability_bonus_picks
+
+    if options is None:
+        if picks:
+            raise BuildError(f"{species.name} has no ability bonuses to choose")
+        return bonuses
+
+    allowed = set(options.options)
+    if len(set(picks)) != len(picks):
+        raise BuildError("the same ability was picked twice for a species bonus")
+    if len(picks) != options.choose:
+        offered = ", ".join(a.value for a in options.options)
+        raise BuildError(
+            f"{species.name} grants +{options.bonus} to {options.choose} abilities of "
+            f"your choice — pick exactly {options.choose} from: {offered} "
+            f"(got {len(picks)})"
+        )
+    illegal = [a.value for a in picks if a not in allowed]
+    if illegal:
+        raise BuildError(f"{species.name} cannot raise {', '.join(illegal)}")
+
+    for ability in picks:
+        bonuses[ability] = bonuses.get(ability, 0) + options.bonus
+    return bonuses
+
+
+def _validate_expertise(
+    concept: Concept, character_class, skills: tuple[Skill, ...]
+) -> set[str]:
+    """Expertise picks must be things this character is actually proficient in."""
+    first = character_class.levels.get(1)
+    count = first.expertise_choices if first is not None else 0
+    picks = tuple(dict.fromkeys(_normalize(pick) for pick in concept.expertise))
+
+    if not count:
+        if picks:
+            raise BuildError(f"{character_class.name} has no expertise at level 1")
+        return set()
+
+    proficient = {skill.value for skill in skills} | {
+        _normalize(index)
+        for index in character_class.proficiencies
+        if index.endswith("-tools")
+    }
+    if len(picks) != count:
+        raise BuildError(
+            f"{character_class.name} takes expertise in exactly {count} of its "
+            f"proficiencies at level 1, got {len(picks)}"
+        )
+    illegal = [pick for pick in picks if pick not in proficient]
+    if illegal:
+        offered = ", ".join(sorted(proficient))
+        raise BuildError(
+            f"expertise must be something this character is proficient in — "
+            f"{', '.join(illegal)} is not. Available: {offered}"
+        )
+    return set(picks)
+
+
+def _validate_languages(concept: Concept, species) -> tuple[str, ...]:
+    options = species.language_options
+    picks = tuple(dict.fromkeys(_normalize(name) for name in concept.languages))
+
+    if options is None:
+        if picks:
+            raise BuildError(f"{species.name} grants no extra language to choose")
+        return ()
+
+    allowed = {_normalize(index) for index in options.options}
+    known = {_normalize(index) for index in species.languages}
+    if len(picks) != options.choose:
+        raise BuildError(
+            f"{species.name} grants {options.choose} extra language(s) of your choice — "
+            f"got {len(picks)}"
+        )
+    for pick in picks:
+        if pick in known:
+            raise BuildError(f"{pick.replace('_', ' ')} is already known — pick another")
+        if pick not in allowed:
+            raise BuildError(f"{pick.replace('_', ' ')} is not an SRD language")
+    return picks
+
+
+def _normalize(value: str) -> str:
+    """Fold a named proficiency or language to a comparable key.
+
+    Apostrophes go: the SRD index is `thieves-tools` and the GM writes "thieves' tools",
+    and those must be the same thing or expertise in one's own tools is unspellable.
+    """
+    folded = value.strip().casefold().replace("'", "").replace("’", "")
+    return re.sub(r"[\s\-]+", "_", folded)
 
 
 def _validate_skills(concept: Concept, character_class) -> tuple[Skill, ...]:
@@ -312,18 +524,23 @@ def _validate_spells(concept: Concept, character_class, repo: SRDRepository) -> 
     return known
 
 
-def _proficiency_names(character_class, *keywords: str) -> list[str]:
-    """Class proficiencies matching any keyword, as readable names.
+def _class_proficiencies(
+    character_class, categories: frozenset[str], types: dict[str, str]
+) -> list[str]:
+    """Class grants in the given SRD categories, as readable names.
 
-    Saving throws are excluded — they live in their own field, and listing them twice
-    would make the sheet disagree with itself.
+    Sorted by what the SRD says each proficiency *is*, not by guessing from its name.
+    The previous keyword matching dropped `thieves-tools` — it contains none of the words
+    a tools list would have been looking for — and nothing noticed until a rogue reached
+    the table without them.
+
+    Saving throws and skills are excluded everywhere: they have their own fields, and
+    listing them twice would make the sheet disagree with itself.
     """
     return [
         _titled(index)
         for index in character_class.proficiencies
-        if not index.startswith("saving-throw-")
-        and not index.startswith(_SKILL_PREFIX)
-        and any(keyword in index for keyword in keywords)
+        if types.get(index, "") in categories
     ]
 
 

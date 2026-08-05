@@ -33,16 +33,32 @@ _ARMOR_CATEGORIES = ("Light", "Medium", "Heavy")
 
 def render_options(repo: SRDRepository) -> str:
     """The SRD menu, as prompt text. Session-stable, so it rides in the cached prefix."""
-    species = sorted(record.name for record in repo.data.species.values())
     lines = [
         "## What this ruleset actually offers",
         "",
-        "Offer nothing outside these lists.",
+        "Offer nothing outside these lists. Where a line says a choice is required, the "
+        "proposal must carry it or the engine will reject the character.",
         "",
-        f"**Species:** {', '.join(species)}",
-        "",
-        "**Classes**, with the skills each one may choose from:",
+        "**Species:**",
     ]
+
+    for species in sorted(repo.data.species.values(), key=lambda s: s.name):
+        demands = []
+        if species.ability_bonus_options is not None:
+            options = species.ability_bonus_options
+            offered = ", ".join(a.value for a in options.options)
+            demands.append(
+                f"`ability_bonuses:` pick {options.choose} of {offered} (+{options.bonus} each)"
+            )
+        if species.language_options is not None:
+            demands.append(
+                f"`languages:` pick {species.language_options.choose} extra, "
+                f"not one they already speak"
+            )
+        suffix = f" — **requires** {'; '.join(demands)}" if demands else ""
+        lines.append(f"- **{species.name}**{suffix}")
+
+    lines.extend(["", "**Classes**, with the skills each one may choose from:"])
 
     for character_class in sorted(repo.data.classes.values(), key=lambda c: c.name):
         allowed, choose = class_skill_options(character_class)
@@ -52,7 +68,16 @@ def render_options(repo: SRDRepository) -> str:
         caster = (
             " *(spellcaster)*" if character_class.spellcasting_ability is not None else ""
         )
-        lines.append(f"- **{character_class.name}**{caster} — choose {choose} from: {skills}")
+        first = character_class.levels.get(1)
+        expertise = first.expertise_choices if first is not None else 0
+        demand = (
+            f" — **requires** `expertise:` pick {expertise} of its skills or tools"
+            if expertise
+            else ""
+        )
+        lines.append(
+            f"- **{character_class.name}**{caster} — choose {choose} from: {skills}{demand}"
+        )
 
     armor = _armor_by_category(repo)
     if armor:

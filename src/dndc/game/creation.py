@@ -49,6 +49,16 @@ _OPENING = (
     "{player} has sat down to make a character. Greet them and open the interview."
 )
 
+#: Which player turn the engine starts insisting on a proposal. One round of questions
+#: is good UX; a second is where interviews were stalling.
+PROPOSE_BY_TURN = 2
+
+_PROPOSE_NOW = (
+    "[Engine: you have enough to build a character. Include a complete "
+    "[[PROPOSE: ...]] block in this reply. Do not ask another question first — decide "
+    "anything still open yourself, and let them correct it afterwards.]"
+)
+
 
 @dataclass
 class CreationReply:
@@ -90,6 +100,8 @@ class CreationSession:
         self.messages: list[Message] = []
         self.sheet: CharacterSheet | None = None
         self.facts: list[str] = []
+        #: Player turns so far — what the propose-now nudge is timed off.
+        self.turns = 0
 
     # --- the loop ----------------------------------------------------------
 
@@ -101,7 +113,17 @@ class CreationSession:
         self, text: str, on_text: Callable[[str], None] | None = None
     ) -> CreationReply:
         self._emit(PlayerInput, player=self.player, text=text)
-        return self._exchange(user(text), on_text)
+        self.turns += 1
+
+        content = text
+        if self.sheet is None and self.turns >= PROPOSE_BY_TURN:
+            # The prompt already says to propose by now, and three live interviews in a
+            # row ignored it and asked another round of questions instead. Same lesson as
+            # OD-12: a rule the model has to remember eventually fails, a rule carried by
+            # what enters the prompt does not. So the engine says it, every turn, until
+            # there is a character.
+            content = f"{text}\n\n{_PROPOSE_NOW}"
+        return self._exchange(user(content), on_text)
 
     def _exchange(
         self,

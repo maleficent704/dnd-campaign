@@ -297,6 +297,36 @@ RAW_CONDITIONS = [
 ]
 
 
+RAW_FEATURES = [
+    {
+        "index": "rogue-expertise-1",
+        "class": {"index": "rogue"},
+        "level": 1,
+        "name": "Expertise",
+        # Upstream nests this as choose-1-of-[choose-2-of-...]; the inner number is the
+        # one that matters.
+        "feature_specific": {
+            "expertise_options": {
+                "choose": 1,
+                "from": {
+                    "options": [
+                        {"option_type": "choice", "choice": {"choose": 2, "from": {}}}
+                    ]
+                },
+            }
+        },
+    },
+    {"index": "second-wind", "class": {"index": "fighter"}, "level": 1, "name": "Second Wind"},
+]
+
+RAW_PROFICIENCIES = [
+    {"index": "light-armor", "name": "Light Armor", "type": "Armor"},
+    {"index": "rapiers", "name": "Rapiers", "type": "Weapons"},
+    {"index": "thieves-tools", "name": "Thieves' Tools", "type": "Other"},
+    {"index": "skill-stealth", "name": "Skill: Stealth", "type": "Skills"},
+]
+
+
 def raw_bundle(**overrides) -> dict[str, list[dict]]:
     bundle = {
         "races": RAW_SPECIES,
@@ -307,6 +337,8 @@ def raw_bundle(**overrides) -> dict[str, list[dict]]:
         "monsters": RAW_MONSTERS,
         "equipment": RAW_EQUIPMENT,
         "conditions": RAW_CONDITIONS,
+        "features": RAW_FEATURES,
+        "proficiencies": RAW_PROFICIENCIES,
     }
     bundle.update(overrides)
     return bundle
@@ -776,3 +808,80 @@ def test_every_real_dice_expression_is_rollable(real):
 @pytestmark_real
 def test_the_vendored_pin_is_intact():
     assert verify_pin() == []
+
+
+# --- choice-points inside grants (playtest bug review, 2026-08-05) ----------
+
+
+HALF_ELF_RAW = {
+    "index": "half-elf",
+    "name": "Half-Elf",
+    "speed": 30,
+    "size": "Medium",
+    "ability_bonuses": [{"ability_score": ref("cha", "CHA"), "bonus": 2}],
+    "ability_bonus_options": {
+        "choose": 2,
+        "from": {
+            "options": [
+                {"ability_score": ref("str", "STR"), "bonus": 1},
+                {"ability_score": ref("dex", "DEX"), "bonus": 1},
+            ]
+        },
+    },
+    "languages": [ref("common"), ref("elvish")],
+    "language_options": {"choose": 1, "from": {"options": [{"item": ref("dwarvish")}]}},
+}
+
+
+def choices_bundle():
+    """The fixture plus the two records whose *choices* are under test."""
+    return raw_bundle(
+        races=[*RAW_SPECIES, HALF_ELF_RAW],
+        classes=[*RAW_CLASSES, {**RAW_CLASSES[0], "index": "rogue", "name": "Rogue"}],
+        levels=[*raw_levels(), *raw_levels(class_index="rogue", up_to=1)],
+    )
+
+
+def test_species_floating_ability_bonuses_are_ingested():
+    options = normalize(choices_bundle()).species["half-elf"].ability_bonus_options
+    assert options is not None
+    assert options.choose == 2 and options.bonus == 1
+    assert Ability.CHA not in options.options  # the fixed +2 is not also floating
+
+
+def test_a_species_without_floating_bonuses_has_none(data):
+    assert data.species["dwarf"].ability_bonus_options is None
+
+
+def test_species_language_options_are_ingested():
+    options = normalize(choices_bundle()).species["half-elf"].language_options
+    assert options is not None and options.choose == 1
+    assert "dwarvish" in options.options
+
+
+def test_expertise_reads_the_inner_choice_count():
+    """Upstream nests choose-1-of-[choose-2-of-...]; 2 is the real answer."""
+    assert normalize(choices_bundle()).classes["rogue"].levels[1].expertise_choices == 2
+
+
+def test_a_class_without_expertise_reports_zero():
+    assert normalize(choices_bundle()).classes["wizard"].levels[1].expertise_choices == 0
+
+
+def test_proficiency_types_are_ingested(data):
+    assert data.proficiency_types["thieves-tools"] == "Other"
+    assert data.proficiency_types["light-armor"] == "Armor"
+
+
+def test_the_new_choice_data_survives_the_disk_round_trip(tmp_path):
+    raw_root = tmp_path / "raw"
+    raw_root.mkdir()
+    bundle = choices_bundle()
+    for key, filename in RAW_FILES.items():
+        (raw_root / filename).write_text(json.dumps(bundle[key]), encoding="utf-8")
+
+    ingest(raw_root=raw_root, output_root=tmp_path / "out")
+    restored = load_dataset(tmp_path / "out")
+    assert restored.proficiency_types["thieves-tools"] == "Other"
+    assert restored.classes["rogue"].levels[1].expertise_choices == 2
+    assert restored.species["half-elf"].ability_bonus_options.choose == 2

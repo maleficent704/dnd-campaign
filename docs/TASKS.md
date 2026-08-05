@@ -47,6 +47,9 @@ code + tests + a PROGRESS.md handoff entry.
   the party and canon from disk, so `--character` is optional.)*
 - **P1.5** First playtest session (Kelly + Sam): a short original scenario authored by
   the GM at runtime. Findings to `docs/playtests/`; tag design questions `FOR DESIGN:`.
+  *(Solo half done 2026-08-05 — Kelly + Corin Vale, 29 turns, $0.50;
+  `docs/playtests/2026-08-05-first-play-session.md`. Still outstanding: a two-player
+  session, which is the only untested part of Phase 1 — Sam has no character yet.)*
 
 ## Phase 2 — Canon ledger + memory (D-002)
 

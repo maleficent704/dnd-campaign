@@ -59,6 +59,16 @@ def campaign_with(*members: PartyMember) -> CampaignContext:
     return CampaignContext(name="The Salt Road", scene="A flooded undercroft.", party=list(members))
 
 
+def _engine(responses, log=None) -> TurnEngine:
+    """A turn engine over a scripted GM, for the opening-scene tests."""
+    return TurnEngine(
+        backend=MockBackend(responses=responses),
+        campaign=campaign_with(PartyMember(name="Brannoc", player="Kelly")),
+        rng=random.Random(1),
+        log=log,
+    )
+
+
 # --- parsing the check request ---------------------------------------------
 
 
@@ -433,3 +443,55 @@ def test_the_resolution_records_faces_and_seed(tmp_path):
         ability_score=16, dc=15, level=2, proficiency=Proficiency.NONE, ability="str",
     )
     assert tuple(replayed.roll.rolls) == tuple(resolution.roll.rolls)
+
+
+# --- the opening scene (P1.5 playtest finding) -----------------------------
+
+
+def test_the_gm_opens_the_scene_before_anyone_speaks():
+    """At a table the GM speaks first; the loop used to sit waiting for the player."""
+    engine = _engine(["Rain hammers the shutters of the Grey Hollow."])
+    result = engine.open_scene()
+
+    assert "Rain hammers" in result.narration
+    assert engine.campaign.history[0].opening is True
+
+
+def test_the_opening_emits_no_player_input_because_nobody_spoke(tmp_path):
+    from dndc.logging import SessionLog
+
+    log = SessionLog.open(tmp_path)
+    engine = _engine(["The road opens ahead."], log=log)
+    engine.open_scene()
+
+    types = [e.type.value for e in read_log(log.path)]
+    assert "player_input" not in types
+    assert types.count("gm_narration") == 2  # pending + complete
+
+
+def test_the_opening_never_asks_for_a_check():
+    """Nothing has been attempted yet, so a request is stripped rather than resolved."""
+    engine = _engine(["You arrive at dusk.\n\n[[CHECK: Perception DC 12 — you miss it]]"])
+    result = engine.open_scene()
+
+    assert "CHECK" not in result.narration
+    assert result.mechanics == []
+    assert result.adjudication is None
+
+
+def test_the_opening_is_not_attributed_to_a_player_in_the_window():
+    engine = _engine(["The hall is cold."])
+    engine.open_scene()
+
+    (prompt, narration) = engine.campaign.window()
+    assert prompt.content == "(the session opens)"
+    assert narration.content == "The hall is cold."
+
+
+def test_the_opening_uses_its_own_instruction():
+    engine = _engine(["Somewhere to begin."])
+    engine.open_scene()
+
+    request = engine.backend.calls[-1]
+    assert "nobody has spoken yet" in request.messages[-1].content
+    assert "Do not ask for a check" in request.messages[-1].content

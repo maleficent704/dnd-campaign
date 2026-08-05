@@ -35,6 +35,7 @@ class: Fighter
 background: Soldier
 priority: str, con, dex, wis, cha, int
 skills: athletics, intimidation
+languages: dwarvish
 armor: chain mail
 shield: yes
 ]]"""
@@ -329,3 +330,34 @@ def test_summarize_reads_as_a_sentence(repo):
     assert summarize(convo.sheet, ["a fact"]) == (
         "Brannoc Thorn — level 1 Human Fighter (Soldier), 1 backstory fact(s)"
     )
+
+
+# --- convergence (three live interviews stalled before this) ----------------
+
+
+def test_the_engine_insists_on_a_proposal_after_the_first_round(repo):
+    convo = session(repo, ["questions", "more questions", "still more"])
+    convo.open()
+    convo.say("a con artist")
+    convo.say("yes, that one")
+
+    nudged = [m.content for m in convo.messages if "Engine:" in m.content]
+    assert len(nudged) == 1
+    assert "[[PROPOSE:" in nudged[0]
+    assert nudged[0].startswith("yes, that one")
+
+
+def test_the_first_player_turn_is_left_alone(repo):
+    """One round of questions is good UX; the nudge is for the round after."""
+    convo = session(repo, ["questions", "more"])
+    convo.open()
+    convo.say("a con artist")
+    assert not any("Engine:" in m.content for m in convo.messages)
+
+
+def test_the_nudge_stops_once_a_character_exists(repo):
+    convo = session(repo, ["opener", PROPOSAL, "and now backstory"])
+    convo.open()
+    convo.say("a soldier")       # builds the sheet
+    convo.say("tell me more")    # turn 2, but there is already a character
+    assert not any("Engine:" in m.content for m in convo.messages)
