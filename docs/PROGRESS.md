@@ -15,12 +15,13 @@ blockers into this list.
 
 ### Open now
 
-- **OD-12 — is withholding the numbers from the GM the right reading of OD-11?** Raised by
-  P1.3 (2026-08-05), non-blocking. OD-11 bans the GM from *restating* engine values; P1.3
-  implements it by never giving the GM the values, handing it a severity band instead — so
-  the ban is structural rather than instruction-dependent. Strictly stronger than the
-  ruling, and the one place P1.3 went past the text. The question is whether Phase 3 combat
-  needs raw numbers back. See the `FOR DESIGN:` block in the P1.3 entry.
+- **OD-13 — allocation by ranking rather than by numbers.** D-005 says the GM "handles
+  allocation mechanics". P1.4 implements that as the GM proposing an *ordinal priority*
+  over the six abilities (plus, for point buy, a named shape), with the engine assigning
+  the actual scores. Raised in the 2026-08-05 P1.4 entry.
+- **OD-14 — the co-creation transcript accumulates.** D-002 forbids a growing transcript
+  for *play*. The creation interview keeps its own full history. Rationale and bound in
+  the same entry.
 
 ### Protocol in effect (Fable, 2026-07-27)
 
@@ -30,6 +31,31 @@ blockers into this list.
   exists.
 - **A Fable ruling takes effect only once recorded in the repo.**
 - **One session, one commit. No code edits under a live play session.**
+
+### Ruled 2026-08-05 (Fable, after P1.3 handoff)
+
+- **OD-12 — structural withholding confirmed and ratified.** Not merely permitted:
+  it is the correct reading. Protection by construction over protection by
+  instruction (the mystery's cover-substitution lesson applied to numbers) — a rule
+  the model must remember on turn 90 eventually fails; a rule enforced by what
+  enters the prompt cannot. Governing principle added for Phase 3+: **if the GM
+  appears to need raw numbers, the boundary is misdrawn** — legitimate GM judgment
+  is always ordinal/categorical ("one hit from down", "most hurt", "escalate now"),
+  computable as a deterministic engineered signal; the remedy for a combat gap is a
+  richer severity vocabulary or moving the decision into the engine, never
+  restoring integers. (5e's own "bloodied" is precedent that categorical is the
+  native GM-facing representation.) D-001 amended same day.
+- **P1.3 deviations 1–4 approved.** Special note on finding 3 / deviation 1:
+  catching that P1.1's backend-minted `call_id` could not satisfy OD-9's
+  pending-row pairing — and fixing to caller-minted with adapter echo plus a
+  `failed` terminal row on crash — is the ruling actually implemented rather than
+  nominally implemented. `rules/severity.py` as a deterministic module is exactly
+  where OD-12 wants that logic to live; adjudication-after-resolution write order
+  accepted (exact linkage beats logical order in an append-only log, no crash
+  window between them).
+- Known issues accepted. `MAX_GM_CALLS = 2` specifically endorsed — an unbounded
+  narration loop is a prompt bug that would spend real money discovering itself;
+  sticky active player over rotation is right for exploration.
 
 ### Ruled 2026-08-05 (Fable, after P1.2 handoff)
 
@@ -136,6 +162,143 @@ blockers into this list.
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-08-05 — P1.4 guided character co-creation (Claude Code, kelly-pc)
+
+**Completed: P1.4.** 502 tests passing (91 new), suite still fully offline. Verified live
+three times end to end; the third run produced a playable bard, saved her, and then played
+her through `dndc play --campaign` with no sheet flags. A full character costs roughly
+$0.05.
+
+This entry also carries Fable's OD-12 ruling edits to `DESIGN-DECISIONS.md` and the Open
+block, which were sitting uncommitted in the worktree.
+
+### What landed
+
+- `rules/build.py` — `Concept` → validated level-1 `CharacterSheet`. Pure, deterministic,
+  no model: allocation, species bonuses, HP, AC from an armour profile, class saves,
+  skill legality, spell slots, spell-list validation.
+- `gm/proposal.py` — `[[PROPOSE: ...]]` and `[[FACT: ...]]` parsing, same posture as
+  `checkrequest.py`.
+- `gm/prompts/creation_core.md` + `gm/creation.py` — the co-creation seat, with the SRD
+  menu (species, classes, each class's skill list and count, armour) injected into the
+  cached prefix so the GM cannot offer something that does not exist.
+- `game/creation.py` — the interview loop, the repair path, and the write-out: sheet to
+  `campaigns/<slug>/characters/`, backstory facts to `campaigns/<slug>/canon.yaml` as
+  `character`-scope entries with `canon_write` events.
+- `dndc create-character --campaign SLUG --player NAME`, plus `--show-prompt` as the
+  offline inspector (the P1.2 pattern).
+- `dndc play --campaign SLUG` / `dndc gm --campaign SLUG` load party and canon from disk.
+  `--character` is now optional, which is what P1.4 was supposed to buy.
+
+### The GM proposes an ordering, not numbers
+
+This is the design decision of the task, and it is OD-12's governing principle applied to
+allocation. The GM says `priority: cha, dex, con, wis, int, str` and the engine maps the
+standard array onto that ranking. It never sees or states a score.
+
+Three things follow. An illegal spread becomes **unrepresentable** rather than merely
+rejected — a permutation of six abilities can only produce a legal array, so there is no
+retry loop and no way for the model's point-buy arithmetic to be wrong. The judgment
+actually being made is genuinely ordinal ("what does this character care about"), which is
+OD-12's test for where the boundary belongs. And the player is never shown a number the GM
+made up: the CLI renders the finished sheet, exactly as it renders check results.
+
+Point buy works the same way — the GM picks a named shape (`focused` / `balanced` /
+`even`), all of which cost exactly 27, re-validated through `assign_point_buy` because a
+table nobody checks is a table that drifts.
+
+### Three findings from running it live
+
+1. **The GM interviewed forever and never proposed.** Three rounds of questions, no
+   character. The prompt said "when the concept is clear enough" and gave it no reason to
+   converge. It now says to propose within two or three exchanges and that a character on
+   the table beats three more questions — build early, change later.
+2. **It named the character after the player.** Asked to build for Kelly, it proposed
+   `name: Kelly` — it had never asked for a name and used the one in front of it. Fixed in
+   the prompt *and* guarded in the loop, because this is precisely the kind of thing that
+   comes back. The guard routes through the repair path, so the player never sees it.
+3. **Backstory facts were never recorded.** The player said why she left the temple — the
+   best hook in the conversation — and no `[[FACT:]]` was written, because the prompt put
+   backstory work *after* the sheet and the sheet arrived in the same reply. Facts are now
+   recorded from the first exchange. In the re-run both details landed in the ledger.
+
+Also two display bugs, both player-facing and both invisible to mocks: the GM wraps the
+proposal in a code fence, so stripping the tag left an empty ``` ``` on screen; and the
+whitespace around a suppressed tag stayed behind, leaving a hole mid-reply. Both fixed and
+pinned.
+
+**Running tally: four tasks in a row where the mocks passed and only the live call found
+the problem.** P1.1 `fallbacks`, P1.2 the canon leak, P1.3 display + continuity, P1.4
+these five. This is now a reliable enough pattern that a task without a live run should be
+treated as unfinished.
+
+### Deviations
+
+1. **Allocation by ranking rather than by proposed scores** — beyond the letter of D-005,
+   which says the GM handles allocation mechanics. Flagged as **OD-13** below.
+2. **The creation transcript accumulates**, unlike play's rebuilt-every-turn prompt.
+   Flagged as **OD-14** below.
+3. **`_NarrationStream` now filters on `[[` rather than on `[[CHECK`.** P1.4 added two
+   more tags, and a filter that must be updated per tag is one that eventually misses one
+   in front of a player.
+4. **Creation events reuse `gm_narration` with `scene: "character creation"`** rather than
+   a new event type. D-008 says extend the vocabulary in the doc first, and that needs a
+   ruling; an existing optional field carried the distinction without one.
+
+### Known issues / notes
+
+- **D-006 scaffolding does not reach creation.** Co-creation is always fully guided
+  (D-005), and the scaffolding templates are written in terms of in-play action options,
+  so reusing them read badly. An experienced player's third character may want less
+  hand-holding.
+- **Background grants no skills.** SRD 5.1 backgrounds are not in the ingested dataset, so
+  `background` is narrative text and skills come from the class list only. Real 5e gives
+  two more. Worth a data task before it distorts a playtest.
+- **Starting equipment is not SRD data.** `starting_equipment` came through empty from
+  ingest, so gear is free text with no weight unless it is armour or a shield. Encumbrance
+  is therefore wrong-ish, which nothing reads yet.
+- One character per run; two players means two runs. Fine for a table of two.
+- `CanonWrite.scope`'s doc comment lists `pc_fact`, but `CanonScope` says `character`, and
+  I emit the enum value so the event and the ledger agree. The comment is stale — worth a
+  one-line fix whenever D-008 is next opened.
+
+### Recommended next task
+
+**P1.5 — first playtest (Kelly + Sam).** Everything it needs now exists: a campaign, real
+co-created characters, the turn loop, canon, and cost telemetry. This is the one task I
+cannot do — it wants the two of you at the keyboard. Suggested shape: `dndc new-campaign`,
+one `create-character` run each, then a session of maybe an hour, with findings written to
+`docs/playtests/` and design questions tagged `FOR DESIGN:`.
+
+Phase 2 (canon ledger + memory) is the next thing I can pick up, and it will be better
+informed after a playtest — the extraction pass has real transcripts to be right about.
+
+**FOR DESIGN:** two rulings wanted, neither blocking.
+
+**OD-13 — allocation by ranking.** D-005 says the GM "handles allocation mechanics
+(standard array/point-buy...) *for* the player". I read that through OD-12 and had it
+propose an ordinal priority instead of scores, with the engine assigning the array. It is
+stronger than the text requires and it makes illegal spreads unrepresentable rather than
+caught — but it does constrain the GM: it cannot, for instance, deliberately build an
+unusual spread that fits a concept ("she's strong *and* clever, and frail in every other
+way" is expressible; "two 14s and nothing else remarkable" under standard array is not,
+since the array's shape is fixed). My read is that this is the right trade at level 1 for
+a household table, and that if a concept genuinely needs a different shape the answer is
+another named point-buy shape rather than free-form numbers — the same "richer engineered
+signal, never restore the integers" remedy OD-12 prescribes. Confirm, or tell me to let
+the GM propose scores and have the allocators reject illegal ones.
+
+**OD-14 — the creation transcript accumulates.** D-002 says the prompt is rebuilt every
+turn from ledger + chronicle + recent window, never a growing transcript, and that is
+about campaign-scale cost. A creation interview is a dozen exchanges, is bounded by its
+own completion, genuinely needs its history (backstory built on turn nine refers to turn
+two), and is then thrown away — so I let it accumulate and noted the exception in the
+module docstring. Measured cost of a full character is ~$0.05. I believe this is inside
+the spirit of D-002 rather than an exception to it, but it is the first place the codebase
+keeps a conversation, so it should be said out loud rather than assumed.
 
 ---
 

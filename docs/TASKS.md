@@ -42,6 +42,9 @@ code + tests + a PROGRESS.md handoff entry.
 - **P1.4** Guided character co-creation (D-005): interview flow → concept → GM
   proposes allocation via P0.4 allocators → backstory collaboration → validated sheet
   → backstory facts written as canon entries (typed player-character facts).
+  *(Done 2026-08-05 — `dndc create-character`; the GM proposes an ability **ranking**
+  and the engine assigns the array, per OD-12. `dndc play --campaign SLUG` now loads
+  the party and canon from disk, so `--character` is optional.)*
 - **P1.5** First playtest session (Kelly + Sam): a short original scenario authored by
   the GM at runtime. Findings to `docs/playtests/`; tag design questions `FOR DESIGN:`.
 

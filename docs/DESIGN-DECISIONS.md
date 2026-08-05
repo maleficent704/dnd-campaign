@@ -38,6 +38,17 @@ facts). Corollary obligation: **severity fidelity** — with numbers removed, pr
 is the players' felt sense of magnitude, so description must track it (a
 2-damage scratch reads as a scratch; a near-drop reads as dire).
 
+**Amended 2026-08-05 (per OD-12).** The number ban is **structural**: the GM is never
+handed engine-resolved values at all — it receives deterministic categorical/ordinal
+signals (severity bands, computed relative to the right baseline, e.g. damage vs. the
+character's max HP) and cannot restate what it was never given. Protection by
+construction over protection by instruction, same as the mystery's
+cover-substitution lesson. Governing principle for Phase 3+: **if the GM appears to
+need raw numbers, the boundary is misdrawn** — exact integers are only needed for
+arithmetic, and arithmetic is the engine's job; every legitimate GM judgment is
+ordinal/categorical, so the remedy is a richer engineered signal (or moving the
+decision into the engine), never restoring the integers.
+
 ---
 
 ## D-002 — Canon ledger + three-layer memory (ported)

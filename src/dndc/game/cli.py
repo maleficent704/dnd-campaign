@@ -18,13 +18,26 @@ from rich.table import Table
 
 from dndc import __version__
 from dndc.config import Billing, load_config, save_billing_default
-from dndc.game.campaign import CampaignError, campaign_dir, create_campaign, list_campaigns
+from dndc.game.campaign import (
+    CampaignError,
+    campaign_dir,
+    create_campaign,
+    list_campaigns,
+    load_campaign,
+)
+from dndc.game.creation import (
+    CreationSession,
+    load_campaign_canon,
+    load_campaign_sheets,
+    summarize,
+)
 from dndc.game.turn import TurnEngine
 from dndc.gm import (
     DEFAULT_WINDOW,
     SCAFFOLDING_TEMPLATES,
     CampaignContext,
     CanonLedger,
+    CreationPromptBuilder,
     GMPromptBuilder,
     PartyMember,
 )
@@ -36,11 +49,13 @@ from dndc.models import (
     estimate_cost,
     load_prices,
 )
+from dndc.rules.build import BuildError
 from dndc.rules.dice import Advantage, DiceError, roll, roll_d20
 from dndc.schema.events import Cost, DiceRoll, GMNarration, RulesResolution, SeatInfo, SessionMeta
 from dndc.schema.sheet import SKILL_ABILITY, Ability, CharacterSheet, Skill
 from dndc.schema.srd import IngestScope
 from dndc.srd import SRDIngestError, ingest, load_dataset, validate_dataset, verify_pin
+from dndc.srd.repository import SRDRepository
 
 MAX_SEED = 2**32
 
@@ -229,7 +244,9 @@ def _cmd_new_campaign(console: Console, args: argparse.Namespace) -> int:
     console.print(f"  scaffolding: {campaign.scaffolding}   play mode: {campaign.play_mode}")
     if campaign.players:
         console.print(f"  players: {', '.join(campaign.players)}")
-    console.print("  next: character co-creation lands in Phase 1 (P1.4)")
+    console.print(
+        f"  next: [bold]dndc create-character --campaign {campaign.slug} --player NAME[/bold]"
+    )
     return 0
 
 
@@ -325,20 +342,38 @@ def _gm_campaign_context(
 
     The party summary in the prompt is deliberately thin (the GM narrates; it does not
     need a proficiency table), but a check has to resolve against the real scores — so
-    both come back and stay separate. Loading a real campaign directory arrives with P2.
+    both come back and stay separate.
+
+    `--campaign` reads a real campaign directory: its name, the characters co-creation
+    wrote, and its canon ledger. `--character` still works and stacks on top, which is
+    what keeps a scratch sheet runnable without creating a campaign for it.
     """
-    campaign = CampaignContext(
-        name=args.campaign_name or "Untitled campaign",
-        scene=args.scene or "",
-    )
+    slug = getattr(args, "campaign", None)
+    campaign = CampaignContext(name=args.campaign_name or "Untitled campaign")
+    sheets: dict[str, CharacterSheet] = {}
+
+    if slug:
+        try:
+            record = load_campaign(slug)
+        except (CampaignError, ValidationError) as exc:
+            console.print(f"[red]error:[/red] {exc}")
+            return None
+        campaign.name = args.campaign_name or record.name
+        campaign.ledger = load_campaign_canon(slug)
+        for sheet in load_campaign_sheets(slug):
+            campaign.party.append(PartyMember.from_sheet(sheet))
+            sheets[sheet.name.lower()] = sheet
+
+    campaign.scene = args.scene or ""
     if args.canon:
         campaign.ledger = CanonLedger.load(args.canon)
 
-    sheets: dict[str, CharacterSheet] = {}
     for path in args.character or ():
         sheet = _load_sheet(console, path)
         if sheet is None:
             return None
+        if sheet.name.lower() in sheets:
+            continue
         campaign.party.append(PartyMember.from_sheet(sheet))
         sheets[sheet.name.lower()] = sheet
     return campaign, sheets
@@ -465,20 +500,25 @@ anything else is what your character says or does."""
 
 
 class _NarrationStream:
-    """Streams GM text to the console with the `[[CHECK: ...]]` tag held back.
+    """Streams GM text to the console with `[[...]]` machine tags held back.
 
-    The tag is an instruction to the engine, not prose. Streaming it raw put a literal
+    Tags are instructions to the engine, not prose. Streaming one raw put a literal
     `[[CHECK: Strength DC 15 ...]]` in front of the players mid-sentence. Text is held
     from the first `[` and released as soon as it cannot be the start of a tag, so
     ordinary bracketed prose still comes through.
+
+    The filter is on `[[` rather than on each tag name: every tag the project has added
+    since — `[[PROPOSE:`, `[[FACT:` — is the same kind of thing, and a filter that has to
+    be updated per tag is one that will eventually miss one in front of a player.
     """
 
-    _MARKER = "[[CHECK"
+    _MARKER = "[["
 
     def __init__(self, console: Console) -> None:
         self.console = console
         self._held = ""
         self._suppressing = False
+        self._swallow = False
 
     def feed(self, chunk: str) -> None:
         for char in chunk:
@@ -487,7 +527,16 @@ class _NarrationStream:
                 if self._held.endswith("]]"):
                     self._held = ""
                     self._suppressing = False
+                    # Whatever whitespace followed the tag was there to space out the
+                    # tag; the whitespace *before* it already went through, so keeping
+                    # this too leaves a hole in the middle of the reply.
+                    self._swallow = True
                 continue
+
+            if self._swallow:
+                if char.isspace():
+                    continue
+                self._swallow = False
 
             if self._held or char == "[":
                 self._held += char
@@ -531,8 +580,8 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
     campaign, loaded_sheets = loaded
     if not campaign.party:
         console.print(
-            "[yellow]no characters loaded[/yellow] — pass --character PATH "
-            "(guided co-creation arrives in P1.4)."
+            "[yellow]no characters loaded[/yellow] — pass --campaign SLUG (after "
+            "`dndc create-character`) or --character PATH."
         )
         return 1
 
@@ -635,6 +684,153 @@ def _play_command(console: Console, text: str, campaign, sheets) -> str | None:
     return None
 
 
+# --- create-character ------------------------------------------------------
+
+CREATE_HELP = """[bold]commands[/bold]
+  /sheet    show the character as it currently stands
+  /done     save the character and the backstory canon, and finish
+  /quit     leave without saving
+anything else is you, talking to the GM."""
+
+
+def _cmd_create_character(console: Console, args: argparse.Namespace) -> int:
+    """Guided co-creation (P1.4, D-005). The conversation is the UX; the sheet is output."""
+    cfg = load_config()
+    try:
+        repo = SRDRepository.load()
+    except SRDIngestError as exc:
+        console.print(f"[red]error:[/red] {exc}")
+        return 1
+
+    # Before the campaign lookup, the billing question, and the backend: inspecting the
+    # prompt is a debugging tool and must not need a key, a login, or a campaign (P1.2).
+    if args.show_prompt:
+        console.print(
+            CreationPromptBuilder(repo).system(),
+            markup=False, highlight=False, soft_wrap=True,
+        )
+        return 0
+
+    missing = [flag for flag, value in (("--campaign", args.campaign),
+                                        ("--player", args.player)) if not value]
+    if missing:
+        console.print(f"[red]error:[/red] {' and '.join(missing)} are required to create")
+        return 1
+
+    try:
+        campaign = load_campaign(args.campaign)
+    except (CampaignError, ValidationError) as exc:
+        console.print(f"[red]error:[/red] {exc}")
+        return 1
+
+    billing = resolve_billing(cfg, console, requested=args.billing, ask=not args.no_prompt)
+    try:
+        backend = build_gm_backend(cfg, billing, threshold=args.threshold)
+    except GMBackendError as exc:
+        console.print(f"[red]error:[/red] {exc}")
+        return 1
+
+    log = start_session_log(cfg, campaign=campaign.name, billing=billing)
+    session = CreationSession(
+        backend=backend,
+        repo=repo,
+        player=args.player,
+        log=log,
+        max_tokens=args.max_tokens,
+        billing=billing.value,
+        prices=load_prices(cfg.pricing),
+    )
+
+    console.print(f"[bold]{campaign.name}[/bold] — making a character for {args.player}")
+    console.print(f"[dim]log -> {log.path}  ·  /help for commands[/dim]\n")
+
+    saved = False
+    try:
+        _creation_reply(console, session.open(on_text=None), stream=False)
+        while True:
+            try:
+                raw = Prompt.ask(f"[bold cyan]{args.player}[/bold cyan]")
+            except (EOFError, KeyboardInterrupt):
+                console.print("\n[dim]left without saving[/dim]")
+                break
+
+            text = raw.strip()
+            if not text:
+                continue
+
+            if text.startswith("/"):
+                command = text.split()[0].lower()
+                if command in {"/quit", "/exit"}:
+                    console.print("[dim]left without saving[/dim]")
+                    break
+                if command == "/help":
+                    console.print(CREATE_HELP)
+                elif command == "/sheet":
+                    if session.sheet is None:
+                        console.print("[dim]nothing built yet[/dim]")
+                    else:
+                        _render_sheet(console, session.sheet)
+                elif command == "/done":
+                    if session.sheet is None:
+                        console.print(
+                            "[yellow]no character built yet[/yellow] — keep talking, or "
+                            "ask the GM to make one from what you have said."
+                        )
+                        continue
+                    try:
+                        sheet_path, canon_path = session.finish(campaign.slug)
+                    except BuildError as exc:
+                        console.print(f"[red]error:[/red] {exc}")
+                        continue
+                    saved = True
+                    console.print(f"[green]saved[/green] {summarize(session.sheet, session.facts)}")
+                    console.print(f"  sheet -> {sheet_path}")
+                    console.print(f"  canon -> {canon_path}")
+                    break
+                else:
+                    console.print(f"[yellow]unknown command {command}[/yellow] — /help")
+                continue
+
+            console.print()
+            stream = _NarrationStream(console)
+            try:
+                reply = session.say(text, on_text=stream.feed)
+            except GMBackendError as exc:
+                console.print(f"\n[red]error:[/red] {exc}")
+                break
+            except Exception as exc:  # network / rate limit
+                console.print(f"\n[red]call failed:[/red] {type(exc).__name__}: {exc}")
+                break
+            stream.finish()
+            _creation_reply(console, reply, stream=True)
+    finally:
+        backend.close()
+
+    if not saved and session.sheet is not None:
+        console.print("[yellow]the built character was not saved[/yellow] (/done saves it)")
+    console.print(f"[dim]logged -> {log.path}[/dim]")
+    return 0
+
+
+def _creation_reply(console: Console, reply, stream: bool) -> None:
+    """Show one exchange. Already-streamed prose is not printed twice."""
+    if not stream:
+        console.print(reply.text, markup=False, highlight=False, soft_wrap=True)
+    console.print()
+
+    if reply.refused:
+        console.print("[yellow]the model declined that[/yellow]")
+    for fact in reply.facts:
+        console.print(f"  [dim]canon:[/dim] {fact}")
+    if reply.sheet is not None:
+        console.print()
+        _render_sheet(console, reply.sheet)
+        console.print("[dim]/done to save, or keep talking to change it[/dim]")
+    if reply.error:
+        console.print(f"[red]the engine could not build that character:[/red] {reply.error}")
+    console.print()
+
+
 # --- sheet -----------------------------------------------------------------
 
 
@@ -660,7 +856,14 @@ def _cmd_sheet_show(console: Console, args: argparse.Namespace) -> int:
     sheet = _load_sheet(console, args.path)
     if sheet is None:
         return 1
+    _render_sheet(console, sheet)
+    return 0
 
+
+def _render_sheet(console: Console, sheet: CharacterSheet) -> None:
+    """The authoritative display of a character. Co-creation shows this rather than
+    letting the GM recite scores it may have got wrong (OD-11's principle, applied to
+    the sheet: one place the numbers come from, and it is the engine)."""
     console.print(
         f"[bold]{sheet.name}[/bold] — level {sheet.level} {sheet.species} {sheet.character_class}"
         + (f"  ([dim]{sheet.player}[/dim])" if sheet.player else "")
@@ -710,7 +913,6 @@ def _cmd_sheet_show(console: Console, args: argparse.Namespace) -> int:
             for level, slot in sorted(sheet.spell_slots.items())
         )
         console.print(f"[bold]spell slots[/bold]  {slots}")
-    return 0
 
 
 def _cmd_sheet_validate(console: Console, args: argparse.Namespace) -> int:
@@ -774,8 +976,30 @@ def build_parser() -> argparse.ArgumentParser:
         "--log", action="store_true", help="record to a JSONL session log"
     )
 
+    create = commands.add_parser(
+        "create-character", help="guided character co-creation with the GM (D-005)"
+    )
+    create.add_argument("--campaign", metavar="SLUG")
+    create.add_argument("--player", help="who is making this character")
+    create.add_argument(
+        "--show-prompt", action="store_true",
+        help="print the co-creation system prompt and exit without calling a model",
+    )
+    create.add_argument(
+        "--billing", choices=[b.value for b in Billing],
+        help="override the sticky default for this session (D-004)",
+    )
+    create.add_argument(
+        "--no-prompt", action="store_true", help="don't ask for billing; use the default"
+    )
+    create.add_argument(
+        "--threshold", action="store_true", help="use the Opus escalation model (OD-3)"
+    )
+    create.add_argument("--max-tokens", type=int, default=1024)
+
     gm = commands.add_parser("gm", help="one GM narration turn")
     gm.add_argument("prompt")
+    gm.add_argument("--campaign", metavar="SLUG", help="load a saved campaign's party and canon")
     gm.add_argument("--campaign-name", help="campaign title for the prompt header")
     gm.add_argument("--scene", help="where the party currently is")
     gm.add_argument("--canon", help="path to a canon ledger YAML file")
@@ -811,11 +1035,15 @@ def build_parser() -> argparse.ArgumentParser:
     gm.add_argument("--log", action="store_true", help="record to a JSONL session log")
 
     play = commands.add_parser("play", help="hot-seat play session (the turn loop)")
+    play.add_argument(
+        "--campaign", metavar="SLUG",
+        help="play a saved campaign — its party and canon load from disk",
+    )
     play.add_argument("--campaign-name", help="campaign title")
     play.add_argument("--scene", help="where the party starts")
     play.add_argument("--canon", help="path to a canon ledger YAML file")
     play.add_argument(
-        "--character", action="append", metavar="PATH", required=True,
+        "--character", action="append", metavar="PATH",
         help="a character sheet to put in the party (repeatable)",
     )
     play.add_argument(
@@ -872,6 +1100,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_campaigns(console)
         if args.command == "roll":
             return _cmd_roll(console, args)
+        if args.command == "create-character":
+            return _cmd_create_character(console, args)
         if args.command == "gm":
             return _cmd_gm(console, args)
         if args.command == "play":

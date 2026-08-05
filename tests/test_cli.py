@@ -341,6 +341,75 @@ def test_stream_flushes_a_trailing_bracket():
     assert out.endswith("[")
 
 
+def test_stream_suppresses_the_creation_tags_too():
+    """P1.4 added `[[PROPOSE:` and `[[FACT:`; the filter is on `[[`, not on tag names."""
+    out = _streamed(["Here you go. ", "[[PROPOSE:\nname: X\n]]", " Sound right?"])
+    assert "Here you go." in out and "Sound right?" in out
+    assert "PROPOSE" not in out and "name: X" not in out
+
+
+def test_stream_closes_the_gap_a_suppressed_tag_leaves():
+    """The whitespace around a tag was spacing out the tag, not the prose."""
+    out = _streamed(["It is done.\n\n", "[[FACT: He hates boats.]]", "\n\nWhat next?"])
+    assert out == "It is done.\n\nWhat next?"
+
+
+def test_stream_keeps_a_single_space_when_a_tag_was_mid_line():
+    out = _streamed(["Noted. ", "[[FACT: X.]]", " Now, the road."])
+    assert out == "Noted. Now, the road."
+
+
+def test_play_needs_a_party_from_somewhere(campaigns_root, capsys):
+    """`--character` stopped being required in P1.4; the party still has to exist."""
+    assert main(["play", "--no-prompt"]) == 1
+    assert "no characters loaded" in capsys.readouterr().out
+
+
+def test_play_and_gm_load_a_campaign_directory(campaigns_root, sheet_path, capsys, tmp_path):
+    """P1.4 wiring: --campaign reads the party and canon co-creation wrote."""
+    from dndc.game.campaign import campaign_dir
+    from dndc.game.creation import CANON_FILENAME
+    from dndc.gm.canon import CanonEntry, CanonLedger, CanonScope
+    from dndc.schema.sheet import CharacterSheet
+
+    main(["new-campaign", "The Hollow Road", "--player", "Sam"])
+    target = campaign_dir("the-hollow-road")
+    CharacterSheet.load(sheet_path).save(target / "characters" / "bramble.yaml")
+    ledger = CanonLedger()
+    ledger.add(
+        CanonEntry(id="pc-bramble-1", text="Bramble grew up on the docks.",
+                   scope=CanonScope.CHARACTER, subject="Bramble Tealeaf")
+    )
+    ledger.save(target / CANON_FILENAME)
+    capsys.readouterr()
+
+    assert main([
+        "gm", "I look around.", "--show-prompt", "--campaign", "the-hollow-road",
+    ]) == 0
+    out = capsys.readouterr().out
+    assert "The Hollow Road" in out
+    assert "Bramble Tealeaf" in out                    # party, from the sheet on disk
+    assert "Bramble grew up on the docks." in out      # canon, from the ledger on disk
+
+
+def test_a_missing_campaign_is_reported(campaigns_root, capsys):
+    assert main(["gm", "hi", "--show-prompt", "--campaign", "nope"]) == 1
+    assert "error" in capsys.readouterr().out
+
+
+def test_create_character_requires_a_campaign_and_a_player(capsys):
+    assert main(["create-character", "--player", "Kelly"]) == 1
+    assert "--campaign" in capsys.readouterr().out
+
+
+def test_create_character_show_prompt_needs_no_backend_or_campaign(capsys):
+    """The offline inspector, same as `gm --show-prompt` (P1.2)."""
+    assert main(["create-character", "--show-prompt"]) == 0
+    out = capsys.readouterr().out
+    assert "[[PROPOSE:" in out and "[[FACT:" in out
+    assert "Fighter" in out
+
+
 def test_version_flag(capsys):
     with pytest.raises(SystemExit) as exit_info:
         main(["--version"])
