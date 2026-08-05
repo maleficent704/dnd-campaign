@@ -91,6 +91,18 @@ difference and robust to Anthropic billing changes (two changes in 2026 already)
 weeks); single-path subscription-only (couples play sessions to build-week limits;
 mid-boss throttling risk).
 
+**Amended 2026-08-04 (per OD-10 + P1.1 measurement).** (1) **Credential isolation is a
+ratified requirement:** the `subscription` adapter must strip `ANTHROPIC_API_KEY` and
+`ANTHROPIC_AUTH_TOKEN` from the child environment so headless CC cannot silently
+resolve to the metered key (credential precedence otherwise inverts the toggle);
+never read or copy the stored OAuth refresh token. Pinned by test. (2) **Measured
+reality replaces the light-week rationale:** headless CC carries ~33–40k tokens of
+scaffolding per invocation (~30× overhead; ~4M pool tokens per 3-hour session), while
+a metered session measures ~$0.50–2. Subscription mode is therefore the
+"pool-is-genuinely-idle / free experimentation" path, not the bargain path; **sticky
+default is `api`** for play sessions. Toggle retained — it is measured, tested, and
+re-evaluable from telemetry.
+
 ---
 
 ## D-005 — Character creation is guided co-creation

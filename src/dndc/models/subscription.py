@@ -95,10 +95,12 @@ class SubscriptionBackend(GMBackend):
             "--model",
             request.model or self.model,
         ]
-        if request.system:
+        if request.full_system:
             # Replace Claude Code's default system prompt rather than appending to it —
             # the GM persona is the whole prompt, and replacing trims the payload.
-            command += ["--system-prompt", request.system]
+            # Both system halves collapse into one string here: headless CC takes a
+            # single prompt and manages its own caching, so the split buys nothing.
+            command += ["--system-prompt", request.full_system]
         return command
 
     # -- the call ------------------------------------------------------------

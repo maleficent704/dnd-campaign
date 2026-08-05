@@ -62,9 +62,13 @@ class APIBackend(GMBackend):
         model = request.model or self.model
         system: list[dict] = [{"type": "text", "text": request.system}]
         if request.cache_system:
-            # Breakpoint on the system block: tools render before system, so this caches
-            # the whole stable prefix. Volatile turn content stays in `messages`, after it.
+            # Breakpoint on the first block only. Caching is a prefix match, so this
+            # caches the session-stable instructions and nothing after them — campaign
+            # state goes in a second, uncached block, and turn content stays in
+            # `messages`. A canon write then re-reads one block instead of all of them.
             system[0]["cache_control"] = {"type": "ephemeral"}
+        if request.system_volatile:
+            system.append({"type": "text", "text": request.system_volatile})
 
         payload: dict = {
             "model": model,

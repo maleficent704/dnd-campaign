@@ -19,13 +19,17 @@ from rich.table import Table
 from dndc import __version__
 from dndc.config import Billing, load_config, save_billing_default
 from dndc.game.campaign import CampaignError, campaign_dir, create_campaign, list_campaigns
+from dndc.gm import (
+    SCAFFOLDING_TEMPLATES,
+    CampaignContext,
+    CanonLedger,
+    GMPromptBuilder,
+    PartyMember,
+)
 from dndc.logging import SessionLog, git_commit_sha, resolve_log_dir
 from dndc.models import (
     THROTTLE_WARNING,
     GMBackendError,
-    GMRequest,
-    Message,
-    Role,
     build_gm_backend,
     estimate_cost,
     load_prices,
@@ -312,35 +316,71 @@ def _cmd_roll(console: Console, args: argparse.Namespace) -> int:
 
 # --- gm --------------------------------------------------------------------
 
-SMOKE_SYSTEM = (
-    "You are the GM of a Dungeons & Dragons 5e campaign, running the 2014 SRD rules. "
-    "Narrate vividly and briefly. You never invent dice results or mechanical outcomes — "
-    "the engine resolves those and hands them to you."
-)
+def _gm_campaign_context(
+    console: Console, args: argparse.Namespace
+) -> CampaignContext | None:
+    """Assemble what the builder needs. A real campaign load arrives with P1.3/P2."""
+    campaign = CampaignContext(
+        name=args.campaign_name or "Untitled campaign",
+        scene=args.scene or "",
+    )
+    if args.canon:
+        campaign.ledger = CanonLedger.load(args.canon)
+    for path in args.character or ():
+        sheet = _load_sheet(console, path)
+        if sheet is None:
+            return None
+        campaign.party.append(PartyMember.from_sheet(sheet))
+    return campaign
 
 
 def _cmd_gm(console: Console, args: argparse.Namespace) -> int:
-    """One narration turn. Proves the GM seat end to end (P1.1)."""
+    """One narration turn against the real prompt assembly (P1.2)."""
     cfg = load_config()
-    billing = resolve_billing(cfg, console, requested=args.billing, ask=not args.no_prompt)
+    scaffolding = args.scaffolding or cfg.gameplay.scaffolding
+    builder = GMPromptBuilder(scaffolding=scaffolding)
+    campaign = _gm_campaign_context(console, args)
+    if campaign is None:
+        return 1
+    request = builder.build(
+        campaign,
+        player_input=args.prompt,
+        resolutions=tuple(args.resolution or ()),
+        max_tokens=args.max_tokens,
+    )
 
+    # Before any billing prompt or backend construction: inspecting the prompt must not
+    # need a key, a login, or a decision about who pays.
+    if args.show_prompt:
+        for heading, body in (
+            ("system (cached prefix)", request.system),
+            ("campaign state (volatile)", request.system_volatile),
+        ):
+            console.print(f"[dim]--- {heading} ---[/dim]")
+            console.print(body, markup=False, highlight=False, soft_wrap=True)
+        console.print("[dim]--- messages ---[/dim]")
+        for message in request.messages:
+            console.print(f"[dim]{message.role.value}:[/dim]")
+            console.print(message.content, markup=False, highlight=False, soft_wrap=True)
+        return 0
+
+    billing = resolve_billing(cfg, console, requested=args.billing, ask=not args.no_prompt)
     try:
         backend = build_gm_backend(cfg, billing, threshold=args.threshold)
     except GMBackendError as exc:
         console.print(f"[red]error:[/red] {exc}")
         return 1
 
-    request = GMRequest(
-        system=SMOKE_SYSTEM,
-        messages=(Message(role=Role.USER, content=args.prompt),),
-        max_tokens=args.max_tokens,
-    )
-
     log = start_session_log(cfg, seed=None, billing=billing) if args.log else None
     console.print(f"[dim]{backend.name} · {request.model or cfg.seats.gm.model_default}[/dim]")
 
     try:
-        response = backend.generate(request, on_text=lambda chunk: console.print(chunk, end=""))
+        # markup=False: the GM's check-request form is `[[CHECK: ...]]`, which rich would
+        # otherwise try to parse as a style tag and swallow.
+        response = backend.generate(
+            request,
+            on_text=lambda chunk: console.print(chunk, end="", markup=False, highlight=False),
+        )
     except GMBackendError as exc:
         console.print(f"\n[red]error:[/red] {exc}")
         return 1
@@ -383,7 +423,7 @@ def _cmd_gm(console: Console, args: argparse.Namespace) -> int:
             text=response.text,
             model=response.model,
             call_id=response.call_id,
-            scaffolding=cfg.gameplay.scaffolding,
+            scaffolding=scaffolding,
         )
         log.emit(
             Cost,
@@ -541,8 +581,28 @@ def build_parser() -> argparse.ArgumentParser:
         "--log", action="store_true", help="record to a JSONL session log"
     )
 
-    gm = commands.add_parser("gm", help="one GM narration turn (smoke-tests the seat)")
+    gm = commands.add_parser("gm", help="one GM narration turn")
     gm.add_argument("prompt")
+    gm.add_argument("--campaign-name", help="campaign title for the prompt header")
+    gm.add_argument("--scene", help="where the party currently is")
+    gm.add_argument("--canon", help="path to a canon ledger YAML file")
+    gm.add_argument(
+        "--character", action="append", metavar="PATH",
+        help="a character sheet to put in the party (repeatable)",
+    )
+    gm.add_argument(
+        "--resolution", action="append", metavar="TEXT",
+        help="an engine result to hand the GM (repeatable) — e.g. "
+             "'Stealth check: 17 vs DC 14, success'",
+    )
+    gm.add_argument(
+        "--scaffolding", choices=sorted(SCAFFOLDING_TEMPLATES),
+        help="override config's D-006 scaffolding level for this turn",
+    )
+    gm.add_argument(
+        "--show-prompt", action="store_true",
+        help="print the assembled prompt and exit without calling a model",
+    )
     gm.add_argument(
         "--billing", choices=[b.value for b in Billing],
         help="override the sticky default for this session (D-004)",

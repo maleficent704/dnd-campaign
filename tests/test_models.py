@@ -139,6 +139,27 @@ def test_api_caches_the_system_prefix():
     assert system[0]["cache_control"] == {"type": "ephemeral"}
 
 
+def test_volatile_state_is_a_second_uncached_block():
+    """P1.2: campaign state must sit outside the breakpoint, or a hit point of damage
+    invalidates the cached copy of the whole instruction set."""
+    client = FakeClient(message())
+    APIBackend(model="claude-sonnet-5", client=client).generate(
+        request(system_volatile="## Established canon\n- The bridge is rotting.")
+    )
+    system = client.messages.payloads[0]["system"]
+
+    assert len(system) == 2
+    assert system[0]["cache_control"] == {"type": "ephemeral"}
+    assert "cache_control" not in system[1]
+    assert "bridge is rotting" in system[1]["text"]
+
+
+def test_no_volatile_block_is_sent_when_there_is_no_state():
+    client = FakeClient(message())
+    APIBackend(model="claude-sonnet-5", client=client).generate(request())
+    assert len(client.messages.payloads[0]["system"]) == 1
+
+
 def test_caching_can_be_turned_off():
     client = FakeClient(message())
     APIBackend(model="claude-sonnet-5", client=client).generate(
@@ -320,6 +341,16 @@ def test_subscription_command_shape():
     assert "--append-system-prompt" not in command
 
 
+def test_subscription_collapses_both_system_halves():
+    """Headless CC takes one prompt string, so the cache-split has nothing to attach to
+    here — but the campaign state must still arrive."""
+    backend = SubscriptionBackend(model="claude-sonnet-5")
+    command = backend.command(request(system_volatile="The bridge is rotting."))
+    sent = command[command.index("--system-prompt") + 1]
+    assert "You are the GM." in sent
+    assert "The bridge is rotting." in sent
+
+
 def test_subscription_parses_the_real_output_shape():
     captured = {}
 
@@ -428,6 +459,27 @@ def test_ollama_payload_puts_system_first():
     assert response.usage.input_tokens == 11
     assert response.usage.output_tokens == 3
     assert response.reported_usd == 0.0  # local inference is free, not unknown
+
+
+def test_ollama_merges_both_system_halves_into_one_message():
+    captured = {}
+
+    def opener(http_request, timeout=None):
+        captured["body"] = json.loads(http_request.data)
+        return FakeHTTPResponse(
+            {"message": {"content": "hm."}, "model": "llama3.3:70b",
+             "prompt_eval_count": 11, "eval_count": 3, "done_reason": "stop"}
+        )
+
+    backend = OllamaBackend(
+        model="llama3.3:70b", endpoint="http://192.168.50.11:11434", opener=opener
+    )
+    backend.generate(request(system_volatile="The bridge is rotting."))
+
+    system = captured["body"]["messages"][0]
+    assert system["role"] == "system"
+    assert "You are the GM." in system["content"]
+    assert "The bridge is rotting." in system["content"]
 
 
 def test_ollama_unreachable_endpoint_names_the_host():

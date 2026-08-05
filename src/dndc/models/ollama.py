@@ -48,8 +48,10 @@ class OllamaBackend(GMBackend):
 
     def payload(self, request: GMRequest) -> dict:
         messages = []
-        if request.system:
-            messages.append({"role": "system", "content": request.system})
+        if request.full_system:
+            # One system message: Ollama has no block-level cache control, so the
+            # stable/volatile split has nothing to attach to here.
+            messages.append({"role": "system", "content": request.full_system})
         messages += [
             {"role": message.role.value, "content": message.content}
             for message in request.messages

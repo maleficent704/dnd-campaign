@@ -15,19 +15,12 @@ blockers into this list.
 
 ### Open now
 
-- **OD-10 — cost model vs. the measured subscription overhead (non-blocking).** P1.1
-  measured both GM paths on the same prompt: `api` $0.0018 (203 tokens) vs
-  `subscription` $0.0599 would-have-cost (~34k tokens), because headless Claude Code
-  carries ~33–40k tokens of its own system prompt and tool definitions **per
-  invocation**. In dollars subscription mode is still free — it draws the weekly Max
-  pool — but a 3-hour session at 80–120 turns is ~4M pool tokens of scaffolding before
-  any campaign content. This cuts against OD-2's rationale ("max subscription value on
-  light coding weeks") and against the plan doc's "$1–5/session" estimate, which now
-  looks high for the API path and understates the pool drain for the subscription path.
-  Nothing is blocked — the D-004 toggle works, both adapters are verified, and the
-  telemetry to re-measure with real prompts is in place. Wanted: whether to revise the
-  cost model / OD-2 rationale, and whether subscription mode should stay the default
-  for play sessions or become the "free experimentation" path only.
+- **OD-11 — may the GM restate engine numbers in its prose?** Raised by P1.2 (2026-08-05),
+  non-blocking. Given "2 slashing damage, HP now 11/20" as an engine result, the GM wrote
+  "(2 slashing damage — you're at 11/20 HP.)". Legal under D-001 — it was given the
+  numbers — but it duplicates what the CLI can render from state, and each restatement is
+  a chance to transcribe a number wrong. Options and a lean are in the P1.2 entry below.
+  Cheap to change before playtest transcripts exist; annoying after.
 
 ### Protocol in effect (Fable, 2026-07-27)
 
@@ -37,6 +30,31 @@ blockers into this list.
   exists.
 - **A Fable ruling takes effect only once recorded in the repo.**
 - **One session, one commit. No code edits under a live play session.**
+
+### Ruled 2026-08-04 (Fable, after P1.1 handoff)
+
+- **OD-10 — cost model revised; toggle retained; default `api`.** The plan doc's
+  "$1–5/session" is replaced by **~$0.50–2 measured** (Opus-heavy ceiling ~$5).
+  OD-2's "max subscription value on light weeks" rationale is superseded by the
+  measurement: ~30× scaffolding overhead means a subscription session spends ~4M
+  pool tokens to save ~$1 metered — subscription mode is hereby the
+  "pool-is-genuinely-idle / experimentation / Sam's-login" path, not the bargain
+  path. Sticky default stays `api` for play sessions. Kelly may override from
+  telemetry — per-session cost + would-have-cost logging keeps score. D-004 amended
+  same day; planning-doc cost model updated.
+- **The auth-trap fix is ratified into D-004** as a credential-isolation
+  requirement (strip metered vars from child env; never copy the OAuth refresh
+  token; pinned by test). This class of silent toggle inversion is exactly what
+  the design must make impossible, not merely unlikely.
+- **P1.1 deviations 1–4 approved.** `fallbacks` narrowed to the models that accept
+  it (live-API catch — noted that smoke calls find what mocks cannot); `dndc gm`
+  as the adapter proving ground; `anthropic` as a hard lazy-imported dependency
+  (D-004 makes the api adapter v1-required); pricing block in config at standard
+  (not introductory) rates — over-estimating beats under-reporting for
+  measurement data.
+- Known issues accepted (sub-cache-minimum smoke prompt, sticky-default side
+  effect of testing, single-shot `on_text` in subscription mode, Ollama cost
+  emission deferred to the tier that uses it).
 
 ### Ruled 2026-08-04 (Fable, after P0.5 handoff — Phase 0 complete)
 
@@ -91,6 +109,137 @@ blockers into this list.
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-08-05 — P1.2 GM prompt assembly v1 (Claude Code, kelly-pc)
+
+**Completed: P1.2.** 367 tests passing (48 new), suite still fully offline. The prompt was
+also exercised against the live API — four calls, $0.045 total — which is where the two
+findings below came from.
+
+### What landed
+
+- `gm/prompts/*.md` — six templates: `system_core` (with a `{{ scaffolding_directive }}`
+  slot), one file per D-006 level, `context` (campaign state), `turn` (player input +
+  engine results). Prose lives in files, per CLAUDE.md, so a prompt change reads as a
+  prose diff.
+- `gm/templates.py` — a deliberately dumb `{{ name }}` renderer. No conditionals, no
+  loops: every decision about *what* goes in a section is made in Python where it is
+  testable, and the template decides only *where* it lands. Substitution is strict **in
+  both directions** — an unused value raises, because "the ledger stopped reaching the
+  prompt after a rename" is the failure this module exists to prevent, and it is
+  invisible in the output.
+- `gm/canon.py` — the ledger **stub**: `CanonEntry` (id, text, scope, session/turn
+  provenance, subject, tags), `CanonScope`, a container with YAML round-trip. No
+  extraction, no supersession, no compression — Phase 2 owns those. The shape is the
+  commitment; the machinery is not.
+- `gm/context.py` — `CampaignContext` + `GMPromptBuilder`. D-002's prompt rule is
+  implemented literally: the prompt is rebuilt every turn, and the recent window is
+  bounded (`DEFAULT_WINDOW = 6` turns) rather than a growing transcript. A test pins that
+  50 recorded turns still send 7 messages.
+- `dndc gm` now uses the real assembly instead of P1.1's placeholder string, and gained
+  `--campaign-name`, `--scene`, `--canon`, `--character` (repeatable), `--resolution`
+  (repeatable), `--scaffolding`, and `--show-prompt`.
+
+### The check-request convention (new, and P1.3 depends on it)
+
+D-001 says the GM may *request* a resolution but never compute one. That rule is
+unimplementable without telling the GM what to do **instead**, so `system_core.md`
+specifies an exact form:
+
+```
+[[CHECK: <ability or skill> DC <number> — <what happens on a failure>]]
+```
+
+The GM sets the skill and the DC — that judgment is explicitly its job, and D-001 wants it
+logged as a `gm_adjudication` — and then stops. **P1.3 parses this**; P1.2 only establishes
+it. Verified live: handed "I try to force the rusted portcullis up with my bare hands," the
+GM narrated the effort, stopped, and emitted
+`[[CHECK: Strength DC 15 — the portcullis doesn't budge, and the water rises another few
+inches while you strain]]`. Handed a failure plus damage as engine results, it narrated the
+failure without softening it.
+
+### Finding 1 — the cached prefix had to be split in two
+
+`GMRequest` now carries `system` **and** `system_volatile`. Only `system` gets the cache
+breakpoint. Without this, one hit point of damage invalidates the cached copy of the entire
+instruction set, because caching is a prefix match — and `Usage`'s own docstring already
+calls a permanently-zero `cache_read` a bug rather than a pricing detail.
+
+Measured, and it works: system blocks are **1401 / 1247 / 1172 tokens** for high / low /
+off scaffolding, so all three clear Sonnet 5's 1024-token cache minimum — which closes the
+P1.1 known issue that flagged the smoke prompt as too small to cache. Consecutive live
+calls reported `cache w1395` then `cache r1395`, i.e. a real cache hit with campaign state
+changing underneath it.
+
+### Finding 2 — "true" is not "known", and the first draft leaked
+
+A live call with a `world`-scope entry reading *"a rusted winch mechanism is hidden under
+silt in the north corner"* had the GM offer, as a menu option, "dig through the silt in the
+north corner **where you noticed the winch mechanism**." Nobody had noticed anything. The
+prompt said canon is true and never said it is not automatically *known*, so the GM treated
+the whole ledger as the party's notes.
+
+This is precisely the knowledge-leakage class this project exists to measure, and it showed
+up on day one of having a prompt. `system_core.md` now states that being true is not being
+known, that a concealed fact stays concealed until the players do something that would
+plausibly find it, and that concealed things must never be surfaced as options. Re-tested:
+the GM offered the same corner as an *observable cue* ("where debris keeps snagging") and
+asked for a Perception check instead of handing the winch over. Pinned by a test.
+
+Worth noting for Phase 4: the GM-only entry (the caravan master's sabotage) was **not**
+leaked in either version — it foreshadowed without naming. Only the unmarked-but-hidden
+case failed, which is the case with no label to hang the rule on.
+
+### Deviations
+
+1. **`GMRequest` gained a field** — a P1.1 API change made during P1.2. See Finding 1;
+   doing it now avoided rewriting Phase 2's ledger consumer around a cache seam that was
+   wrong. `full_system` collapses both halves for backends without block-structured
+   caching (subscription, Ollama), so no adapter loses content. All four adapters have
+   tests for the new shape.
+2. **The `[[CHECK: ...]]` convention is specified here, not in P1.3.** It is prompt
+   content, and the never-invent-mechanics rule is incomplete without it. Flagged because
+   it is a wire format two tasks now share.
+3. **`--character` / `--canon` / `--show-prompt` on `dndc gm`** beyond the task text.
+   `--show-prompt` is the offline debugging tool for the builder and deliberately runs
+   before any billing prompt or backend construction — inspecting a prompt must not need a
+   key, a login, or a decision about who pays.
+4. **Fixed a rich-markup bug in P1.1's code.** Streaming narration went through
+   `console.print(chunk)` with markup enabled, so the GM's own `[[CHECK: ...]]` output
+   would have been parsed as a style tag and swallowed. Now `markup=False`.
+
+### Known issues / notes
+
+- The chronicle layer (D-002's third tier) is not built; the recent window is the whole
+  middle tier for now. Phase 2.
+- `CampaignContext` is assembled from CLI flags, not loaded from `campaigns/<slug>/`.
+  Wiring it to real campaign state belongs with P1.3's turn loop.
+- Scaffolding costs real tokens: `high` is 229 tokens more than `off` on every turn.
+  Cheap, but it is a per-turn cost, not a one-off.
+- Ledger entries render in scope order, not insertion order, so prompt output is stable
+  across runs — which is what makes the cached prefix cacheable at all.
+
+### Recommended next task
+
+**P1.3 — turn loop**: player input → intent pre-check → engine resolves → outcome handed to
+the GM → narration → events logged. Everything it needs now exists: the builder takes
+`resolutions` and returns a `GMRequest`, `Turn`/`CampaignContext.record()` maintain the
+window, and the `[[CHECK: ...]]` form gives the pre-check something concrete to parse. The
+first real piece of new work is parsing that form into a `gm_adjudication` event and
+routing it to `rules/checks.py`.
+
+**FOR DESIGN:** the GM restates engine numbers in its prose — asked to narrate "2 slashing
+damage, HP now 11/20", it wrote "(2 slashing damage — you're at 11/20 HP.)". That is inside
+the rules as written (it was *given* those numbers, not inventing them), and at a table it
+reads naturally. But it duplicates something the CLI can render authoritatively from state,
+and every restatement is a chance to transcribe a number wrong — a wrong number in prose is
+exactly the desync D-001 is written to prevent, arriving by a side door. Options: (a) leave
+it, (b) forbid restating numbers and let the CLI display mechanical results beside the
+prose, (c) allow qualitative reference only ("the rust bites deep") with numbers reserved
+to the UI. My lean is (c), but this is a table-feel question as much as a correctness one,
+and it is cheap to change now and annoying to change after playtest transcripts exist.
 
 ---
 

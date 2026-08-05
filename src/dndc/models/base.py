@@ -72,9 +72,19 @@ class GMRequest:
 
     `system` is kept separate from `messages` because it is the stable cache prefix —
     the canon ledger and world state live here, the turn's input does not.
+
+    The system half is split in two because those halves change on different clocks.
+    `system` holds what is fixed for the whole session (the GM's instructions, the
+    scaffolding setting) and carries the cache breakpoint. `system_volatile` holds
+    campaign state — canon, party HP, the current scene — which changes as play
+    proceeds. Keeping them in one string would mean a single hit point of damage
+    invalidates the cached copy of the entire instruction set (P1.2).
     """
 
     system: str
+    #: State that changes during a session. Rendered after `system`, outside the cache
+    #: breakpoint. Empty for callers that have no state to send.
+    system_volatile: str = ""
     messages: tuple[Message, ...] = ()
     max_tokens: int = DEFAULT_MAX_TOKENS
     #: None means "the seat's configured model" — never hardcode one (OD-5).
@@ -88,12 +98,20 @@ class GMRequest:
     def with_model(self, model: str) -> GMRequest:
         return GMRequest(
             system=self.system,
+            system_volatile=self.system_volatile,
             messages=self.messages,
             max_tokens=self.max_tokens,
             model=model,
             effort=self.effort,
             cache_system=self.cache_system,
         )
+
+    @property
+    def full_system(self) -> str:
+        """Both halves as one string, for backends without a block-structured API."""
+        if not self.system_volatile:
+            return self.system
+        return f"{self.system}\n\n{self.system_volatile}"
 
 
 @dataclass(frozen=True)

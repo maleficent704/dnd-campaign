@@ -267,6 +267,42 @@ def test_check_config_still_works(capsys):
     assert "billing default" in capsys.readouterr().out
 
 
+def test_gm_show_prompt_needs_no_backend(capsys, tmp_path):
+    """P1.2: inspecting the assembled prompt must not need a key, a login, or a
+    billing decision — it is the offline debugging tool for the prompt builder."""
+    canon = tmp_path / "canon.yaml"
+    canon.write_text(
+        "entries:\n"
+        "  - id: c1\n"
+        "    text: The gorge bridge is rotting.\n",
+        encoding="utf-8",
+    )
+
+    code = main([
+        "gm", "I test the first plank.",
+        "--show-prompt",
+        "--campaign-name", "The Salt Road",
+        "--scene", "A rope bridge at dusk.",
+        "--canon", str(canon),
+        "--resolution", "Perception check: 9 vs DC 12 - failure",
+        "--scaffolding", "high",
+    ])
+    out = capsys.readouterr().out
+
+    assert code == 0
+    assert "[[CHECK:" in out                      # the system template
+    assert "The Salt Road" in out                 # volatile campaign state
+    assert "The gorge bridge is rotting." in out  # the ledger was loaded
+    assert "A rope bridge at dusk." in out
+    assert "Perception check: 9 vs DC 12 - failure" in out
+    assert "I test the first plank." in out
+
+
+def test_gm_rejects_an_unknown_scaffolding_level(capsys):
+    with pytest.raises(SystemExit):
+        main(["gm", "hello", "--show-prompt", "--scaffolding", "medium"])
+
+
 def test_version_flag(capsys):
     with pytest.raises(SystemExit) as exit_info:
         main(["--version"])
