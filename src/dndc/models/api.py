@@ -111,7 +111,7 @@ class APIBackend(GMBackend):
             raise _translate(exc) from exc
         duration_ms = int((time.monotonic() - started) * 1000)
 
-        return _to_response(message, call_id=new_call_id(), duration_ms=duration_ms)
+        return _to_response(message, call_id=request.call_id or new_call_id(), duration_ms=duration_ms)
 
     def close(self) -> None:
         close = getattr(self._client, "close", None)

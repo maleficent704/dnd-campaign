@@ -28,6 +28,16 @@ drift-prone, expensive, and destroys the research value of the logs.
 a DC 15 Acrobatics check") but the engine computes it. GM-set DCs are logged as
 adjudication events so ruling fairness is analyzable (D-008).
 
+**Amended 2026-08-05 (per OD-11).** The GM narrates engine outcomes **qualitatively
+only**: it never restates engine-resolved mechanical values (damage numbers, HP,
+roll totals, DCs, modifiers) in prose — the CLI renders those authoritatively from
+state beside the narration, so there is exactly one numeric source of truth on
+screen and no transcription-desync side door. Scope: the ban covers engine state,
+not narrative-world quantities ("three goblins", "fifty gold" remain legal story
+facts). Corollary obligation: **severity fidelity** — with numbers removed, prose
+is the players' felt sense of magnitude, so description must track it (a
+2-damage scratch reads as a scratch; a near-drop reads as dire).
+
 ---
 
 ## D-002 — Canon ledger + three-layer memory (ported)

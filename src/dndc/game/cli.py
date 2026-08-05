@@ -19,7 +19,9 @@ from rich.table import Table
 from dndc import __version__
 from dndc.config import Billing, load_config, save_billing_default
 from dndc.game.campaign import CampaignError, campaign_dir, create_campaign, list_campaigns
+from dndc.game.turn import TurnEngine
 from dndc.gm import (
+    DEFAULT_WINDOW,
     SCAFFOLDING_TEMPLATES,
     CampaignContext,
     CanonLedger,
@@ -318,20 +320,28 @@ def _cmd_roll(console: Console, args: argparse.Namespace) -> int:
 
 def _gm_campaign_context(
     console: Console, args: argparse.Namespace
-) -> CampaignContext | None:
-    """Assemble what the builder needs. A real campaign load arrives with P1.3/P2."""
+) -> tuple[CampaignContext, dict[str, CharacterSheet]] | None:
+    """Assemble what the builder needs, plus the sheets the engine resolves against.
+
+    The party summary in the prompt is deliberately thin (the GM narrates; it does not
+    need a proficiency table), but a check has to resolve against the real scores — so
+    both come back and stay separate. Loading a real campaign directory arrives with P2.
+    """
     campaign = CampaignContext(
         name=args.campaign_name or "Untitled campaign",
         scene=args.scene or "",
     )
     if args.canon:
         campaign.ledger = CanonLedger.load(args.canon)
+
+    sheets: dict[str, CharacterSheet] = {}
     for path in args.character or ():
         sheet = _load_sheet(console, path)
         if sheet is None:
             return None
         campaign.party.append(PartyMember.from_sheet(sheet))
-    return campaign
+        sheets[sheet.name.lower()] = sheet
+    return campaign, sheets
 
 
 def _cmd_gm(console: Console, args: argparse.Namespace) -> int:
@@ -339,9 +349,10 @@ def _cmd_gm(console: Console, args: argparse.Namespace) -> int:
     cfg = load_config()
     scaffolding = args.scaffolding or cfg.gameplay.scaffolding
     builder = GMPromptBuilder(scaffolding=scaffolding)
-    campaign = _gm_campaign_context(console, args)
-    if campaign is None:
+    loaded = _gm_campaign_context(console, args)
+    if loaded is None:
         return 1
+    campaign, _sheets = loaded
     request = builder.build(
         campaign,
         player_input=args.prompt,
@@ -440,6 +451,188 @@ def _cmd_gm(console: Console, args: argparse.Namespace) -> int:
         )
         console.print(f"[dim]logged -> {log.path}[/dim]")
     return 0
+
+
+# --- play ------------------------------------------------------------------
+
+PLAY_HELP = """[bold]commands[/bold]
+  /who            show the party and who is currently acting
+  /switch <name>  hand the keyboard to another player
+  /scene <text>   set where the party is
+  /recap          replay the recent window
+  /quit           end the session
+anything else is what your character says or does."""
+
+
+class _NarrationStream:
+    """Streams GM text to the console with the `[[CHECK: ...]]` tag held back.
+
+    The tag is an instruction to the engine, not prose. Streaming it raw put a literal
+    `[[CHECK: Strength DC 15 ...]]` in front of the players mid-sentence. Text is held
+    from the first `[` and released as soon as it cannot be the start of a tag, so
+    ordinary bracketed prose still comes through.
+    """
+
+    _MARKER = "[[CHECK"
+
+    def __init__(self, console: Console) -> None:
+        self.console = console
+        self._held = ""
+        self._suppressing = False
+
+    def feed(self, chunk: str) -> None:
+        for char in chunk:
+            if self._suppressing:
+                self._held += char
+                if self._held.endswith("]]"):
+                    self._held = ""
+                    self._suppressing = False
+                continue
+
+            if self._held or char == "[":
+                self._held += char
+                candidate = self._MARKER[: len(self._held)]
+                if self._held.upper() == candidate:
+                    if len(self._held) == len(self._MARKER):
+                        self._suppressing = True
+                    continue
+                self._emit(self._held)
+                self._held = ""
+                continue
+
+            self._emit(char)
+
+    def finish(self) -> None:
+        if self._held and not self._suppressing:
+            self._emit(self._held)
+        self._held = ""
+
+    def _emit(self, text: str) -> None:
+        self.console.print(text, end="", markup=False, highlight=False)
+
+
+def _render_mechanics(console: Console, results) -> None:
+    """OD-11: the numbers are rendered here, from state — never quoted by the GM."""
+    if not results:
+        return
+    console.print()
+    for result in results:
+        colour = "green" if result.success else "red"
+        console.print(f"  [{colour}]{result.render()}[/{colour}]")
+        console.print(f"  [dim]seed {result.seed}[/dim]")
+
+
+def _cmd_play(console: Console, args: argparse.Namespace) -> int:
+    """The hot-seat turn loop (P1.3, OD-4)."""
+    cfg = load_config()
+    loaded = _gm_campaign_context(console, args)
+    if loaded is None:
+        return 1
+    campaign, loaded_sheets = loaded
+    if not campaign.party:
+        console.print(
+            "[yellow]no characters loaded[/yellow] — pass --character PATH "
+            "(guided co-creation arrives in P1.4)."
+        )
+        return 1
+
+    billing = resolve_billing(cfg, console, requested=args.billing, ask=not args.no_prompt)
+    try:
+        backend = build_gm_backend(cfg, billing, threshold=args.threshold)
+    except GMBackendError as exc:
+        console.print(f"[red]error:[/red] {exc}")
+        return 1
+
+    seed = args.seed if args.seed is not None else random.randrange(MAX_SEED)
+    log = start_session_log(cfg, campaign=campaign.name, seed=seed, billing=billing)
+    engine = TurnEngine(
+        backend=backend,
+        campaign=campaign,
+        builder=GMPromptBuilder(scaffolding=args.scaffolding or cfg.gameplay.scaffolding),
+        rng=random.Random(seed),
+        log=log,
+        max_tokens=args.max_tokens,
+        billing=billing.value,
+        prices=load_prices(cfg.pricing),
+    )
+
+    sheets = {member.name.lower(): member for member in campaign.party}
+    active = campaign.party[0].name
+
+    console.print(f"[bold]{campaign.name}[/bold] — {backend.name}, seed {seed}")
+    console.print(f"[dim]log -> {log.path}  ·  /help for commands[/dim]\n")
+
+    try:
+        while True:
+            member = sheets[active.lower()]
+            try:
+                raw = Prompt.ask(f"[bold cyan]{member.player} ({member.name})[/bold cyan]")
+            except (EOFError, KeyboardInterrupt):
+                console.print("\n[dim]session ended[/dim]")
+                break
+
+            text = raw.strip()
+            if not text:
+                continue
+            if text.startswith("/"):
+                if _play_command(console, text, campaign, sheets) == "quit":
+                    break
+                if text.split()[0] == "/switch":
+                    target = text[len("/switch"):].strip().lower()
+                    if target in sheets:
+                        active = sheets[target].name
+                continue
+
+            console.print()
+            stream = _NarrationStream(console)
+            result = engine.run(
+                text,
+                player=member.player,
+                sheet=loaded_sheets.get(active.lower()),
+                on_text=stream.feed,
+            )
+            stream.finish()
+            console.print()
+            if result.refused:
+                console.print("[yellow]the model declined that turn[/yellow]")
+            _render_mechanics(console, result.mechanics)
+            console.print()
+    finally:
+        backend.close()
+
+    console.print(f"[dim]logged -> {log.path}[/dim]")
+    return 0
+
+
+def _play_command(console: Console, text: str, campaign, sheets) -> str | None:
+    """Slash commands. Returns 'quit' to end the loop."""
+    parts = text.split(maxsplit=1)
+    command = parts[0].lower()
+    argument = parts[1].strip() if len(parts) > 1 else ""
+
+    if command in {"/quit", "/exit"}:
+        return "quit"
+    if command == "/help":
+        console.print(PLAY_HELP)
+    elif command == "/who":
+        for member in campaign.party:
+            console.print(f"  {member.render()}")
+    elif command == "/switch":
+        if argument.lower() not in sheets:
+            console.print(f"[yellow]no character called {argument!r}[/yellow]")
+    elif command == "/scene":
+        if argument:
+            campaign.scene = argument
+            console.print("[dim]scene set[/dim]")
+        else:
+            console.print(campaign.scene or "[dim](no scene set)[/dim]")
+    elif command == "/recap":
+        for turn in campaign.history[-DEFAULT_WINDOW:]:
+            console.print(f"[dim]{turn.speaker}:[/dim] {turn.player_input}")
+            console.print(turn.narration, markup=False, highlight=False, soft_wrap=True)
+    else:
+        console.print(f"[yellow]unknown command {command}[/yellow] — /help")
+    return None
 
 
 # --- sheet -----------------------------------------------------------------
@@ -617,6 +810,34 @@ def build_parser() -> argparse.ArgumentParser:
     gm.add_argument("--max-tokens", type=int, default=1024)
     gm.add_argument("--log", action="store_true", help="record to a JSONL session log")
 
+    play = commands.add_parser("play", help="hot-seat play session (the turn loop)")
+    play.add_argument("--campaign-name", help="campaign title")
+    play.add_argument("--scene", help="where the party starts")
+    play.add_argument("--canon", help="path to a canon ledger YAML file")
+    play.add_argument(
+        "--character", action="append", metavar="PATH", required=True,
+        help="a character sheet to put in the party (repeatable)",
+    )
+    play.add_argument(
+        "--scaffolding", choices=sorted(SCAFFOLDING_TEMPLATES),
+        help="override config's D-006 scaffolding level",
+    )
+    play.add_argument(
+        "--billing", choices=[b.value for b in Billing],
+        help="override the sticky default for this session (D-004)",
+    )
+    play.add_argument(
+        "--no-prompt", action="store_true", help="don't ask for billing; use the default"
+    )
+    play.add_argument(
+        "--threshold", action="store_true",
+        help="use the Opus escalation model (authored threshold moment, OD-3)",
+    )
+    play.add_argument(
+        "--seed", type=int, help="master seed (one is generated and logged if omitted)"
+    )
+    play.add_argument("--max-tokens", type=int, default=1024)
+
     sheet = commands.add_parser("sheet", help="character sheets")
     sheet_commands = sheet.add_subparsers(dest="sheet_command")
     sheet_show = sheet_commands.add_parser("show", help="render a sheet")
@@ -653,6 +874,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_roll(console, args)
         if args.command == "gm":
             return _cmd_gm(console, args)
+        if args.command == "play":
+            return _cmd_play(console, args)
         if args.command == "sheet":
             if args.sheet_command == "show":
                 return _cmd_sheet_show(console, args)

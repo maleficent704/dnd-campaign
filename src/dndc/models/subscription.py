@@ -157,7 +157,7 @@ class SubscriptionBackend(GMBackend):
             model=request.model or self.model,
             usage=_usage(payload.get("usage") or {}),
             stop_reason=payload.get("stop_reason"),
-            call_id=new_call_id(),
+            call_id=request.call_id or new_call_id(),
             reported_usd=payload.get("total_cost_usd"),
             duration_ms=payload.get("duration_ms") or duration_ms,
         )

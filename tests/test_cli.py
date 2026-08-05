@@ -303,6 +303,44 @@ def test_gm_rejects_an_unknown_scaffolding_level(capsys):
         main(["gm", "hello", "--show-prompt", "--scaffolding", "medium"])
 
 
+def _streamed(chunks) -> str:
+    from rich.console import Console
+
+    from dndc.game.cli import _NarrationStream
+
+    console = Console(force_terminal=False, no_color=True, width=200)
+    stream = _NarrationStream(console)
+    with console.capture() as captured:
+        for chunk in chunks:
+            stream.feed(chunk)
+        stream.finish()
+    return captured.get()
+
+
+def test_stream_suppresses_the_check_tag():
+    """Players must never see the machine instruction mid-sentence."""
+    out = _streamed(["You creep forward.\n\n", "[[CHECK: Stealth DC 14 — seen]]"])
+    assert "You creep forward." in out
+    assert "CHECK" not in out
+
+
+def test_stream_suppresses_a_tag_split_across_chunks():
+    """Real streaming splits wherever it likes, including mid-tag."""
+    out = _streamed(["You creep.", " [[CH", "ECK: Stea", "lth DC 14]]", " "])
+    assert "You creep." in out
+    assert "CHECK" not in out and "Stealth" not in out
+
+
+def test_stream_still_passes_ordinary_brackets_through():
+    out = _streamed(["The sign reads [CLOSED] in faded paint."])
+    assert "[CLOSED]" in out
+
+
+def test_stream_flushes_a_trailing_bracket():
+    out = _streamed(["A lone bracket ["])
+    assert out.endswith("[")
+
+
 def test_version_flag(capsys):
     with pytest.raises(SystemExit) as exit_info:
         main(["--version"])

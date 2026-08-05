@@ -172,6 +172,13 @@ class GMPromptBuilder:
             ),
         )
 
+    def resolution_message(self, resolutions: Sequence[str]) -> Message:
+        """The follow-up after the engine resolved a check the GM asked for."""
+        return Message(
+            role=Role.USER,
+            content=render_template("resolution", resolutions=_resolutions_block(resolutions)),
+        )
+
     # --- assembly ----------------------------------------------------------
 
     def build(
@@ -183,17 +190,35 @@ class GMPromptBuilder:
         model: str | None = None,
         max_tokens: int = DEFAULT_MAX_TOKENS,
         effort: str | None = None,
+        call_id: str | None = None,
+        interim: str = "",
     ) -> GMRequest:
+        """Assemble one call.
+
+        `interim` is the GM's own narration from earlier in *this* turn — the lead-up it
+        wrote before asking for a check. Feeding it back as an assistant message is what
+        stops the second call from restaging an attempt it has already described; without
+        it the player reads the same moment twice.
+        """
+        turn: list[Message] = [
+            self.turn_message(
+                player_input,
+                speaker=speaker,
+                resolutions=() if interim else resolutions,
+            )
+        ]
+        if interim:
+            turn.append(Message(role=Role.ASSISTANT, content=interim))
+            turn.append(self.resolution_message(resolutions))
+
         return GMRequest(
             system=self.system(),
             system_volatile=self.campaign_state(campaign),
-            messages=(
-                *campaign.window(self.window),
-                self.turn_message(player_input, speaker=speaker, resolutions=resolutions),
-            ),
+            messages=(*campaign.window(self.window), *turn),
             model=model,
             max_tokens=max_tokens,
             effort=effort,
+            call_id=call_id,
         )
 
 
@@ -217,8 +242,9 @@ def _resolutions_block(resolutions: Sequence[str]) -> str:
     if not resolutions:
         return _NO_RESOLUTIONS
     header = (
-        "These are the engine's results. They are authoritative — narrate them as "
-        "written and do not change, soften, or extend them:"
+        "These are the engine's results. They are authoritative: narrate them "
+        "faithfully and do not change, soften, or extend them. Convey them "
+        "qualitatively — never quote a number back (OD-11); the interface shows those:"
     )
     body = "\n".join(f"- {line}" for line in resolutions)
     return f"{header}\n\n{body}"

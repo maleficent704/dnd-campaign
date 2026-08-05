@@ -101,7 +101,7 @@ class OllamaBackend(GMBackend):
                 output_tokens=int(raw.get("eval_count") or 0),
             ),
             stop_reason=raw.get("done_reason"),
-            call_id=new_call_id(),
+            call_id=request.call_id or new_call_id(),
             #: Local inference is free — an explicit zero, not an unknown.
             reported_usd=0.0,
             duration_ms=duration_ms,

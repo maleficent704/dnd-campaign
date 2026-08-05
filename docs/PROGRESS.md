@@ -15,12 +15,12 @@ blockers into this list.
 
 ### Open now
 
-- **OD-11 — may the GM restate engine numbers in its prose?** Raised by P1.2 (2026-08-05),
-  non-blocking. Given "2 slashing damage, HP now 11/20" as an engine result, the GM wrote
-  "(2 slashing damage — you're at 11/20 HP.)". Legal under D-001 — it was given the
-  numbers — but it duplicates what the CLI can render from state, and each restatement is
-  a chance to transcribe a number wrong. Options and a lean are in the P1.2 entry below.
-  Cheap to change before playtest transcripts exist; annoying after.
+- **OD-12 — is withholding the numbers from the GM the right reading of OD-11?** Raised by
+  P1.3 (2026-08-05), non-blocking. OD-11 bans the GM from *restating* engine values; P1.3
+  implements it by never giving the GM the values, handing it a severity band instead — so
+  the ban is structural rather than instruction-dependent. Strictly stronger than the
+  ruling, and the one place P1.3 went past the text. The question is whether Phase 3 combat
+  needs raw numbers back. See the `FOR DESIGN:` block in the P1.3 entry.
 
 ### Protocol in effect (Fable, 2026-07-27)
 
@@ -30,6 +30,33 @@ blockers into this list.
   exists.
 - **A Fable ruling takes effect only once recorded in the repo.**
 - **One session, one commit. No code edits under a live play session.**
+
+### Ruled 2026-08-05 (Fable, after P1.2 handoff)
+
+- **OD-11 — ruled: option (c), qualitative narration only.** The GM never restates
+  engine-resolved mechanical values (damage, HP, roll totals, DCs, modifiers) in
+  prose; the CLI renders them authoritatively from state beside the narration —
+  one numeric source of truth, no transcription-desync side door. Two scoping
+  refinements: (1) narrative-world quantities ("three goblins", "fifty gold")
+  remain legal story facts — the ban covers engine state only; (2) the prompt owes
+  a **severity-fidelity** clause — with numbers removed, prose is the felt sense of
+  magnitude and must track it proportionally. D-001 amended same day. Implementation
+  lands with P1.3 (prompt clause + CLI mechanical-result display).
+- **P1.2 deviations 1–4 approved.** The `system`/`system_volatile` cache split now
+  rather than after Phase 2 built a consumer on the wrong seam; `[[CHECK: ...]]`
+  specified in P1.2 is correct — it is prompt content and the wire format is now
+  documented where both tasks can see it; `--show-prompt` running before any
+  billing/backend construction is the right dependency order for a debugging tool;
+  the rich-markup fix (P1.1's streaming would have eaten `[[CHECK]]` as a style
+  tag) is another live-call catch — pattern noted.
+- Known issues accepted (chronicle deferred to Phase 2 as designed; CLI-flag
+  context until P1.3 wires campaign state; 229-token scaffolding delta is an
+  acceptable per-turn cost at `high` and will fall as D-006 fades it; scope-order
+  rendering is what makes the prefix cacheable — good).
+- Noted with appreciation: Finding 2 (true-is-not-known leak, caught live, ruled
+  into the prompt, pinned by test) is the project's research thesis validating
+  itself in week one — and the unmarked-hidden case failing while the GM-only
+  secret held is a Phase 4/7 result in embryo. Preserve both transcripts.
 
 ### Ruled 2026-08-04 (Fable, after P1.1 handoff)
 
@@ -109,6 +136,121 @@ blockers into this list.
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-08-05 — P1.3 turn loop + OD-11 (Claude Code, kelly-pc)
+
+**Completed: P1.3**, and **OD-11 implemented** as ruled. 411 tests passing (44 new), suite
+still offline. Verified live end to end: a full turn with a check costs ~$0.012 on Sonnet.
+
+### OD-11 — implemented structurally, not by instruction
+
+The ruling bans engine-resolved numbers from the GM's prose and puts **severity fidelity**
+in their place. Both halves are in:
+
+- `rules/severity.py` turns an outcome into a band — `succeeded decisively`, `failed, but
+  only just`, `gravely wounded and barely standing`. Damage severity is relative to the
+  character's maximum, because 6 damage is a scratch to one PC and near-lethal to another,
+  and the players' felt sense should track the second reading.
+- **The GM is never handed a number at all.** `describe_check` produces "Brannoc's
+  athletics check failed, but only just." — the roll, the DC, and the modifier never enter
+  the prompt. A model cannot restate a value it was never given, so the ban holds by
+  construction rather than by the GM remembering an instruction on turn 90. A test asserts
+  no engine value appears anywhere in the second call's prompt.
+- The prompt carries the rule anyway (belt and braces), including Fable's narrative-quantity
+  carve-out — three goblins and fifty gold are still the GM's to narrate.
+- The CLI renders the numbers from state, in ASCII, under the narration.
+
+Observed working live: a check missed DC 15 by one, the engine said "failed, but only
+just", and the GM wrote *"for a heartbeat you feel the bar shift — just a whisper of
+movement — then your grip slips."* Severity and prose tracked without a number crossing
+the boundary.
+
+### The loop
+
+`game/turn.py`. A turn is at most two GM calls: the first considers the action and either
+narrates or asks for a resolution; the engine resolves; the second narrates the outcome.
+TASKS.md's "intent pre-check" is the GM's own judgment expressed as `[[CHECK: ...]]` —
+which is exactly D-001's boundary rule, with the DC logged as a `gm_adjudication` so Phase
+7 can audit whether the rulings were fair.
+
+`gm/checkrequest.py` parses the tag. Forgiving about surface form (dash style, `DC15`,
+casing, bare skill vs `Dexterity (Stealth)`) because the producer is a language model and
+losing a turn to an en dash is a bad trade — but **strict about meaning**: a missing DC
+raises rather than inventing the difficulty the GM was supposed to set. Where the GM pairs
+a skill with the wrong ability, the SRD mapping wins; that is rules data, not a judgment
+call.
+
+`dndc play` is the hot-seat loop (OD-4): active player in the prompt, `/switch`, `/who`,
+`/scene`, `/recap`, `/quit`.
+
+### Three findings from running it
+
+1. **The `[[CHECK: ...]]` tag was streaming to the players.** It is machine instruction,
+   and it appeared mid-scene in front of the table. There is now a streaming filter that
+   holds text from the first `[` and releases it as soon as it cannot be a tag, so ordinary
+   bracketed prose still passes. Tested against tags split across chunk boundaries, which
+   is how real streaming actually arrives.
+2. **The second call restaged the first.** The player read the same moment twice — "you
+   hook your fingers under the bar" then "you jam your fingers into the gap". Fixed by
+   feeding the GM its own lead-up back as an assistant message plus a follow-up
+   instruction to continue rather than restate (`prompts/resolution.md`). The scene now
+   reads as one continuous paragraph across the two calls.
+3. **OD-9's pairing could not actually work as built.** P1.1 minted `call_id` *inside* the
+   backend, so the `pending` row — written before the call — could never carry it. The id
+   is now minted by the caller and echoed by every adapter (`GMRequest.call_id`), which is
+   what OD-9 asked for. A crashed call also now writes a `failed` terminal row; without it
+   a crash is indistinguishable from a call still in flight.
+
+### Deviations
+
+1. **`GMRequest.call_id` added** — a P1.1 API change, made because OD-9's requirement was
+   otherwise unimplementable (see finding 3). Backends mint one when the caller does not,
+   so nothing else changed.
+2. **`rules/severity.py` is new and not in the task text.** OD-11's severity-fidelity
+   clause needs a signal to track, and computing it deterministically is what lets the GM
+   be told "how bad" without being told "how much".
+3. **The GM receives severity instead of raw results.** The ruling bans restating numbers;
+   withholding them is a stronger reading than the letter requires. Flagged for Fable
+   below — it is the one place I went past the text of the ruling rather than up to it.
+4. **`gm_adjudication` is written after its `rules_resolution`.** The ruling logically
+   comes first, but D-008 wants `resolution_seq` on the adjudication and the log is
+   append-only — writing it after is what makes that link exact instead of a second
+   patch-up row. Nothing external happens between them, so there is no crash window.
+
+### Known issues / notes
+
+- `MAX_GM_CALLS = 2`. A GM that keeps asking for rolls is a prompt bug, and an unbounded
+  loop would spend real money discovering it. A second request in one turn is ignored.
+- Only ability checks and saves route to the engine. Attacks and damage exist in
+  `rules/checks.py` but nothing requests them until Phase 3.
+- `MechanicalResult.render()` is deliberately ASCII: rich's legacy Windows console path
+  raised `UnicodeEncodeError` on `→` and took the whole line down. The numbers are the one
+  thing that must survive a bad console.
+- Campaign state still comes from CLI flags rather than `campaigns/<slug>/`. Wiring that up
+  belongs with Phase 2's persistence.
+- The hot-seat active player is sticky, not rotating — `/switch` hands over explicitly.
+  Rotation would be wrong during exploration, where one player often acts several times.
+
+### Recommended next task
+
+**P1.4 — guided character co-creation (D-005)**: interview flow → concept → GM proposes an
+allocation via the P0.4 allocators → backstory collaboration → validated sheet → backstory
+facts written as canon entries. The pieces are all present now: `assign_standard_array` /
+`assign_point_buy` from P0.4, the `CanonEntry` type with a `character` scope already
+defined for exactly this, and a turn loop to run the interview in. It is also what removes
+`--character` as a prerequisite for `dndc play`.
+
+**FOR DESIGN:** deviation 3 above wants a sanity check. OD-11 says the GM must not restate
+engine values; I implemented it by not giving the GM the values at all, substituting a
+severity band. That is strictly stronger, and it makes the ban structural — but it does
+remove information the GM might legitimately use, and Phase 3 is where that could bite: a
+GM narrating combat cannot say "you are one hit from going down" if it only knows
+"seriously wounded". My read is that the severity vocabulary should simply grow richer for
+combat (it already distinguishes "gravely wounded and barely standing") rather than the
+numbers coming back. Confirm, or tell me to hand over the raw results and rely on the
+prompt rule.
 
 ---
 

@@ -36,7 +36,9 @@ code + tests + a PROGRESS.md handoff entry.
   templates in `src/dndc/gm/prompts/`.
 - **P1.3** Turn loop: player input → intent pre-check (does this need a rules
   resolution? engine resolves → hand outcome to GM) → GM narration → log events.
-  Hot-seat prompt indicates active player.
+  Hot-seat prompt indicates active player. *(Done 2026-08-05 — `dndc play`; the
+  pre-check is the GM's own `[[CHECK: ...]]` request, parsed and routed to the engine.
+  OD-11 implemented here too: severity bands to the GM, numbers to the interface.)*
 - **P1.4** Guided character co-creation (D-005): interview flow → concept → GM
   proposes allocation via P0.4 allocators → backstory collaboration → validated sheet
   → backstory facts written as canon entries (typed player-character facts).

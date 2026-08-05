@@ -91,6 +91,10 @@ class GMRequest:
     model: str | None = None
     #: low | medium | high | xhigh | max. None leaves the model default alone.
     effort: str | None = None
+    #: Correlation id for this call (OD-9). Set it when the caller must log `pending`
+    #: *before* the call — the id has to exist before the response does, or the two
+    #: writes cannot be paired. Backends echo it; None means the backend mints one.
+    call_id: str | None = None
     #: Cache the system prefix. On by default; the GM prompt is large and rebuilt every
     #: turn from the same ledger, which is exactly the shape caching pays for.
     cache_system: bool = True
@@ -104,6 +108,7 @@ class GMRequest:
             model=model,
             effort=self.effort,
             cache_system=self.cache_system,
+            call_id=self.call_id,
         )
 
     @property

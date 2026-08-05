@@ -63,7 +63,7 @@ class MockBackend(GMBackend):
                 model=request.model or self.model,
                 usage=self.usage,
                 stop_reason="end_turn",
-                call_id=new_call_id(),
+                call_id=request.call_id or new_call_id(),
             )
 
         if on_text is not None and response.text:
