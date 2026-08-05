@@ -15,13 +15,7 @@ blockers into this list.
 
 ### Open now
 
-- **OD-13 — allocation by ranking rather than by numbers.** D-005 says the GM "handles
-  allocation mechanics". P1.4 implements that as the GM proposing an *ordinal priority*
-  over the six abilities (plus, for point buy, a named shape), with the engine assigning
-  the actual scores. Raised in the 2026-08-05 P1.4 entry.
-- **OD-14 — the co-creation transcript accumulates.** D-002 forbids a growing transcript
-  for *play*. The creation interview keeps its own full history. Rationale and bound in
-  the same entry.
+**None.** (OD-13 and OD-14 ruled 2026-08-05 — see below.)
 
 ### Protocol in effect (Fable, 2026-07-27)
 
@@ -31,6 +25,31 @@ blockers into this list.
   exists.
 - **A Fable ruling takes effect only once recorded in the repo.**
 - **One session, one commit. No code edits under a live play session.**
+
+### Ruled 2026-08-05 (Fable, after P1.4 handoff)
+
+- **OD-13 — confirmed.** Allocation by ranking is OD-12's principle applied to
+  creation: the judgment is genuinely ordinal, illegal spreads are unrepresentable
+  rather than validated, and the GM never sees or states a score. Concepts needing
+  unusual spreads get another *named* point-buy shape — the standing "richer
+  engineered signal, never restore the integers" remedy. D-005 amended same day.
+- **OD-14 — confirmed as a scoped, written exception.** The creation interview may
+  keep its own transcript: bounded by completion, history-dependent, discarded
+  after, ~$0.05/character measured. Recorded in D-005 explicitly so it is an
+  exception with a boundary, not a precedent for play prompts. D-002's rule is
+  untouched for play.
+- **P1.4 deviations 3–4 approved.** Generalizing `_NarrationStream` to `[[` means
+  the next tag cannot leak to a player by omission; reusing `gm_narration` with
+  `scene: "character creation"` correctly respects D-008's doc-first rule — the
+  scene field is an adequate discriminator for Phase 7 filtering. (Deviations 1–2
+  are OD-13/OD-14, ruled above.) The stale `pc_fact` doc comment is queued for the
+  next D-008 touch.
+- Known issues accepted. **Two data tasks queued for CC** (non-blocking, before
+  Phase 2 or alongside it): backgrounds granting their two skills, and starting
+  equipment as SRD data — both ingest-scope work, neither blocks P1.5.
+- Live-run discipline elevated: per the four-task pattern (fallbacks, canon leak,
+  display/continuity, creation×5), **a task with a model-facing surface is not
+  done without a live run.** Treat as protocol from here.
 
 ### Ruled 2026-08-05 (Fable, after P1.3 handoff)
 
@@ -162,6 +181,27 @@ blockers into this list.
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-08-05 — `.env` was never loaded (Claude Code, kelly-pc)
+
+**Follow-up fix, found by Kelly asking where to run `dndc` from.** Nothing in the
+codebase read `.env`. `.env.example` documents it, D-004 specifies it, and the `api`
+adapter's own error says *"no ANTHROPIC_API_KEY. Put it in .env"* — but no loader
+existed, so the only way to run the `api` adapter was to already have the key exported.
+Every live run in P1.1–P1.4 worked only because the key happened to be in the session
+environment, which is exactly why four tasks of live testing never caught it.
+
+`config.load_env_file()` now reads it, called from `cli.main()` before anything wants a
+key. Hand-written rather than adding `python-dotenv` — the format is `KEY=value` and this
+is a dozen lines. Two properties worth keeping: it resolves against the **repo root, not
+the working directory**, so `dndc` runs from anywhere; and a real environment variable
+always wins, so an exported key is never silently replaced by a stale file. D-004's
+credential isolation is unaffected — the subscription adapter filters `os.environ`, so a
+key injected from `.env` is still stripped from the child.
+
+507 tests (5 new). Verified from a foreign working directory with the variable unset.
 
 ---
 

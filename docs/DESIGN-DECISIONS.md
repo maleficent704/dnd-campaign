@@ -140,6 +140,16 @@ Claude's storytelling strength on backstory. Backstory elements feed the canon l
 at campaign start (typed as player-character facts), which gives the GM hooks to pay
 off later — the thing human GMs do that makes campaigns feel authored.
 
+**Amended 2026-08-05 (per OD-13 + OD-14).** (1) **Allocation is by ranking:** the GM
+proposes an ordinal priority over the six abilities (or a named point-buy shape); the
+engine assigns actual scores. Illegal spreads are unrepresentable, the GM never sees
+or states a number (consistent with D-001/OD-12), and a concept needing an unusual
+spread gets a new named shape — never free-form numbers. (2) **The creation interview
+is a scoped exception to D-002's no-transcript rule:** it keeps its own full history
+because it is bounded by its own completion, needs its history (late backstory refers
+to early answers), and is discarded afterward (~$0.05/character measured). This
+exception covers character creation only and is not precedent for play prompts.
+
 ---
 
 ## D-006 — New-player scaffolding, BG3-style, fading

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import textwrap
 
 import pytest
@@ -77,3 +78,67 @@ def test_bad_scaffolding_value_is_rejected(tmp_path):
     )
     with pytest.raises(ValidationError):
         load_config(bad)
+
+
+# --- .env loading ----------------------------------------------------------
+
+
+def test_env_file_populates_the_environment(tmp_path, monkeypatch):
+    """`.env.example` and the api adapter's error both promise this works."""
+    from dndc.config import load_env_file
+
+    env = tmp_path / ".env"
+    env.write_text("ANTHROPIC_API_KEY=sk-ant-fake\n", encoding="utf-8")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    assert load_env_file(env) == ["ANTHROPIC_API_KEY"]
+    assert os.environ["ANTHROPIC_API_KEY"] == "sk-ant-fake"
+
+
+def test_a_real_environment_variable_wins(tmp_path, monkeypatch):
+    """An explicitly exported key must not be replaced by a stale file."""
+    from dndc.config import load_env_file
+
+    env = tmp_path / ".env"
+    env.write_text("ANTHROPIC_API_KEY=from-file\n", encoding="utf-8")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "from-shell")
+
+    assert load_env_file(env) == []
+    assert os.environ["ANTHROPIC_API_KEY"] == "from-shell"
+
+
+def test_comments_blanks_quotes_and_export_prefixes(tmp_path, monkeypatch):
+    from dndc.config import load_env_file
+
+    env = tmp_path / ".env"
+    env.write_text(
+        "# a comment\n"
+        "\n"
+        'QUOTED="quoted value"\n'
+        "export EXPORTED=exported\n"
+        "SPACED = spaced\n"
+        "novalue\n",
+        encoding="utf-8",
+    )
+    for name in ("QUOTED", "EXPORTED", "SPACED"):
+        monkeypatch.delenv(name, raising=False)
+
+    loaded = load_env_file(env)
+    assert loaded == ["QUOTED", "EXPORTED", "SPACED"]
+    assert os.environ["QUOTED"] == "quoted value"
+    assert os.environ["EXPORTED"] == "exported"
+    assert os.environ["SPACED"] == "spaced"
+
+
+def test_a_missing_env_file_is_fine(tmp_path):
+    from dndc.config import load_env_file
+
+    assert load_env_file(tmp_path / "nope") == []
+
+
+def test_the_env_path_resolves_against_the_repo_not_the_cwd():
+    """`dndc` must work from any directory — that is the whole point of the fix."""
+    from dndc.config import DEFAULT_CONFIG_PATH, DEFAULT_ENV_PATH
+
+    assert DEFAULT_ENV_PATH.is_absolute()
+    assert DEFAULT_ENV_PATH.parent == DEFAULT_CONFIG_PATH.parent

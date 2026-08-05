@@ -17,7 +17,7 @@ from rich.prompt import Prompt
 from rich.table import Table
 
 from dndc import __version__
-from dndc.config import Billing, load_config, save_billing_default
+from dndc.config import Billing, load_config, load_env_file, save_billing_default
 from dndc.game.campaign import (
     CampaignError,
     campaign_dir,
@@ -1079,6 +1079,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     console = Console()
+
+    # Before anything that might want a key. Resolved against the repo root, so `dndc`
+    # works from any directory.
+    load_env_file()
 
     if args.check_config:
         return _cmd_check_config(console)

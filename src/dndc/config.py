@@ -6,6 +6,7 @@ hardcode a model name or URL (CLAUDE.md, Model seats).
 
 from __future__ import annotations
 
+import os
 import re
 from enum import Enum
 from pathlib import Path
@@ -15,6 +16,46 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config.yaml"
+DEFAULT_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
+
+
+def load_env_file(path: Path | str | None = None) -> list[str]:
+    """Read `.env` into the process environment, returning the names it set.
+
+    D-004 and `.env.example` both say the API key lives in a gitignored `.env`, and the
+    "no ANTHROPIC_API_KEY" error tells you to put it there — but until this existed
+    nothing read the file, so the only way to run the `api` adapter was to already have
+    the key exported. Written by hand rather than pulling in `python-dotenv`: the format
+    here is `KEY=value`, and that is a dozen lines.
+
+    Resolved against the repo root, not the working directory, so it does not matter
+    where `dndc` is invoked from. A real environment variable always wins — an explicitly
+    exported key must not be silently replaced by a stale file.
+    """
+    resolved = Path(path) if path is not None else DEFAULT_ENV_PATH
+    if not resolved.exists():
+        return []
+
+    loaded: list[str] = []
+    for line in resolved.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.startswith("export "):
+            stripped = stripped[len("export "):].lstrip()
+
+        name, separator, value = stripped.partition("=")
+        name = name.strip()
+        if not separator or not name:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+
+        if name not in os.environ:
+            os.environ[name] = value
+            loaded.append(name)
+    return loaded
 
 
 class Billing(str, Enum):
