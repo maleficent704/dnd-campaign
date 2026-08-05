@@ -8,18 +8,30 @@ from __future__ import annotations
 
 import argparse
 import random
+import sys
 from pathlib import Path
 
 from pydantic import ValidationError
 from rich.console import Console
+from rich.prompt import Prompt
 from rich.table import Table
 
 from dndc import __version__
-from dndc.config import load_config
+from dndc.config import Billing, load_config, save_billing_default
 from dndc.game.campaign import CampaignError, campaign_dir, create_campaign, list_campaigns
 from dndc.logging import SessionLog, git_commit_sha, resolve_log_dir
+from dndc.models import (
+    THROTTLE_WARNING,
+    GMBackendError,
+    GMRequest,
+    Message,
+    Role,
+    build_gm_backend,
+    estimate_cost,
+    load_prices,
+)
 from dndc.rules.dice import Advantage, DiceError, roll, roll_d20
-from dndc.schema.events import DiceRoll, RulesResolution, SeatInfo, SessionMeta
+from dndc.schema.events import Cost, DiceRoll, GMNarration, RulesResolution, SeatInfo, SessionMeta
 from dndc.schema.sheet import SKILL_ABILITY, Ability, CharacterSheet, Skill
 from dndc.schema.srd import IngestScope
 from dndc.srd import SRDIngestError, ingest, load_dataset, validate_dataset, verify_pin
@@ -44,7 +56,12 @@ def _seats_for_meta(cfg) -> dict[str, SeatInfo]:
     }
 
 
-def start_session_log(cfg, campaign: str | None = None, seed: int | None = None) -> SessionLog:
+def start_session_log(
+    cfg,
+    campaign: str | None = None,
+    seed: int | None = None,
+    billing: Billing | None = None,
+) -> SessionLog:
     """Open a session log and write its `session_meta` header (D-008)."""
     log = SessionLog.open(resolve_log_dir(cfg.logging.dir))
     sha, dirty = git_commit_sha() if cfg.logging.stamp_commit_sha else (None, False)
@@ -53,7 +70,7 @@ def start_session_log(cfg, campaign: str | None = None, seed: int | None = None)
         dndc_version=__version__,
         commit_sha=sha,
         dirty_worktree=dirty,
-        billing=cfg.billing.default.value,
+        billing=(billing or cfg.billing.default).value,
         campaign=campaign,
         seats=_seats_for_meta(cfg),
         gameplay={
@@ -63,6 +80,40 @@ def start_session_log(cfg, campaign: str | None = None, seed: int | None = None)
         seed=seed,
     )
     return log
+
+
+def resolve_billing(
+    cfg,
+    console: Console,
+    requested: str | None = None,
+    ask: bool = True,
+    remember: bool = True,
+) -> Billing:
+    """Settle the billing path for this session (D-004).
+
+    `--billing` wins; otherwise ask, defaulting to the sticky value from config. The
+    answer becomes the new default, because household usage varies week to week and the
+    last choice is the best guess at the next one.
+    """
+    if requested is not None:
+        choice = Billing(requested)
+    elif ask and sys.stdin.isatty():
+        default = cfg.billing.default
+        console.print(
+            f"[bold]billing[/bold] — [cyan]api[/cyan] (metered, spend-capped) or "
+            f"[cyan]subscription[/cyan] (weekly Max pool)"
+        )
+        answer = Prompt.ask("  mode", choices=[b.value for b in Billing], default=default.value)
+        choice = Billing(answer)
+    else:
+        choice = cfg.billing.default
+
+    if choice is Billing.SUBSCRIPTION:
+        console.print(f"[yellow]heads-up:[/yellow] {THROTTLE_WARNING}")
+
+    if remember and choice is not cfg.billing.default and save_billing_default(choice):
+        console.print(f"[dim]sticky default is now {choice.value}[/dim]")
+    return choice
 
 
 # --- config ----------------------------------------------------------------
@@ -259,6 +310,98 @@ def _cmd_roll(console: Console, args: argparse.Namespace) -> int:
     return 0
 
 
+# --- gm --------------------------------------------------------------------
+
+SMOKE_SYSTEM = (
+    "You are the GM of a Dungeons & Dragons 5e campaign, running the 2014 SRD rules. "
+    "Narrate vividly and briefly. You never invent dice results or mechanical outcomes — "
+    "the engine resolves those and hands them to you."
+)
+
+
+def _cmd_gm(console: Console, args: argparse.Namespace) -> int:
+    """One narration turn. Proves the GM seat end to end (P1.1)."""
+    cfg = load_config()
+    billing = resolve_billing(cfg, console, requested=args.billing, ask=not args.no_prompt)
+
+    try:
+        backend = build_gm_backend(cfg, billing, threshold=args.threshold)
+    except GMBackendError as exc:
+        console.print(f"[red]error:[/red] {exc}")
+        return 1
+
+    request = GMRequest(
+        system=SMOKE_SYSTEM,
+        messages=(Message(role=Role.USER, content=args.prompt),),
+        max_tokens=args.max_tokens,
+    )
+
+    log = start_session_log(cfg, seed=None, billing=billing) if args.log else None
+    console.print(f"[dim]{backend.name} · {request.model or cfg.seats.gm.model_default}[/dim]")
+
+    try:
+        response = backend.generate(request, on_text=lambda chunk: console.print(chunk, end=""))
+    except GMBackendError as exc:
+        console.print(f"\n[red]error:[/red] {exc}")
+        return 1
+    except Exception as exc:  # network / rate limit — retryable, surfaced as-is
+        console.print(f"\n[red]call failed:[/red] {type(exc).__name__}: {exc}")
+        return 1
+    finally:
+        backend.close()
+
+    console.print()
+    if response.refused:
+        console.print(
+            f"[yellow]the model declined this request[/yellow]"
+            + (f" ({response.refusal_category})" if response.refusal_category else "")
+        )
+
+    usage = response.usage
+    console.print(
+        f"[dim]tokens in {usage.input_tokens} · out {usage.output_tokens} · "
+        f"cache r{usage.cache_read_tokens}/w{usage.cache_write_tokens}"
+        + (f" · {response.duration_ms}ms" if response.duration_ms else "")
+        + "[/dim]"
+    )
+
+    prices = load_prices(cfg.pricing)
+    estimated = estimate_cost(usage, response.model, prices)
+    if billing is Billing.SUBSCRIPTION:
+        # D-004: subscription spends the pool, not dollars — the dollar figure is what
+        # the same call would have cost on the API, which is what makes the toggle
+        # measurable rather than a matter of opinion.
+        shown = response.reported_usd if response.reported_usd is not None else estimated
+        if shown is not None:
+            console.print(f"[dim]would have cost ${shown:.4f} at API rates[/dim]")
+    elif estimated is not None:
+        console.print(f"[dim]${estimated:.4f}[/dim]")
+
+    if log is not None:
+        log.emit(
+            GMNarration,
+            text=response.text,
+            model=response.model,
+            call_id=response.call_id,
+            scaffolding=cfg.gameplay.scaffolding,
+        )
+        log.emit(
+            Cost,
+            seat="gm",
+            model=response.model,
+            billing=billing.value,
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
+            cache_read_tokens=usage.cache_read_tokens,
+            cache_write_tokens=usage.cache_write_tokens,
+            usd=response.reported_usd if response.reported_usd is not None else estimated,
+            would_have_cost=billing is Billing.SUBSCRIPTION,
+            call_id=response.call_id,
+        )
+        console.print(f"[dim]logged -> {log.path}[/dim]")
+    return 0
+
+
 # --- sheet -----------------------------------------------------------------
 
 
@@ -398,6 +541,22 @@ def build_parser() -> argparse.ArgumentParser:
         "--log", action="store_true", help="record to a JSONL session log"
     )
 
+    gm = commands.add_parser("gm", help="one GM narration turn (smoke-tests the seat)")
+    gm.add_argument("prompt")
+    gm.add_argument(
+        "--billing", choices=[b.value for b in Billing],
+        help="override the sticky default for this session (D-004)",
+    )
+    gm.add_argument(
+        "--no-prompt", action="store_true", help="don't ask for billing; use the default"
+    )
+    gm.add_argument(
+        "--threshold", action="store_true",
+        help="use the Opus escalation model (authored threshold moment, OD-3)",
+    )
+    gm.add_argument("--max-tokens", type=int, default=1024)
+    gm.add_argument("--log", action="store_true", help="record to a JSONL session log")
+
     sheet = commands.add_parser("sheet", help="character sheets")
     sheet_commands = sheet.add_subparsers(dest="sheet_command")
     sheet_show = sheet_commands.add_parser("show", help="render a sheet")
@@ -432,6 +591,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_campaigns(console)
         if args.command == "roll":
             return _cmd_roll(console, args)
+        if args.command == "gm":
+            return _cmd_gm(console, args)
         if args.command == "sheet":
             if args.sheet_command == "show":
                 return _cmd_sheet_show(console, args)

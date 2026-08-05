@@ -159,6 +159,9 @@ class GMNarration(_Event):
     scene: str | None = None
     model: str | None = None
     status: CallStatus = CallStatus.COMPLETE
+    #: Shared by the pending and terminal writes of one model call (OD-9). Adjacency
+    #: pairing survives Phase 1 but breaks under Phase 4's interleaved NPC calls.
+    call_id: str | None = None
     scaffolding: str | None = None
 
 
@@ -170,6 +173,8 @@ class NPCTurn(_Event):
     text: str
     model: str | None = None
     status: CallStatus = CallStatus.COMPLETE
+    #: Shared by the pending and terminal writes of one model call (OD-9).
+    call_id: str | None = None
     #: pass | blocked | revised — a blocked draft is still logged; leaks are the study.
     gatekeeper_verdict: str | None = None
     gatekeeper_reason: str | None = None
@@ -219,6 +224,9 @@ class Cost(_Event):
     would_have_cost: bool = False
     #: `seq` of the event this call produced.
     for_seq: int | None = None
+    #: The model call this cost belongs to (OD-9) — same id as its gm_narration /
+    #: npc_turn pair, so cost attribution survives interleaved calls.
+    call_id: str | None = None
 
 
 Event = Annotated[

@@ -23,6 +23,22 @@ ollama_endpoints:         # routing table (Phase 4 router consumes this)
   toto-llm: http://192.168.50.11:11434
   sam-pc: http://192.168.50.161:11434     # not yet installed — register only
 
+pricing:                  # USD per million tokens — data, not code (D-008 cost telemetry
+                          # and D-004 would-have-cost). A rate change is a config edit.
+                          # cache_write is 1.25x input, cache_read 0.1x; both are derived
+                          # if omitted. Standard rates: Sonnet 5 has a lower introductory
+                          # rate ($2/$10) through 2026-08-31, so these over-estimate
+                          # slightly until then — deliberately, rather than under-report.
+  claude-sonnet-5:
+    input: 3.00
+    output: 15.00
+  claude-opus-5:
+    input: 5.00
+    output: 25.00
+  claude-haiku-4-5:
+    input: 1.00
+    output: 5.00
+
 gameplay:
   scaffolding: high       # high | low | off — D-006 new-player option surfacing
   play_mode: hotseat      # hotseat until Phase 6 GUI (OD-4)

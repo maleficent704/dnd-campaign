@@ -141,12 +141,17 @@ core loop — and original campaigns are the point of having a generative GM any
 ## D-008 — Event vocabulary + cost telemetry
 
 **Ruling.** Append-only JSONL per session. Event families: `session_meta` (includes
-commit SHA, backend choice, models per seat), `player_input`, `rules_resolution`
-(rolls, DCs, outcomes — fully reproducible), `gm_adjudication` (DC-setting, creative
-rulings), `gm_narration`, `npc_turn` (with gatekeeper verdict), `canon_write` (ledger
-mutations with provenance), `escalation` (threshold-moment Opus calls + trigger),
-`cost` (per-call tokens + dollars; would-have-cost in subscription mode). Extend the
-vocabulary here first, then in code.
+commit SHA, `dirty_worktree` flag, backend choice, models per seat), `player_input`,
+`rules_resolution` (rolls, DCs, outcomes — fully reproducible), `gm_adjudication`
+(DC-setting, creative rulings), `gm_narration`, `npc_turn` (with gatekeeper verdict),
+`canon_write` (ledger mutations with provenance), `escalation` (threshold-moment Opus
+calls + trigger), `cost` (per-call tokens + dollars; would-have-cost in subscription
+mode). Model-call events (`gm_narration`, `npc_turn`) carry `CallStatus`
+(`pending`/`complete`/`failed`) — intent is logged before the external call — and a
+`call_id` (uuid) shared by the pending and terminal writes so pairing is exact even
+under interleaved calls (Phase 4 runs two Ollama endpoints); `cost` events carry the
+same `call_id`. Extend the vocabulary here first, then in code.
+*(Amended 2026-08-04 per OD-9: CallStatus, call_id, dirty_worktree ratified.)*
 
 **Rationale.** Same discipline as the mystery; the additions (canon_write provenance,
 cost, escalation) are what Phase 7's instruments — canon-drift measurement, ruling

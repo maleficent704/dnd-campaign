@@ -11,6 +11,9 @@ dependencies = [
     "pydantic>=2.7",
     "pyyaml>=6.0",
     "rich>=13.7",
+    # `api` GM adapter (D-004). Imported lazily, so the rules core, the CLI, and the
+    # whole test suite still work if it is absent.
+    "anthropic>=0.116",
 ]
 
 [project.optional-dependencies]

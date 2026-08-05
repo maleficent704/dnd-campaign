@@ -169,6 +169,25 @@ def test_model_calls_can_be_logged_as_pending_before_they_are_made():
     assert GMNarration(seq=8, session_id="s1", text="done").status is CallStatus.COMPLETE
 
 
+def test_call_id_pairs_a_model_call_across_its_writes():
+    """OD-9: adjacency pairing breaks under Phase 4's interleaved NPC calls."""
+    call = "abc123"
+    pending = GMNarration(seq=0, session_id="s", text="", status=CallStatus.PENDING, call_id=call)
+    done = GMNarration(seq=1, session_id="s", text="The hall is cold.", call_id=call)
+    cost = Cost(seq=2, session_id="s", seat="gm", model="m", billing="api", call_id=call)
+    assert pending.call_id == done.call_id == cost.call_id == call
+
+
+def test_npc_turns_carry_a_call_id_too():
+    event = NPCTurn(seq=0, session_id="s", npc="miller", text="Aye.", call_id="xyz")
+    assert event.call_id == "xyz"
+
+
+def test_call_id_is_optional():
+    """Deterministic events (rules_resolution, canon_write) have no model call to pair."""
+    assert GMNarration(seq=0, session_id="s", text="x").call_id is None
+
+
 def test_unknown_fields_are_rejected():
     with pytest.raises(ValidationError):
         PlayerInput(seq=0, session_id="s", player="Kelly", text="hi", mood="curious")

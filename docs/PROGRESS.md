@@ -15,17 +15,19 @@ blockers into this list.
 
 ### Open now
 
-- **OD-9 — two D-008 vocabulary additions (non-blocking; ratify or remove before Phase 1
-  writes to them).** D-008 says extend the vocabulary in DESIGN-DECISIONS.md *first*,
-  then in code, so P0.5 flags both rather than assuming them:
-  1. **`CallStatus` (`pending`/`complete`/`failed`) on `gm_narration` and `npc_turn`** —
-     implements D-008's stated pending-state discipline ("log intent before external
-     calls so crashes are reconstructable"), but the field itself is new. It makes a
-     model call two writes; no correlation id was invented to pair them. If exact
-     pairing is wanted, that is a third field and is worth deciding before P1.1.
-  2. **`session_meta.dirty_worktree`** — D-008 says "includes commit SHA"; a SHA from a
-     dirty tree does not describe the code that ran, so this records whether it was.
-     Strictly an addition.
+- **OD-10 — cost model vs. the measured subscription overhead (non-blocking).** P1.1
+  measured both GM paths on the same prompt: `api` $0.0018 (203 tokens) vs
+  `subscription` $0.0599 would-have-cost (~34k tokens), because headless Claude Code
+  carries ~33–40k tokens of its own system prompt and tool definitions **per
+  invocation**. In dollars subscription mode is still free — it draws the weekly Max
+  pool — but a 3-hour session at 80–120 turns is ~4M pool tokens of scaffolding before
+  any campaign content. This cuts against OD-2's rationale ("max subscription value on
+  light coding weeks") and against the plan doc's "$1–5/session" estimate, which now
+  looks high for the API path and understates the pool drain for the subscription path.
+  Nothing is blocked — the D-004 toggle works, both adapters are verified, and the
+  telemetry to re-measure with real prompts is in place. Wanted: whether to revise the
+  cost model / OD-2 rationale, and whether subscription mode should stay the default
+  for play sessions or become the "free experimentation" path only.
 
 ### Protocol in effect (Fable, 2026-07-27)
 
@@ -35,6 +37,20 @@ blockers into this list.
   exists.
 - **A Fable ruling takes effect only once recorded in the repo.**
 - **One session, one commit. No code edits under a live play session.**
+
+### Ruled 2026-08-04 (Fable, after P0.5 handoff — Phase 0 complete)
+
+- **OD-9 — D-008 vocabulary additions: both ratified, plus `call_id`.**
+  `dirty_worktree` ratified (a SHA from a dirty tree is a false replay claim).
+  `CallStatus` ratified as faithful implementation of the pending-state lesson.
+  **`call_id` (uuid) added**: shared by the pending and terminal writes of a model
+  call; `cost` events carry the same id. Rationale: adjacency pairing survives
+  Phase 1 but breaks under Phase 4's interleaved two-endpoint NPC calls — decided
+  now, before P1.1 writes to the schema. D-008 amended same day (vocabulary doc
+  first, per its own rule).
+- **P0.5 deviations 1–2 approved** (full vocabulary typed early = fix the contract
+  now; `dndc campaigns` fine). Known issues accepted; the flush-without-fsync
+  trade-off is explicitly endorsed for play sessions.
 
 ### Ruled 2026-07-27 (Fable, after P0.2 handoff)
 
@@ -78,7 +94,124 @@ blockers into this list.
 
 ---
 
-## 2026-08-04 — P0.5 CLI + JSONL logger — **Phase 0 complete** (Claude Code, kelly-pc)
+## 2026-08-04 — P1.1 model adapters + OD-9 (Claude Code, kelly-pc)
+
+**Completed: P1.1**, and **OD-9 implemented** as ruled. 319 tests passing (49 new), all
+still offline. Both GM adapters verified end to end against live endpoints.
+
+### OD-9 (ruled, now implemented)
+
+`call_id` added to `gm_narration`, `npc_turn`, and `cost`. Tests pin that one model call
+shares an id across its pending write, its terminal write, and its cost event — which is
+the pairing that survives Phase 4's interleaved two-endpoint NPC calls.
+
+### The auth trap — the most important thing in this entry
+
+**Subscription mode was silently billing the API key.** Credential precedence is
+`ANTHROPIC_API_KEY` → `ANTHROPIC_AUTH_TOKEN` → stored claude.ai OAuth login. Because
+`.env` holds a key for the `api` adapter, a plain `claude -p` resolves to *that key* and
+Claude Code prints only a mild warning. Measured on kelly-pc: a four-token reply cost
+**$0.15 of metered API spend** while the CLI would have reported "subscription mode".
+That is D-004's toggle inverted — the mode meant to protect the spend cap was the one
+draining it.
+
+`SubscriptionBackend.child_env()` therefore strips both metered variables from the child
+environment so Claude Code falls through to the stored OAuth login it already refreshes.
+We deliberately do **not** read `~/.claude/.credentials.json`: copying a refresh token
+into our process would duplicate a secret and fight the refresh cycle. An explicit
+`auth_token` is supported for pinning one. There is a direct test for this.
+
+### Cost finding — subscription is not the cheap path
+
+Same prompt, same model, both adapters, measured:
+
+| path | tokens | cost |
+|---|---|---|
+| `api` | 104 in / 99 out | **$0.0018** |
+| `subscription` | 2 in / 94 out **+ ~34k scaffolding** | **$0.0599** would-have-cost |
+
+Headless Claude Code carries its own system prompt and tool definitions — ~33–40k tokens
+**per invocation**, cache-read after the first. `--system-prompt` replaces the persona
+but not the tooling, so the floor stays. In dollars subscription mode is free (it draws
+the weekly pool), but a 3-hour session at 80–120 turns is ~4M tokens of pool on
+scaffolding alone. See `FOR DESIGN:` below — this bears on the plan doc's cost model.
+
+### Adapters
+
+- `models/base.py` — `GMBackend`, `GMRequest`, `GMResponse`, `Usage`. No vendor SDK is
+  imported here, and adapters import theirs lazily, so the rules core and the whole test
+  suite work with nothing installed.
+- `models/api.py` — Anthropic SDK, always streaming (a narration turn is long, and
+  streaming is what keeps a large `max_tokens` off the HTTP timeout). Three request-shape
+  rules encoded because each is a documented 400 on Sonnet 5 / Opus 5: **no sampling
+  parameters**, **no `budget_tokens`**, and **refusals are not exceptions** — a declined
+  request is HTTP 200 with `stop_reason == "refusal"` and empty content, so `refused` is
+  checked before the text is trusted. System prefix carries the cache breakpoint.
+- `models/subscription.py` — `claude -p --output-format json`, parsed against the real
+  schema (captured live, not guessed): `result`, `usage.*`, `total_cost_usd`,
+  `duration_ms`, `is_error`. Tolerates Claude Code printing a warning before the JSON.
+- `models/ollama.py` — native `/api/chat` over stdlib HTTP; no dependency for one JSON
+  POST. Reports `reported_usd=0.0` — local inference is free, which is a fact, not an
+  unknown.
+- `models/mock.py` — records every request, so Phase 1 can assert on what the prompt
+  builder actually sent. This is what keeps the suite offline.
+- `models/pricing.py` — prices from `config.yaml`. An unpriced model returns `None`
+  rather than a guess: Phase 7 reads the cost log as measurement, and a wrong number
+  there is worse than a missing one.
+
+### CLI
+
+`--billing api|subscription`, a session-start prompt defaulting to the sticky value, and
+the subscription throttle warning. The choice writes back as the new default via a
+targeted line edit — a pyyaml round-trip would strip every comment, and the comments in
+`config.yaml` are the only place several decisions are explained. New `dndc gm "..."`
+runs one narration turn end to end and emits `gm_narration` + `cost` sharing a `call_id`.
+
+### Deviations
+
+1. **`fallbacks` is narrower than the docs implied.** The skill guidance recommends
+   opting into server-side refusal fallbacks for Opus-5-class models. I initially gated
+   on "models that can refuse", which included Sonnet 5 — the live API rejects that with
+   `400: 'claude-sonnet-5' does not support the 'fallbacks' parameter`. Now gated on
+   opus-5/fable-5/mythos-5 only; refusal *handling* stays unconditional. Caught by the
+   end-to-end call, not by the unit tests — worth remembering.
+2. **Added `dndc gm`** beyond the task list. P1.1 requires a billing prompt and a
+   `--billing` flag, which need somewhere to live, and a one-shot turn is what proves the
+   seat works before the P1.3 turn loop exists.
+3. **`anthropic` added to dependencies** rather than an extra. D-004 makes the `api`
+   adapter a v1 requirement, so it is not optional — but it is imported lazily so its
+   absence degrades to a clear error instead of breaking the rules core.
+4. **Pricing block added to `config.yaml`.** P0.5 flagged that would-have-cost needs a
+   price table and that config was the right home; this implements that. Standard rates,
+   not Sonnet 5's introductory $2/$10 (live through 2026-08-31) — deliberately
+   over-estimating rather than under-reporting.
+
+### Known issues / notes
+
+- `dndc gm`'s smoke system prompt is ~50 tokens, under Sonnet 5's 1024-token cache
+  minimum, so it reports `cache w0`. Correct, not a caching bug — the real Phase 2
+  ledger-backed prompt will clear the threshold easily.
+- My smoke test flipped the sticky default to `subscription`; restored to `api`. Worth
+  knowing the feature has that side effect when testing.
+- The subscription adapter returns the whole turn at once (headless mode has no token
+  stream), so `on_text` fires once. Callers use one code path either way.
+- `estimate_cost` covers the GM seat only; nothing emits `cost` for the Ollama seats yet.
+
+### Recommended next task
+
+**P1.2 — GM prompt assembly v1**: system template (tone, D-006 scaffolding parameter, the
+never-invent-mechanics rule), context builder over a canon-ledger stub, templates under
+`src/dndc/gm/prompts/`. The mock backend makes this fully testable offline, and it is
+what turns `dndc gm`'s placeholder system prompt into the real thing.
+
+**FOR DESIGN:** the plan doc estimates "$1–5/session at Sonnet API rates" and treats
+subscription mode as the way to stretch value on light coding weeks. The measurement
+above complicates that: headless Claude Code adds ~34k tokens of scaffolding *per turn*,
+so a 3-hour session is roughly 4M pool tokens before any campaign content. The API path
+looks far cheaper than the estimate ($0.0018 for a small turn), and the subscription path
+far heavier than "free" implies. Nothing is blocked — the toggle works and both paths are
+measured — but OD-2's rationale ("max subscription value on light coding weeks") may want
+revisiting now there are numbers, and the plan doc's cost model probably wants updating.
 
 **Completed: P0.5.** 267 tests passing (77 new), still zero network, GPU, or API key.
 **Phase 0 is done** — P0.1–P0.5 all landed. Next phase is P1.1 (model adapters), which
