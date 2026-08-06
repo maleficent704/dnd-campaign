@@ -56,7 +56,12 @@ code + tests + a PROGRESS.md handoff entry.
 Typed canon ledger with provenance + scopes; GM extraction pass writing `canon_write`
 events; chronicle compression job on utility tier; prompt builder consumes
 ledger+chronicle+window (never full transcript). Drift test: replay a logged session,
-assert ledger stability.
+assert ledger stability. **Added per OD-15-session rulings (2026-08-05): item
+acquisition/loss — GM proposes via a `[[GAIN/LOSE]]`-style tag (the `[[CHECK]]`
+precedent), player/CLI confirms, engine mutates the sheet, event logged (doc-first
+per D-008); plus the `/scaffolding` command + CLI hint + phrasing variety per
+amended D-006. The archived Ashmill log (TrueNAS) is the before-picture fixture for
+the drift test.**
 
 ## Phase 3 — Combat
 

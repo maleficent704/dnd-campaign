@@ -29,6 +29,31 @@ blockers into this list.
 - **A Fable ruling takes effect only once recorded in the repo.**
 - **One session, one commit. No code edits under a live play session.**
 
+### Ruled 2026-08-05 (Fable, after the first play session — see docs/playtests/2026-08-05-first-play-session.md)
+
+- **OD-15 — scaffolding fade: player-initiated, meta in the chrome.**
+  `/scaffolding high|low|off` command; CLI (never GM prose) hints periodically that
+  it exists — extends OD-11's fiction/chrome split. No auto-fade: "player ignored
+  the options" is fuzzy lexical detection (npc-village lesson); ignore-rate is in
+  the logs for Phase 7 to revisit with data. Phrasing-variety obligation added at
+  all levels (23/32 identical closings is a formula, not a menu). D-006 amended.
+- **Finding 3 (all DCs = 12): watch, fix pre-authorized.** If anchoring persists
+  next session, CC may add a DC ladder with worked examples to the prompt without
+  a further ruling round-trip. Keep logging `gm_adjudication` as-is.
+- **Finding 4 fix (open_scene) approved retroactively** — live-verified per
+  protocol; "a world already in motion" is the right opening instruction.
+- **Finding 5 (inventory desync) ruled into Phase 2 scope.** Items are state;
+  acquisition joins canon extraction: GM proposes via a `[[GAIN/LOSE]]`-style tag
+  (the `[[CHECK]]` precedent), player/CLI confirms, engine mutates the sheet, event
+  logged. Wire format is CC's call, doc-first per D-008. TASKS.md Phase 2 updated.
+- **Finding 1 (world not remembered): no ruling — it is Phase 2's mandate,
+  now with a before-picture.** Standing data-retention rule invoked: the Ashmill
+  log `logs/20260805-063755.jsonl` must be archived to
+  `\\TRUENAS\shared\data\dnd-campaign-logs\` before Phase 2 analysis (logs/ is
+  gitignored; the NAS copy is the only retention). Kelly notified. Pre-Phase-2
+  sessions are one-shots by nature — set table expectations accordingly.
+- Finding 6: cost model confirmed at ~$1.10/3hr extrapolated; no change.
+
 ### Ruled 2026-08-05 (Fable, after P1.4 handoff)
 
 - **OD-13 — confirmed.** Allocation by ranking is OD-12's principle applied to

@@ -165,6 +165,16 @@ can I do?" is the expected early friction. A good human GM does this instinctive
 new players. Making it an explicit, tunable behavior costs one prompt-template
 parameter and prevents the most likely early-session stall.
 
+**Amended 2026-08-05 (per OD-15, from the first play session).** (1) Fading is
+**player-initiated**: a `/scaffolding high|low|off` command changes the level
+mid-session; no automatic fading — detecting "the player ignored the options" is a
+fuzzy lexical judgment of the kind npc-village showed to be unreliable, and the
+ignore-rate is in the logs for Phase 7 to revisit with data. (2) **Meta lives in the
+chrome:** the CLI, not the GM's prose, occasionally hints that the command exists —
+extending OD-11's split (fiction in prose, interface in chrome). (3) At every level
+the template owes **phrasing variety**: the option menu may be a fixture, its closing
+sentence may not (first session: 23/32 replies ended with the identical sentence).
+
 ---
 
 ## D-007 — SRD 5e (CC-BY-4.0); original campaign content only
