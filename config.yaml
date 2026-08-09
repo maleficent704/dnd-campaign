@@ -2,7 +2,7 @@
 # Never hardcode models/URLs in code — everything routes through this file.
 
 billing:
-  default: api            # api | subscription — sticky default; CLI asks at session start
+  default: subscription            # api | subscription — sticky default; CLI asks at session start
   api_monthly_cap_note: "Console spend cap set by Kelly (~$20-25/mo) — safety rail"
 
 seats:

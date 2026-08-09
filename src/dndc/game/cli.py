@@ -9,7 +9,9 @@ from __future__ import annotations
 import argparse
 import random
 import sys
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Sequence
 
 from pydantic import ValidationError
 from rich.console import Console
@@ -58,6 +60,9 @@ from dndc.srd import SRDIngestError, ingest, load_dataset, validate_dataset, ver
 from dndc.srd.repository import SRDRepository
 
 MAX_SEED = 2**32
+
+#: Rendered into every message that has to name the levels, so they cannot drift apart.
+SCAFFOLDING_CHOICES = " | ".join(sorted(SCAFFOLDING_TEMPLATES))
 
 
 def _seats_for_meta(cfg) -> dict[str, SeatInfo]:
@@ -491,12 +496,67 @@ def _cmd_gm(console: Console, args: argparse.Namespace) -> int:
 # --- play ------------------------------------------------------------------
 
 PLAY_HELP = """[bold]commands[/bold]
-  /who            show the party and who is currently acting
-  /switch <name>  hand the keyboard to another player
-  /scene <text>   set where the party is
-  /recap          replay the recent window
-  /quit           end the session
+  /who                    show the party and who is currently acting
+  /switch <name>          hand the keyboard to another player
+  /scaffolding <level>    high | low | off — how much the GM offers you options
+  /scene <text>           set where the party is
+  /recap                  replay the recent window
+  /quit                   end the session
 anything else is what your character says or does."""
+
+#: How often the CLI reminds players that `/scaffolding` exists, in player turns.
+#: D-006 as amended puts the fade in the players' hands, which only works if they know
+#: the handle is there — and OD-11 puts meta in the chrome, so the GM cannot mention it.
+SCAFFOLDING_HINT_EVERY = 12
+
+
+@dataclass
+class CommandResult:
+    """What a slash command asks the loop to do next."""
+
+    quit: bool = False
+    #: Name of the character who now holds the keyboard, if the command changed it.
+    active: str | None = None
+
+
+def resolve_member(query: str, party: Sequence[PartyMember]) -> list[PartyMember]:
+    """Who a player could mean by `query` — narrowest reading first.
+
+    At a table you say "Corin", not "Corin Vale", and the first two-player session hit
+    exactly that: `/switch corin` was rejected because the lookup was an exact full-name
+    match. Matching runs in tiers — full name, then a single name out of the full one,
+    then a prefix — and stops at the first tier that hits, so a unique first name is
+    never made ambiguous by some longer name it happens to prefix.
+
+    Player names match too. "Sam's turn" is as natural a thing to say as the character's
+    name, and character names are tried first, so a collision resolves toward the
+    character.
+
+    Returns every candidate: none means unknown, more than one means genuinely ambiguous
+    and the caller should say so rather than pick.
+    """
+    wanted = query.strip().casefold()
+    if not wanted:
+        return []
+
+    def whole(member: PartyMember, field: str) -> str:
+        return getattr(member, field).casefold()
+
+    def words(member: PartyMember, field: str) -> tuple[str, ...]:
+        return tuple(whole(member, field).split())
+
+    tiers = (
+        lambda member, field: whole(member, field) == wanted,
+        lambda member, field: wanted in words(member, field),
+        lambda member, field: whole(member, field).startswith(wanted)
+        or any(word.startswith(wanted) for word in words(member, field)),
+    )
+    for matches in tiers:
+        for field in ("name", "player"):
+            found = [member for member in party if matches(member, field)]
+            if found:
+                return found
+    return []
 
 
 class _NarrationStream:
@@ -607,6 +667,7 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
 
     sheets = {member.name.lower(): member for member in campaign.party}
     active = campaign.party[0].name
+    player_turns = 0
 
     console.print(f"[bold]{campaign.name}[/bold] — {backend.name}, seed {seed}")
     console.print(f"[dim]log -> {log.path}  ·  /help for commands[/dim]\n")
@@ -640,14 +701,14 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
             if not text:
                 continue
             if text.startswith("/"):
-                if _play_command(console, text, campaign, sheets) == "quit":
+                outcome = _play_command(console, text, campaign, engine.builder)
+                if outcome.quit:
                     break
-                if text.split()[0] == "/switch":
-                    target = text[len("/switch"):].strip().lower()
-                    if target in sheets:
-                        active = sheets[target].name
+                if outcome.active:
+                    active = outcome.active
                 continue
 
+            player_turns += 1
             console.print()
             stream = _NarrationStream(console)
             result = engine.run(
@@ -661,6 +722,11 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
             if result.refused:
                 console.print("[yellow]the model declined that turn[/yellow]")
             _render_mechanics(console, result.mechanics)
+            if should_hint_scaffolding(player_turns, engine.builder.scaffolding):
+                console.print(
+                    f"\n[dim]— GM offering you options more than you want? "
+                    f"/scaffolding {SCAFFOLDING_CHOICES}[/dim]"
+                )
             console.print()
     finally:
         backend.close()
@@ -669,22 +735,23 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
     return 0
 
 
-def _play_command(console: Console, text: str, campaign, sheets) -> str | None:
-    """Slash commands. Returns 'quit' to end the loop."""
+def _play_command(console: Console, text: str, campaign, builder) -> CommandResult:
+    """Slash commands. The loop acts on what comes back."""
     parts = text.split(maxsplit=1)
     command = parts[0].lower()
     argument = parts[1].strip() if len(parts) > 1 else ""
 
     if command in {"/quit", "/exit"}:
-        return "quit"
+        return CommandResult(quit=True)
     if command == "/help":
         console.print(PLAY_HELP)
     elif command == "/who":
         for member in campaign.party:
             console.print(f"  {member.render()}")
     elif command == "/switch":
-        if argument.lower() not in sheets:
-            console.print(f"[yellow]no character called {argument!r}[/yellow]")
+        return _switch_command(console, argument, campaign)
+    elif command == "/scaffolding":
+        _scaffolding_command(console, argument, builder)
     elif command == "/scene":
         if argument:
             campaign.scene = argument
@@ -697,7 +764,53 @@ def _play_command(console: Console, text: str, campaign, sheets) -> str | None:
             console.print(turn.narration, markup=False, highlight=False, soft_wrap=True)
     else:
         console.print(f"[yellow]unknown command {command}[/yellow] — /help")
-    return None
+    return CommandResult()
+
+
+def should_hint_scaffolding(player_turns: int, scaffolding: str) -> bool:
+    """Whether the chrome should mention `/scaffolding` after this turn.
+
+    Only a periodic nudge, and only while there is something left to turn down — at
+    `off` the command has nothing to offer and the reminder is just noise.
+    """
+    if scaffolding == "off" or player_turns <= 0:
+        return False
+    return player_turns % SCAFFOLDING_HINT_EVERY == 0
+
+
+def _switch_command(console: Console, argument: str, campaign) -> CommandResult:
+    if not argument:
+        console.print("[yellow]who?[/yellow] — /switch <name>, or /who to see the party")
+        return CommandResult()
+
+    matches = resolve_member(argument, campaign.party)
+    if not matches:
+        known = ", ".join(member.name for member in campaign.party)
+        console.print(f"[yellow]no character called {argument!r}[/yellow] — {known}")
+        return CommandResult()
+    if len(matches) > 1:
+        options = ", ".join(member.name for member in matches)
+        console.print(f"[yellow]{argument!r} could be:[/yellow] {options}")
+        return CommandResult()
+
+    member = matches[0]
+    console.print(f"[dim]{member.player} has the keyboard — {member.name}[/dim]")
+    return CommandResult(active=member.name)
+
+
+def _scaffolding_command(console: Console, argument: str, builder) -> None:
+    """D-006 as amended by OD-15: the players lower it, nothing lowers it for them."""
+    if not argument:
+        console.print(f"[dim]scaffolding: {builder.scaffolding}[/dim] — /scaffolding {SCAFFOLDING_CHOICES}")
+        return
+    try:
+        builder.set_scaffolding(argument.lower())
+    except ValueError:
+        console.print(
+            f"[yellow]{argument!r} is not a scaffolding level[/yellow] — {SCAFFOLDING_CHOICES}"
+        )
+        return
+    console.print(f"[dim]scaffolding: {builder.scaffolding}[/dim]")
 
 
 # --- create-character ------------------------------------------------------

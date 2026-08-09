@@ -9,3 +9,22 @@ entries:
     before the law caught up, and Corin has never learned what became of the others.
   scope: character
   subject: Corin Vale
+- id: pc-brother-hammond-1
+  text: Brother Hammond spent six years in a doomsday cult whose prophet was later
+    exposed as a con man.
+  scope: character
+  subject: Brother Hammond
+- id: pc-brother-hammond-2
+  text: Hammond still remembers and sometimes unconsciously recites the cult's chants,
+    spoken in Celestial.
+  scope: character
+  subject: Brother Hammond
+- id: pc-brother-hammond-3
+  text: Hammond has taken a personal vow never to lie, as penance for the deceptions
+    of his former prophet.
+  scope: character
+  subject: Brother Hammond
+- id: pc-brother-hammond-4
+  text: Hammond now travels doing good deeds to atone for his years in the cult.
+  scope: character
+  subject: Brother Hammond

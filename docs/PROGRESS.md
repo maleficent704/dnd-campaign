@@ -15,10 +15,24 @@ blockers into this list.
 
 ### Open now
 
-- **OD-15 — what triggers D-006 scaffolding to fade?** The design says it fades as
-  players find their feet; nothing implements the fade, and the first playtest showed
-  `high` wearing out inside a single session (23 of 32 replies ending in the same
-  sentence). Raised in the 2026-08-05 playtest entry.
+- **OD-16 — subscription `would_have_cost` is not comparable to `api` cost, and one part
+  of the gap looks like a defect.** OD-10 already ruled on headless CC's ~33–40k tokens of
+  per-invocation scaffolding and set the policy (`api` is the sticky default for play);
+  this is not that question again. What the two-player session adds is a **second, smaller
+  effect that OD-10 did not cover**: in subscription mode the log shows 8,900–11,100
+  `cache_write` tokens on *every* turn, where `api` writes once and then only reads. A
+  cache that is rewritten each turn is not doing its job, and unlike the scaffolding
+  overhead it is not obviously inherent. Net measured: ~$0.08/GM-turn vs ~$0.006 on `api`.
+  The question for a ruling is narrow — should `would_have_cost` be reported raw (and the
+  research cost model told to compare like with like), or should subscription-mode cost
+  measurement simply be declared invalid and all cost figures taken from `api` runs? My
+  instinct is the latter plus a documented caveat; inventing an adjusted number is worse
+  than declining to report one. Raised in the 2026-08-09 entry; not blocking.
+  Separately and not needing a ruling: `input_tokens` logs as `2` on every
+  subscription call — a usage-capture hole in that adapter, which is why the cache-write
+  effect went unnoticed until the log was summed. CC to fix.
+
+*(OD-15 was ruled 2026-08-05 and implemented 2026-08-09 — see below.)*
 
 ### Protocol in effect (Fable, 2026-07-27)
 
@@ -209,6 +223,101 @@ blockers into this list.
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-08-09 — the two-player session, `/switch`, and OD-15 (Claude Code, kelly-pc)
+
+**Phase 1 is complete.** Kelly and Sam played the first two-player session on 2026-08-07
+(*The Salt Road*, 8 player turns, 4 checks, 70 minutes) — that session had no write-up and
+no handoff entry, so this one covers it, plus the bug it exposed and the OD-15 ruling that
+was sitting unimplemented. **589 tests passing** (27 new), still offline.
+
+Write-up: `docs/playtests/2026-08-07-two-player-session.md`.
+
+### The session
+
+Sam built **Brother Hammond** in three exchanges from "let's think a little more
+ridiculous" — an ex-doomsday-cultist fighter sworn never to lie, four canon facts. Play
+opened on a caravan standoff; Kelly cased the wagons, got a canvas flap open, tried to
+grift her way out of being caught, failed twice, and Sam walked Hammond over to stand
+beside her as the session ended.
+
+Hot-seat rotation — the last untested part of Phase 1 — works. The GM held two characters
+without confusion and wrote Hammond *arriving* rather than restaging the scene.
+
+### `/switch` was unusable, and the reason is the interesting part
+
+`/switch corin` was rejected; the lookup wanted the exact full name. The rule was written
+out **twice** — once in `_play_command` to decide the error message, once in the loop to
+decide the switch — so the two could disagree about the same input.
+
+Now one `resolve_member()`, matching in tiers (full name → a single name out of it →
+prefix), stopping at the first tier that hits so a unique first name is never made
+ambiguous by a longer name it prefixes. Player names match too. Ambiguity is reported
+rather than guessed. Both call sites read it; the loop acts on a `CommandResult` instead
+of re-parsing the command text it just handed over.
+
+### OD-15 implemented
+
+Ruled 2026-08-05, still listed under "Open now" at the head of this file — the pickup
+protocol caught it before TASKS.md order did, which is what the protocol is for.
+
+- `/scaffolding high|low|off` mid-session, via a new `GMPromptBuilder.set_scaffolding()`.
+  Costs one cache miss when used, which is the right price for a setting touched once a
+  session.
+- The CLI hints the command exists every 12 player turns, and never at `off` where there
+  is nothing left to turn down. A test asserts **no prompt template mentions
+  `/scaffolding`** — if the GM knew about it, it would eventually offer it in prose, and
+  OD-11 puts the interface in the chrome.
+- Phrasing-variety clauses added to the `high` and `low` templates, naming the 23-of-32
+  failure directly. `off` has no menu, so it has no closing sentence to vary.
+
+**No D-008 change was needed.** `gm_narration` already carries a `scaffolding` field, so a
+mid-session change is recorded per turn and Phase 7 can reconstruct the level at any point
+without a new event type. Verified in a live run: `session_meta` says `high`, turn 6 says
+`low`.
+
+### Live run (protocol: a model-facing surface is not done without one)
+
+Piped a scripted session through `dndc play`: `/who`, `/switch corin`, `/scaffolding`,
+`/scaffolding low`, one turn, `/quit`. Switch handed over on the first name, the level
+changed, the log recorded it. Two observations, both n=1:
+
+- The first reply after dropping to `low` still offered three options. The window in front
+  of it contained its own `high` opening, and it imitated itself. Watch whether the level
+  takes hold a turn or two later; do not act on one turn.
+- Both opening scenes generated this session closed with "or something else entirely" —
+  the variety clause is not obviously biting on openings yet.
+
+### Deviations
+
+1. **`_play_command` returns a `CommandResult`** rather than `"quit" | None`. The old
+   signature could not express "the active player changed", which is why that logic was
+   duplicated in the loop.
+2. **`/switch` matches player names as well as character names.** Beyond the ruling, but
+   "Sam's turn" is as natural as "Corin's turn" at a two-person table.
+
+### Known issues / notes
+
+- `config.yaml` billing default is now `subscription`, set by Kelly during the 08-07
+  session. Committed as-is — it is a real preference, not a test artifact.
+- `input_tokens` reads `2` on every subscription-mode cost row. The usage capture in that
+  adapter is broken, and it hid finding 5 until the log was summed.
+- Backgrounds and starting equipment still not ingested (unchanged, queued).
+- Fable's pre-authorised DC ladder is **not** recommended — DCs came out 12/12/13/14 this
+  session, priced situationally. Anchoring was an n=3 artifact.
+
+### Recommended next task
+
+**Phase 2 — canon ledger + memory.** Two campaigns have now demonstrated the same hole
+from opposite ends: the co-creation backstory drives every scene, and nothing written
+during play survives the process. Two logged sessions exist as drift fixtures (Ashmill,
+the Salt Road waystation).
+
+**FOR DESIGN:** one, non-blocking — **OD-16**, promoted to the Open block above:
+`would_have_cost` in subscription mode measures headless CC's harness overhead, not the
+campaign, and OD-10's cost band reads it as the campaign.
 
 ---
 

@@ -47,9 +47,14 @@ code + tests + a PROGRESS.md handoff entry.
   the party and canon from disk, so `--character` is optional.)*
 - **P1.5** First playtest session (Kelly + Sam): a short original scenario authored by
   the GM at runtime. Findings to `docs/playtests/`; tag design questions `FOR DESIGN:`.
-  *(Solo half done 2026-08-05 — Kelly + Corin Vale, 29 turns, $0.50;
-  `docs/playtests/2026-08-05-first-play-session.md`. Still outstanding: a two-player
-  session, which is the only untested part of Phase 1 — Sam has no character yet.)*
+  *(Done. Solo 2026-08-05 — Kelly + Corin Vale, 29 turns, $0.50;
+  `docs/playtests/2026-08-05-first-play-session.md`. Two-player 2026-08-07 — Kelly +
+  Sam in *The Salt Road*, 8 turns, 70 min;
+  `docs/playtests/2026-08-07-two-player-session.md`. Hot-seat rotation works;
+  `/switch` name matching fixed 2026-08-09.)*
+
+**Phase 1 complete 2026-08-09.** Also landed here: OD-15's `/scaffolding high|low|off`
+command, CLI hint, and template phrasing variety (D-006 as amended).
 
 ## Phase 2 — Canon ledger + memory (D-002)
 

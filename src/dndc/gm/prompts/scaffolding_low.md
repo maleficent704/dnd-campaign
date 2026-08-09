@@ -10,3 +10,7 @@ own and give them room to invent.
 Keep making sure the *information* they would need to invent something is present in your
 description. A player who cannot see an option is stuck for a worse reason than one who
 has not thought of it yet.
+
+When you do offer something, say it differently each time. A stock phrase repeated every
+few replies reads as a print statement rather than an invitation, and players stop
+hearing it.

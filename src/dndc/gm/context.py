@@ -136,13 +136,23 @@ class GMPromptBuilder:
     """Builds the `GMRequest` for one turn. Holds no state between calls."""
 
     def __init__(self, scaffolding: str = "high", window: int = DEFAULT_WINDOW) -> None:
+        self.window = window
+        self.set_scaffolding(scaffolding)
+
+    def set_scaffolding(self, scaffolding: str) -> None:
+        """Change the D-006 level mid-session (OD-15's `/scaffolding` command).
+
+        Safe to call between turns: `system()` re-renders per call, so the next request
+        simply carries a different directive. It does cost one cache miss — the system
+        half is the cached prefix and its text has changed — which is the correct price
+        for a setting the players are expected to touch once or twice a session.
+        """
         if scaffolding not in SCAFFOLDING_TEMPLATES:
             raise ValueError(
                 f"unknown scaffolding level {scaffolding!r} "
                 f"(expected one of: {', '.join(sorted(SCAFFOLDING_TEMPLATES))})"
             )
         self.scaffolding = scaffolding
-        self.window = window
 
     # --- the three parts ---------------------------------------------------
 

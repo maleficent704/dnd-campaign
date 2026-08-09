@@ -303,6 +303,171 @@ def test_gm_rejects_an_unknown_scaffolding_level(capsys):
         main(["gm", "hello", "--show-prompt", "--scaffolding", "medium"])
 
 
+# --- /switch name matching (P1.5 live bug) ---------------------------------
+
+
+@pytest.fixture
+def party():
+    from dndc.gm import PartyMember
+
+    return [
+        PartyMember(name="Corin Vale", player="Kelly"),
+        PartyMember(name="Brother Hammond", player="Sam"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "query,expected",
+    [
+        ("Corin Vale", "Corin Vale"),          # the only form that used to work
+        ("corin", "Corin Vale"),               # what Kelly actually typed
+        ("CORIN", "Corin Vale"),
+        ("  hammond  ", "Brother Hammond"),    # a surname, not the first word
+        ("cor", "Corin Vale"),                 # prefix
+        ("brother ham", "Brother Hammond"),    # prefix of the whole name
+        ("Kelly", "Corin Vale"),               # the player, not the character
+        ("sam", "Brother Hammond"),
+    ],
+)
+def test_switch_matches_the_way_a_person_says_a_name(party, query, expected):
+    from dndc.game.cli import resolve_member
+
+    assert [member.name for member in resolve_member(query, party)] == [expected]
+
+
+def test_switch_reports_ambiguity_instead_of_guessing(party):
+    from dndc.game.cli import resolve_member
+    from dndc.gm import PartyMember
+
+    crowded = [*party, PartyMember(name="Brother Aldric", player="Nat")]
+    matches = resolve_member("brother", crowded)
+    assert {member.name for member in matches} == {"Brother Hammond", "Brother Aldric"}
+
+
+def test_switch_prefers_the_exact_name_over_a_longer_one_it_prefixes(party):
+    """A unique first name must not be made ambiguous by a name it happens to prefix."""
+    from dndc.game.cli import resolve_member
+    from dndc.gm import PartyMember
+
+    crowded = [*party, PartyMember(name="Corinth Bell", player="Nat")]
+    assert [m.name for m in resolve_member("corin", crowded)] == ["Corin Vale"]
+
+
+def test_switch_prefers_a_character_over_a_player_of_the_same_name():
+    from dndc.game.cli import resolve_member
+    from dndc.gm import PartyMember
+
+    party = [
+        PartyMember(name="Sam", player="Kelly"),
+        PartyMember(name="Brother Hammond", player="Sam"),
+    ]
+    assert [m.name for m in resolve_member("sam", party)] == ["Sam"]
+
+
+@pytest.mark.parametrize("query", ["", "   ", "nobody", "zzz"])
+def test_switch_matches_nothing_it_should_not(party, query):
+    from dndc.game.cli import resolve_member
+
+    assert resolve_member(query, party) == []
+
+
+# --- /scaffolding (OD-15) --------------------------------------------------
+
+
+def _command(text: str, campaign, builder):
+    from rich.console import Console
+
+    from dndc.game.cli import _play_command
+
+    console = Console(force_terminal=False, no_color=True, width=200)
+    with console.capture() as captured:
+        outcome = _play_command(console, text, campaign, builder)
+    return outcome, captured.get()
+
+
+@pytest.fixture
+def play_context(party):
+    from dndc.gm import CampaignContext, GMPromptBuilder
+
+    return CampaignContext(name="The Salt Road", party=list(party)), GMPromptBuilder(
+        scaffolding="high"
+    )
+
+
+def test_scaffolding_command_changes_the_level_mid_session(play_context):
+    campaign, builder = play_context
+    outcome, out = _command("/scaffolding low", campaign, builder)
+
+    assert builder.scaffolding == "low"
+    assert "low" in out
+    assert not outcome.quit and outcome.active is None
+    # The directive the GM actually receives has to have changed with it.
+    assert "no longer need a menu" in builder.system()
+
+
+def test_scaffolding_command_reports_the_level_when_asked_bare(play_context):
+    campaign, builder = play_context
+    _, out = _command("/scaffolding", campaign, builder)
+
+    assert "high" in out
+    assert builder.scaffolding == "high"
+
+
+def test_scaffolding_command_rejects_a_level_that_does_not_exist(play_context):
+    campaign, builder = play_context
+    _, out = _command("/scaffolding medium", campaign, builder)
+
+    assert builder.scaffolding == "high"
+    assert "medium" in out
+
+
+def test_switch_command_hands_over_on_a_first_name(play_context):
+    campaign, builder = play_context
+    outcome, out = _command("/switch hammond", campaign, builder)
+
+    assert outcome.active == "Brother Hammond"
+    assert "Sam" in out
+
+
+def test_switch_command_names_the_party_when_it_cannot_match(play_context):
+    campaign, builder = play_context
+    outcome, out = _command("/switch Gorbo", campaign, builder)
+
+    assert outcome.active is None
+    assert "Corin Vale" in out and "Brother Hammond" in out
+
+
+def test_quit_still_ends_the_loop(play_context):
+    campaign, builder = play_context
+    assert _command("/quit", campaign, builder)[0].quit
+
+
+@pytest.mark.parametrize(
+    "turns,level,expected",
+    [
+        (0, "high", False),
+        (1, "high", False),
+        (12, "high", True),
+        (24, "low", True),
+        (12, "off", False),   # nothing left to turn down
+    ],
+)
+def test_the_chrome_hints_periodically_never_the_gm(turns, level, expected):
+    """OD-11's split: the GM may not mention the interface, so the CLI must."""
+    from dndc.game.cli import should_hint_scaffolding
+
+    assert should_hint_scaffolding(turns, level) is expected
+
+
+def test_no_prompt_template_mentions_the_scaffolding_command():
+    """If the GM knew the command existed it would eventually offer it in prose."""
+    from dndc.gm.context import SCAFFOLDING_TEMPLATES
+    from dndc.gm.templates import render_template
+
+    for name in SCAFFOLDING_TEMPLATES.values():
+        assert "/scaffolding" not in render_template(name)
+
+
 def _streamed(chunks) -> str:
     from rich.console import Console
 

@@ -27,6 +27,12 @@ correct: rogue saves (dex/int), 4 class skills from the rogue list, HP 9 (8+con)
 
 ## The pattern (this is the finding)
 
+**Confirmed from the control side, same day:** a standard human fighter (Brother
+Hammond, flat +1-to-all species bonuses — zero choice-points) came out of the same
+flow with every ability, save, skill, AC, and HP value correct. The only omissions
+were, again, choices: Fighting Style and the human bonus language. Choice-dependent
+grants are the bug's exact boundary.
+
 Every omission except the tools proficiency is a **choice-point inside a species/class
 grant**. Fixed grants all came through; grants requiring a player/GM choice were
 silently dropped — `Concept`/the `[[PROPOSE]]` format presumably has no slot for them,
