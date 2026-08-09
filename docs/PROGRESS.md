@@ -315,6 +315,11 @@ from opposite ends: the co-creation backstory drives every scene, and nothing wr
 during play survives the process. Two logged sessions exist as drift fixtures (Ashmill,
 the Salt Road waystation).
 
+Both are on the NAS and hash-verified, so Phase 2 can start cold:
+`\\TRUENAS\shared\data\dnd-campaign-logs\` holds `20260805-063755.jsonl` (Ashmill,
+archived by Kelly 08-06) and both Salt Road logs (archived 08-09). `logs/` is gitignored;
+those copies are the retention.
+
 **FOR DESIGN:** one, non-blocking — **OD-16**, promoted to the Open block above:
 `would_have_cost` in subscription mode measures headless CC's harness overhead, not the
 campaign, and OD-10's cost band reads it as the campaign.

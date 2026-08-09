@@ -2,7 +2,9 @@
 
 **Date:** 2026-08-07 · **Players:** Kelly (Corin Vale), Sam (Brother Hammond)
 **Billing:** subscription (Max) · **Commit:** `7e87775` (dirty worktree)
-**Logs:** `logs/20260807-172707.jsonl` (Sam's co-creation), `logs/20260807-174124.jsonl` (play)
+**Logs:** `20260807-172707.jsonl` (Sam's co-creation), `20260807-174124.jsonl` (play) —
+archived 2026-08-09 to `\\TRUENAS\shared\data\dnd-campaign-logs\`, hash-verified. `logs/`
+is gitignored, so the NAS copy is the retention.
 **Length:** 13 min creation + 57 min play · **8 player turns**, 14 GM replies, 4 checks
 **Would-have-cost:** $1.2765 total — see finding 5, this number does not mean what the
 first playtest's number meant.
