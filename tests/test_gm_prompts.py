@@ -369,3 +369,70 @@ def test_a_canon_write_does_not_disturb_the_cached_prefix(builder):
 
     assert before.system == after.system
     assert before.system_volatile != after.system_volatile
+
+
+# --- P2.1: supersession, ids, and the contradiction rule -------------------
+
+
+def test_a_superseded_entry_leaves_the_prompt_but_stays_on_file():
+    """Drift is measured against what *was* true, so the old entry is never deleted."""
+    ledger = CanonLedger()
+    ledger.add(CanonEntry(id="world-reeve", text="The reeve of Ashmill is Hald.",
+                          scope=CanonScope.WORLD))
+    ledger.supersede(
+        "world-reeve",
+        CanonEntry(id="world-reeve-2", text="The reeve of Ashmill is dead.",
+                   scope=CanonScope.WORLD),
+    )
+
+    assert [entry.id for entry in ledger.for_gm()] == ["world-reeve-2"]
+    assert len(ledger) == 2
+    assert ledger.get("world-reeve").superseded_by == "world-reeve-2"
+
+
+def test_superseding_survives_a_yaml_round_trip(tmp_path):
+    ledger = CanonLedger()
+    ledger.add(CanonEntry(id="a", text="first"))
+    ledger.supersede("a", CanonEntry(id="b", text="second"))
+
+    reloaded = CanonLedger.load(ledger.save(tmp_path / "canon.yaml"))
+    assert [entry.id for entry in reloaded.for_gm()] == ["b"]
+    assert reloaded.get("a").superseded_by == "b"
+
+
+def test_superseding_the_same_entry_twice_is_an_error():
+    """Two live replacements for one fact means the ledger has forked."""
+    ledger = CanonLedger()
+    ledger.add(CanonEntry(id="a", text="first"))
+    ledger.supersede("a", CanonEntry(id="b", text="second"))
+
+    with pytest.raises(ValueError, match="already superseded"):
+        ledger.supersede("a", CanonEntry(id="c", text="third"))
+
+
+def test_superseding_something_that_does_not_exist_is_an_error():
+    with pytest.raises(KeyError):
+        CanonLedger().supersede("nope", CanonEntry(id="b", text="x"))
+
+
+def test_minted_ids_are_readable_stable_and_unique():
+    ledger = CanonLedger()
+    first = ledger.mint_id(CanonScope.WORLD, "Ashmill is a town on the salt road")
+    assert first == "world-ashmill-is-a-town"
+
+    ledger.add(CanonEntry(id=first, text="Ashmill is a town on the salt road."))
+    second = ledger.mint_id(CanonScope.WORLD, "Ashmill is a town on the salt road")
+    assert second == "world-ashmill-is-a-town-2"
+
+
+def test_minting_copes_with_text_that_has_no_usable_words():
+    assert CanonLedger().mint_id(CanonScope.WORLD, "!!! ???") == "world-entry"
+
+
+def test_scoped_views_ignore_superseded_entries():
+    """Phase 4's NPC views read through `scoped`; a dead fact must not reach them."""
+    ledger = CanonLedger()
+    ledger.add(CanonEntry(id="a", text="first", scope=CanonScope.WORLD))
+    ledger.supersede("a", CanonEntry(id="b", text="second", scope=CanonScope.WORLD))
+
+    assert [e.id for e in ledger.scoped([CanonScope.WORLD])] == ["b"]

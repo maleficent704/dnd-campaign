@@ -226,6 +226,63 @@ blockers into this list.
 
 ---
 
+## 2026-08-09 (b) — Phase 2 started: D-008 vocabulary + ledger machinery (Claude Code, kelly-pc)
+
+Same day, after the Phase 1 close below. **P2.1 partially done**; 599 tests.
+
+TASKS.md now breaks Phase 2 into **P2.1–P2.6**. The one architectural choice made here is
+**how canon gets extracted**, and it was between three options: a second model call per
+turn (~2× per-turn cost), an end-of-session pass only (canon absent during the session
+that established it), or **the GM emitting `[[CANON: ...]]` inline as it narrates**.
+
+Chose inline, with the end-of-session sweep kept as a backstop on the utility tier (free,
+local). It is the fourth use of the tag convention `[[CHECK]]` established, the
+`[[`-suppressing stream filter already hides it from players, and it makes the GM's
+commitment explicit at the moment it makes it. The one failure mode — the GM forgetting to
+tag — is exactly what the backstop sweep covers.
+
+### D-008 amended (doc-first, per D-008's own rule), then the schema
+
+1. `canon_write.scope` documented as the `CanonScope` enum. The old comment named
+   `world_truth`, `quest_state`, `pc_fact` — none ever written by code. This is the
+   correction Fable queued at the P1.4 handoff for "the next D-008 touch".
+2. `canon_write.operation` gains **`conflict`**: narration contradicted an existing entry
+   and *the entry was kept*.
+3. **`inventory_change`** — the 08-05 ruling that items are state. GM proposes, engine
+   performs. A declined proposal is logged with `confirmed: false`.
+4. **`chronicle_write`** — separate family from `canon_write`, so a lossy summary cannot
+   enter the ledger as an established fact.
+
+The vocabulary is pinned by a test that had to be updated to add a family. That is the
+intended friction, and it worked as designed.
+
+### Ledger machinery (P2.1)
+
+`supersede()` keeps the old entry on file with a `superseded_by` pointer and drops it from
+`for_gm()` / `scoped()`; superseding twice is an error, because two live replacements for
+one fact means the ledger has forked. `mint_id()` derives readable ids from the fact text
+so the same fact tends to land on the same id across runs — which is what makes a replay
+diff mean anything.
+
+**Supersession and conflict are deliberately different paths.** Supersession is the world
+changing (the reeve died). Conflict is the model contradicting itself (the reeve is
+suddenly called something else), and there the entry is kept and the conflict logged. A
+ledger that silently follows the latest narration cannot measure drift, because it has
+agreed with the drift by definition.
+
+**FOR DESIGN:** the contradiction rule above is my call, not a ruling — flagged for the
+Phase 2 batch. If Fable wants new narration to win, or wants the GM asked to arbitrate,
+that changes P2.2. Building to canon-wins meanwhile; it is the conservative direction and
+the reversible one.
+
+### Still to do in Phase 2
+
+P2.1's remaining half (ledger persistence into the campaign directory during play), then
+P2.2 inline extraction, P2.3 backstop sweep, P2.4 `[[GAIN/LOSE]]`, P2.5 chronicle, P2.6
+drift test against the archived logs.
+
+---
+
 ## 2026-08-09 — the two-player session, `/switch`, and OD-15 (Claude Code, kelly-pc)
 
 **Phase 1 is complete.** Kelly and Sam played the first two-player session on 2026-08-07

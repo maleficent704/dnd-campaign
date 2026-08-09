@@ -18,6 +18,7 @@ prompt builder.
 
 from __future__ import annotations
 
+import re
 from enum import Enum
 from pathlib import Path
 from typing import Iterable, Iterator, Sequence
@@ -55,6 +56,14 @@ class CanonEntry(BaseModel):
     #: Required for NPC_BELIEF (whose belief?), optional elsewhere as a subject tag.
     subject: str | None = None
     tags: tuple[str, ...] = ()
+    #: Id of the entry that replaced this one. Superseded entries stay in the ledger —
+    #: they are the record of what was true before, which is what drift is measured
+    #: against — but they leave the prompt.
+    superseded_by: str | None = None
+
+    @property
+    def active(self) -> bool:
+        return self.superseded_by is None
 
     def render(self) -> str:
         """One prompt line. `gm_only` is marked, because the GM must not leak it."""
@@ -89,11 +98,57 @@ class CanonLedger(BaseModel):
 
     def scoped(self, scopes: Iterable[CanonScope]) -> list[CanonEntry]:
         wanted = set(scopes)
-        return [entry for entry in self.entries if entry.scope in wanted]
+        return [entry for entry in self.active() if entry.scope in wanted]
+
+    def active(self) -> list[CanonEntry]:
+        """Entries still standing. Superseded ones stay on file but leave the prompt."""
+        return [entry for entry in self.entries if entry.active]
 
     def for_gm(self) -> list[CanonEntry]:
-        """Everything. The GM owns ground truth including the secrets (D-003)."""
-        return list(self.entries)
+        """Everything still true. The GM owns ground truth, secrets included (D-003)."""
+        return self.active()
+
+    def mint_id(self, scope: CanonScope, hint: str) -> str:
+        """A stable, readable id that does not collide with one already in the ledger.
+
+        Readable because these are read by humans in `canon.yaml` and in drift reports;
+        derived from the text so the same fact tends to land on the same id across runs,
+        which makes a replay diff mean something.
+        """
+        stem = re.sub(r"[^a-z0-9]+", "-", hint.casefold()).strip("-")
+        stem = "-".join(stem.split("-")[:4]) or "entry"
+        base = f"{scope.value}-{stem}"
+        taken = {entry.id for entry in self.entries}
+        if base not in taken:
+            return base
+        index = 2
+        while f"{base}-{index}" in taken:
+            index += 1
+        return f"{base}-{index}"
+
+    def supersede(self, entry_id: str, replacement: CanonEntry) -> CanonEntry:
+        """Replace an entry, keeping the old one on file as history.
+
+        This is the *deliberate* path — the GM establishing that something has changed in
+        the world. It is not what happens when narration merely contradicts the ledger;
+        that is a conflict, the entry is kept, and nothing here is called (D-008's
+        `conflict` operation). Keeping the two distinct is the whole point: a campaign
+        where the ledger silently follows the latest narration cannot measure drift,
+        because it has agreed with the drift by definition.
+        """
+        existing = self.get(entry_id)
+        if existing is None:
+            raise KeyError(f"no canon entry {entry_id!r} to supersede")
+        if not existing.active:
+            raise ValueError(
+                f"canon entry {entry_id!r} was already superseded by "
+                f"{existing.superseded_by!r}"
+            )
+        self.add(replacement)
+        self.entries[self.entries.index(existing)] = existing.model_copy(
+            update={"superseded_by": replacement.id}
+        )
+        return replacement
 
     # --- persistence -------------------------------------------------------
 
