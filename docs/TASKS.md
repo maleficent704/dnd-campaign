@@ -65,8 +65,30 @@ assert ledger stability. **Added per OD-15-session rulings (2026-08-05): item
 acquisition/loss — GM proposes via a `[[GAIN/LOSE]]`-style tag (the `[[CHECK]]`
 precedent), player/CLI confirms, engine mutates the sheet, event logged (doc-first
 per D-008); plus the `/scaffolding` command + CLI hint + phrasing variety per
-amended D-006. The archived Ashmill log (TrueNAS) is the before-picture fixture for
-the drift test.**
+amended D-006 — `/scaffolding` shipped 2026-08-09 with Phase 1. The archived Ashmill
+log (TrueNAS) is the before-picture fixture for the drift test.**
+
+Task breakdown (D-008 amended 2026-08-09 for all four vocabulary changes below):
+
+- **P2.1** Ledger machinery: supersession (`supersede`), the contradiction rule
+  (`conflict` — canon wins, entry kept, conflict logged, **never a silent overwrite**),
+  stable id minting, and ledger persistence into the campaign directory so what play
+  establishes survives the process. *Scoping note: this makes the **world** survive, not
+  the transcript — resuming a session mid-scene is Phase 5.*
+- **P2.2** Inline extraction: the GM emits `[[CANON: ...]]` as it narrates and the engine
+  writes the entries. Chosen over a per-turn extraction call (~2× cost) and over
+  end-of-session-only (canon absent during the session that established it); it is the
+  fourth use of the tag convention `[[CHECK]]` established, and the `[[`-suppressing
+  stream filter already hides it from players.
+- **P2.3** End-of-session sweep on the utility tier as the backstop for P2.2 — the GM
+  forgetting to tag is the one failure mode inline extraction has. Local model, so free.
+- **P2.4** `[[GAIN: ...]]` / `[[LOSE: ...]]` → `inventory_change` events → engine mutates
+  the sheet, with player/CLI confirmation. Rejected proposals are logged too.
+- **P2.5** Chronicle layer: compression job on the utility tier writing `chronicle_write`
+  events; prompt builder consumes ledger + chronicle + window.
+- **P2.6** Drift test: replay the archived Ashmill and Salt Road logs, extract canon,
+  assert the established world survives into a second session. Fixtures live at
+  `\\TRUENAS\shared\data\dnd-campaign-logs\` (`logs/` is gitignored).
 
 ## Phase 3 — Combat
 

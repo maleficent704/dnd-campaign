@@ -206,6 +206,30 @@ under interleaved calls (Phase 4 runs two Ollama endpoints); `cost` events carry
 same `call_id`. Extend the vocabulary here first, then in code.
 *(Amended 2026-08-04 per OD-9: CallStatus, call_id, dirty_worktree ratified.)*
 
+**Amended 2026-08-09 (Phase 2, doc-first per this decision's own rule).**
+
+1. **`canon_write.scope` values are the `CanonScope` enum**, not the free-text list the
+   schema comment carried: `world` · `player_known` · `gm_only` · `npc_belief` ·
+   `character`. The old comment named `world_truth`, `quest_state` and `pc_fact`, none of
+   which were ever written by code. (Fable queued this correction at the P1.4 handoff for
+   the next D-008 touch; this is it.)
+2. **`canon_write.operation`** takes `create` · `supersede` · `conflict`. `supersede`
+   pairs with the existing `supersedes` field. **`conflict` records that new narration
+   contradicted an existing entry and the entry was kept** — the ledger never silently
+   updates itself to match drift, because measuring drift is the point (see the Phase 2
+   contradiction rule, tagged `FOR DESIGN:` in PROGRESS.md).
+3. **New event family `inventory_change`** — item acquisition and loss, per the
+   2026-08-05 ruling that items are state and acquisition joins canon extraction. Fields:
+   `character`, `item`, `quantity` (default 1), `direction` (`gain` | `lose`),
+   `established_by` (the GM tag that proposed it), `confirmed` (bool — the player or CLI
+   agreed), `turn_seq`. A *rejected* proposal is still logged, with `confirmed: false`;
+   what the GM proposed and the table declined is exactly the kind of thing Phase 7 wants.
+4. **New event family `chronicle_write`** — one entry per compression pass (D-002's third
+   layer). Fields: `covers_sessions` (list), `summary`, `model`, `token_estimate`.
+   Separate from `canon_write` because a chronicle entry is lossy prose about many turns,
+   where a canon entry is a discrete fact with provenance; conflating them would let a
+   compression artifact enter the ledger as an established fact.
+
 **Rationale.** Same discipline as the mystery; the additions (canon_write provenance,
 cost, escalation) are what Phase 7's instruments — canon-drift measurement, ruling
 logs, cost-per-session — consume. Pending-state logging lesson from the mystery

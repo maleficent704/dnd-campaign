@@ -36,6 +36,8 @@ class EventType(str, Enum):
     GM_NARRATION = "gm_narration"
     NPC_TURN = "npc_turn"
     CANON_WRITE = "canon_write"
+    INVENTORY_CHANGE = "inventory_change"
+    CHRONICLE_WRITE = "chronicle_write"
     ESCALATION = "escalation"
     COST = "cost"
 
@@ -181,17 +183,68 @@ class NPCTurn(_Event):
     knowledge_scope: str | None = None
 
 
+class CanonOperation(str, Enum):
+    """What a `canon_write` did to the ledger (D-008, amended 2026-08-09)."""
+
+    CREATE = "create"
+    #: Replaces an earlier entry, which is named in `supersedes`.
+    SUPERSEDE = "supersede"
+    #: New narration contradicted an existing entry and **the entry was kept**. The
+    #: ledger never quietly updates itself to match drift — measuring drift is the point,
+    #: and a ledger that follows the model has nothing left to measure against.
+    CONFLICT = "conflict"
+
+
 class CanonWrite(_Event):
     """A canon-ledger mutation with provenance (D-002). Feeds canon-drift metrics."""
 
     type: Literal[EventType.CANON_WRITE] = EventType.CANON_WRITE
     entry_id: str
-    #: world_truth | npc_belief | player_known | quest_state | pc_fact
+    #: A `CanonScope` value: world | player_known | gm_only | npc_belief | character.
     scope: str
-    operation: str = "create"
+    operation: CanonOperation = CanonOperation.CREATE
     statement: str
     established_by: str | None = None
     supersedes: str | None = None
+
+
+class InventoryDirection(str, Enum):
+    GAIN = "gain"
+    LOSE = "lose"
+
+
+class InventoryChange(_Event):
+    """An item entering or leaving a sheet (D-008, amended 2026-08-09).
+
+    Items are state, so the GM may propose a change but never perform one — same split as
+    `[[CHECK]]`. A proposal the table declined is logged too, with `confirmed: false`:
+    what the GM thought had happened and the players did not is exactly the divergence
+    Phase 7 is built to see.
+    """
+
+    type: Literal[EventType.INVENTORY_CHANGE] = EventType.INVENTORY_CHANGE
+    character: str
+    item: str
+    quantity: int = Field(default=1, ge=1)
+    direction: InventoryDirection
+    established_by: str | None = None
+    confirmed: bool = True
+    turn_seq: int | None = None
+
+
+class ChronicleWrite(_Event):
+    """One compression pass over past sessions — D-002's third memory layer.
+
+    Deliberately not a `canon_write`: a chronicle entry is lossy prose about many turns,
+    a canon entry is a discrete fact with provenance. Conflating them would let a
+    compression artifact enter the ledger as an established fact.
+    """
+
+    type: Literal[EventType.CHRONICLE_WRITE] = EventType.CHRONICLE_WRITE
+    covers_sessions: tuple[str, ...] = ()
+    summary: str
+    model: str | None = None
+    token_estimate: int | None = Field(default=None, ge=0)
 
 
 class Escalation(_Event):
@@ -237,6 +290,8 @@ Event = Annotated[
     | GMNarration
     | NPCTurn
     | CanonWrite
+    | InventoryChange
+    | ChronicleWrite
     | Escalation
     | Cost,
     Field(discriminator="type"),
@@ -250,6 +305,8 @@ EVENT_MODELS: dict[EventType, type[_Event]] = {
     EventType.GM_NARRATION: GMNarration,
     EventType.NPC_TURN: NPCTurn,
     EventType.CANON_WRITE: CanonWrite,
+    EventType.INVENTORY_CHANGE: InventoryChange,
+    EventType.CHRONICLE_WRITE: ChronicleWrite,
     EventType.ESCALATION: Escalation,
     EventType.COST: Cost,
 }

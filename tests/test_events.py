@@ -35,12 +35,17 @@ def roll(total: int = 14) -> DiceRoll:
 
 
 def test_every_event_type_has_a_model():
-    """D-008 names nine families; the map must stay exhaustive."""
+    """D-008 names eleven families; the map must stay exhaustive."""
     assert set(EVENT_MODELS) == set(EventType)
-    assert len(EVENT_MODELS) == 9
+    assert len(EVENT_MODELS) == 11
 
 
 def test_the_d008_family_names_are_exactly_as_specified():
+    """Pinned so the vocabulary cannot grow in code before it grows in D-008.
+
+    `inventory_change` and `chronicle_write` were added by the 2026-08-09 amendment;
+    this test failing is the intended cost of adding a family, not an obstacle to it.
+    """
     assert {t.value for t in EventType} == {
         "session_meta",
         "player_input",
@@ -49,9 +54,58 @@ def test_the_d008_family_names_are_exactly_as_specified():
         "gm_narration",
         "npc_turn",
         "canon_write",
+        "inventory_change",
+        "chronicle_write",
         "escalation",
         "cost",
     }
+
+
+def test_a_conflict_write_records_that_canon_was_kept():
+    """The contradiction rule: the ledger does not follow the model (Phase 2)."""
+    from dndc.schema.events import CanonOperation, CanonWrite
+
+    event = CanonWrite(
+        seq=1,
+        session_id="s1",
+        entry_id="world-ashmill-1",
+        scope="world",
+        operation=CanonOperation.CONFLICT,
+        statement="Ashmill is a town on the salt road.",
+        established_by="gm narration (turn 14) called it Kellmoor",
+    )
+    assert ADAPTER.validate_python(event.model_dump(mode="json")).operation == "conflict"
+
+
+def test_a_declined_inventory_proposal_is_still_logged():
+    from dndc.schema.events import InventoryChange, InventoryDirection
+
+    event = InventoryChange(
+        seq=2,
+        session_id="s1",
+        character="Corin Vale",
+        item="coil of rope",
+        direction=InventoryDirection.GAIN,
+        established_by="[[GAIN: coil of rope]]",
+        confirmed=False,
+    )
+    round_tripped = ADAPTER.validate_python(event.model_dump(mode="json"))
+    assert round_tripped.confirmed is False
+    assert round_tripped.quantity == 1
+
+
+def test_a_chronicle_entry_is_not_a_canon_entry():
+    """Separate families so a lossy summary cannot enter the ledger as a fact."""
+    from dndc.schema.events import ChronicleWrite
+
+    event = ChronicleWrite(
+        seq=3,
+        session_id="s2",
+        covers_sessions=("s1",),
+        summary="The party reached Ashmill and searched the chapel.",
+        model="llama3.1:8b",
+    )
+    assert ADAPTER.validate_python(event.model_dump(mode="json")).covers_sessions == ("s1",)
 
 
 def test_session_meta_carries_the_commit_sha_and_seats():
