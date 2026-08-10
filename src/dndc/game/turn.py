@@ -31,9 +31,12 @@ import random
 from dataclasses import dataclass, field
 from typing import Callable
 
+from dndc.gm.canon import CanonEntry
+from dndc.gm.canontag import find_canon_tags, strip_canon_tags
 from dndc.gm.checkrequest import CheckRequest, CheckRequestError, find_check_request, strip_check_requests
 from dndc.gm.context import CampaignContext, GMPromptBuilder, Turn
 from dndc.logging import SessionLog
+from dndc.memory.canon_store import CanonStore
 from dndc.models.base import GMBackend, GMResponse, new_call_id
 from dndc.models.pricing import estimate_cost
 from dndc.rules.checks import CheckResult, resolve_check, resolve_save
@@ -48,6 +51,15 @@ from dndc.schema.events import (
     RulesResolution,
 )
 from dndc.schema.sheet import CharacterSheet, Proficiency
+
+def _clean(text: str) -> str:
+    """Narration with every machine tag removed, for the screen and the recent window.
+
+    Both strippers, always. A tag left in the window comes back to the GM as its own past
+    voice, and it learns to narrate in tags.
+    """
+    return strip_canon_tags(strip_check_requests(text))
+
 
 #: Max GM calls per turn: one to consider the action, one to narrate the outcome. A
 #: second check request is ignored rather than looped on — a turn that keeps asking for
@@ -92,6 +104,9 @@ class TurnResult:
     adjudication: CheckRequest | None = None
     responses: list[GMResponse] = field(default_factory=list)
     refused: bool = False
+    #: Facts this turn added to the ledger. Restatements of known canon are not here —
+    #: they were suppressed at the store, having established nothing.
+    canon: list[CanonEntry] = field(default_factory=list)
 
     @property
     def total_usd(self) -> float:
@@ -111,6 +126,7 @@ class TurnEngine:
         max_tokens: int = 1024,
         billing: str = "api",
         prices: dict | None = None,
+        canon: CanonStore | None = None,
     ) -> None:
         self.backend = backend
         self.campaign = campaign
@@ -120,6 +136,12 @@ class TurnEngine:
         self.max_tokens = max_tokens
         self.billing = billing
         self.prices = prices or {}
+        self.canon = canon if canon is not None else CanonStore(campaign.ledger, log=log)
+        # The store and the prompt must read the *same* ledger object, or a fact
+        # established this turn is filed to disk and still missing from next turn's
+        # prompt — the exact silent failure D-002 exists to prevent. Rebinding here makes
+        # that impossible to get wrong from the outside rather than merely documented.
+        self.campaign.ledger = self.canon.ledger
 
     # --- the loop ----------------------------------------------------------
 
@@ -131,9 +153,10 @@ class TurnEngine:
         `player_input` event is emitted because no player spoke, and a check request is
         stripped rather than resolved — nothing has been attempted yet.
         """
-        response = self._call("", speaker="", resolutions=(), interim="",
-                              on_text=on_text, opening=True)
-        narration = strip_check_requests(response.text)
+        response, established = self._call(
+            "", speaker="", resolutions=(), interim="", on_text=on_text, opening=True
+        )
+        narration = _clean(response.text)
         self.campaign.record(
             Turn(player_input="", narration=narration, speaker="", opening=True)
         )
@@ -142,6 +165,7 @@ class TurnEngine:
             player="",
             responses=[response],
             refused=response.refused,
+            canon=established,
         )
 
     def run(
@@ -161,17 +185,18 @@ class TurnEngine:
         narrations: list[str] = []
 
         for call_index in range(MAX_GM_CALLS):
-            response = self._call(
+            response, established = self._call(
                 player_input, speaker, resolutions, interim=interim, on_text=on_text
             )
             result.responses.append(response)
+            result.canon.extend(established)
 
             if response.refused:
                 result.refused = True
                 result.narration = response.text
                 break
 
-            narration = strip_check_requests(response.text)
+            narration = _clean(response.text)
             if narration:
                 narrations.append(narration)
             result.narration = "\n\n".join(narrations)
@@ -204,7 +229,7 @@ class TurnEngine:
         interim: str,
         on_text: Callable[[str], None] | None,
         opening: bool = False,
-    ) -> GMResponse:
+    ) -> tuple[GMResponse, list[CanonEntry]]:
         # The id is minted *here*, not in the backend, because the pending write happens
         # before the response exists — an id created alongside the response could never
         # be on the row that precedes it, which is exactly the pairing OD-9 asked for.
@@ -241,7 +266,23 @@ class TurnEngine:
             scaffolding=self.builder.scaffolding,
         )
         self._emit_cost(response)
-        return response
+        # Extraction happens here rather than in `run`/`open_scene` because this is the
+        # one place every GM call passes through. A second narration call in the same turn
+        # can establish facts too, and a code path that forgot to look would lose them
+        # silently — the failure mode that is hardest to notice and worst to inherit.
+        return response, self._record_canon(response)
+
+    def _record_canon(self, response: GMResponse) -> list[CanonEntry]:
+        """File whatever the GM declared. A refusal declares nothing."""
+        if response.refused or not response.text:
+            return []
+        return self.canon.record_tags(
+            find_canon_tags(response.text),
+            session=self.log.session_id if self.log is not None else None,
+            # The turn this fact was established on. `history` is appended after the turn
+            # completes, so the turn in progress is the next one.
+            turn=len(self.campaign.history) + 1,
+        )
 
     def _check_request(self, text: str) -> CheckRequest | None:
         """A malformed request is a narration, not a crash — the turn still lands."""

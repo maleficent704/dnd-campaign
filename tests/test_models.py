@@ -628,3 +628,66 @@ def test_sticky_default_is_a_noop_when_unchanged(tmp_path):
     config = tmp_path / "config.yaml"
     config.write_text("billing:\n  default: api\n", encoding="utf-8")
     assert save_billing_default(Billing.API, config) is False
+
+
+#: A real `claude -p --output-format json` envelope, captured on kelly-pc 2026-08-10 from
+#: a two-turn invocation. Trimmed to the usage-bearing fields; the numbers are verbatim.
+SUB_PAYLOAD_MULTI_TURN = {
+    "is_error": False,
+    "subtype": "success",
+    "result": "hello",
+    "num_turns": 2,
+    "total_cost_usd": 0.0389993,
+    "usage": {
+        "input_tokens": 16,
+        "output_tokens": 128,
+        "cache_read_input_tokens": 47033,
+        "cache_creation_input_tokens": 16820,
+        # Present, and NOT the whole story: one entry for a two-turn call.
+        "iterations": [
+            {
+                "input_tokens": 6,
+                "output_tokens": 8,
+                "cache_read_input_tokens": 25673,
+                "cache_creation_input_tokens": 6210,
+            }
+        ],
+    },
+    "modelUsage": {
+        "claude-haiku-4-5": {
+            "inputTokens": 16,
+            "outputTokens": 128,
+            "cacheReadInputTokens": 47033,
+            "cacheCreationInputTokens": 16820,
+            "costUSD": 0.0389993,
+        }
+    },
+}
+
+
+def test_subscription_usage_reads_the_aggregate_not_the_iteration_list():
+    """OD-16 groundwork, and the answer to the `input_tokens: 2` question.
+
+    The two-player playtest recorded `input_tokens: 2` on every subscription row and
+    called it a capture hole. It is not: the top-level `usage` block is the aggregate for
+    the whole invocation — it matches `modelUsage` and `total_cost_usd` exactly, while
+    `usage.iterations` carried one entry for a two-turn call. Reading `iterations` would
+    under-report by 60%.
+
+    The 2 was a true measurement of a prompt that gets cache-*written* every turn, leaving
+    almost nothing uncached — which is the effect OD-16 ruled is inherent to headless CC
+    and outside our system boundary.
+    """
+    backend = SubscriptionBackend(
+        model="claude-haiku-4-5",
+        runner=lambda *a, **k: _completed(SUB_PAYLOAD_MULTI_TURN),
+    )
+    usage = backend.generate(request()).usage
+
+    assert usage.input_tokens == 16
+    assert usage.output_tokens == 128
+    assert usage.cache_read_tokens == 47033
+    assert usage.cache_write_tokens == 16820
+    model_usage = SUB_PAYLOAD_MULTI_TURN["modelUsage"]["claude-haiku-4-5"]
+    assert usage.input_tokens == model_usage["inputTokens"]
+    assert usage.cache_write_tokens == model_usage["cacheCreationInputTokens"]

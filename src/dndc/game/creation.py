@@ -25,6 +25,10 @@ from dndc.gm.canon import CanonEntry, CanonLedger, CanonScope
 from dndc.gm.creation import CreationPromptBuilder, assistant, user
 from dndc.gm.proposal import ProposalError, find_facts, find_proposal, strip_tags
 from dndc.logging import SessionLog
+# Imported, not redefined: the constant lives with the store that owns the file during
+# play (P2.1). Two constants naming the same file is exactly how a ledger ends up written
+# to one path and read from another.
+from dndc.memory.canon_store import CANON_FILENAME
 from dndc.models.base import GMBackend, GMResponse, Message, new_call_id
 from dndc.models.pricing import estimate_cost
 from dndc.rules.build import BuildError, build_character
@@ -32,9 +36,6 @@ from dndc.schema.campaign import slugify
 from dndc.schema.events import CallStatus, CanonWrite, Cost, GMNarration, PlayerInput
 from dndc.schema.sheet import CharacterSheet
 from dndc.srd.repository import SRDRepository
-
-#: Filename for a campaign's canon ledger, alongside `campaign.yaml`.
-CANON_FILENAME = "canon.yaml"
 
 #: How many times the engine will hand a rejected proposal back to the GM before giving
 #: up and telling the player. Two is enough for a typo or a miscounted skill list; a GM

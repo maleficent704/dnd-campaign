@@ -75,11 +75,17 @@ Task breakdown (D-008 amended 2026-08-09 for all four vocabulary changes below):
   stable id minting, and ledger persistence into the campaign directory so what play
   establishes survives the process. *Scoping note: this makes the **world** survive, not
   the transcript — resuming a session mid-scene is Phase 5.*
+  *(Done 2026-08-10. `CanonStore` in `src/dndc/memory/canon_store.py` owns the ledger,
+  the file, and the log; saved atomically on every write, not at session end.)*
 - **P2.2** Inline extraction: the GM emits `[[CANON: ...]]` as it narrates and the engine
   writes the entries. Chosen over a per-turn extraction call (~2× cost) and over
   end-of-session-only (canon absent during the session that established it); it is the
   fourth use of the tag convention `[[CHECK]]` established, and the `[[`-suppressing
   stream filter already hides it from players.
+  *(Done 2026-08-10 — `src/dndc/gm/canontag.py`, extraction at the single choke point in
+  `turn.py::_call`. Live-verified: 2 facts established, persisted, and present in the next
+  turn's prompt. Supersession is deliberately **not** exposed as an inline GM tag — see
+  the handoff entry.)*
 - **P2.3** End-of-session sweep on the utility tier as the backstop for P2.2 — the GM
   forgetting to tag is the one failure mode inline extraction has. Local model, so free.
 - **P2.4** `[[GAIN: ...]]` / `[[LOSE: ...]]` → `inventory_change` events → engine mutates

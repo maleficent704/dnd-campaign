@@ -87,7 +87,9 @@ entry and TASKS.md for the current task.
 **Session end (`/handoff` or do this unprompted):** append a dated entry to
 PROGRESS.md — task IDs completed, deviations and why, known issues, recommended next
 task — and tag anything needing a design ruling with a literal **`FOR DESIGN:`**
-prefix so Fable can grep for it. Work is not "done" until this entry exists.
+prefix so Fable can grep for it. Work is not "done" until this entry exists. End the
+session message with an ADHD-friendly **TLDR** telling Kelly (1) what is needed from her
+and (2) whether the next session is blocked pending Fable's review — name the OD number.
 
 **Rulings take effect only once recorded in the repo docs** — chat is not ratification.
 One session, one commit; no code edits under a live play session.

@@ -15,22 +15,7 @@ blockers into this list.
 
 ### Open now
 
-- **OD-16 — subscription `would_have_cost` is not comparable to `api` cost, and one part
-  of the gap looks like a defect.** OD-10 already ruled on headless CC's ~33–40k tokens of
-  per-invocation scaffolding and set the policy (`api` is the sticky default for play);
-  this is not that question again. What the two-player session adds is a **second, smaller
-  effect that OD-10 did not cover**: in subscription mode the log shows 8,900–11,100
-  `cache_write` tokens on *every* turn, where `api` writes once and then only reads. A
-  cache that is rewritten each turn is not doing its job, and unlike the scaffolding
-  overhead it is not obviously inherent. Net measured: ~$0.08/GM-turn vs ~$0.006 on `api`.
-  The question for a ruling is narrow — should `would_have_cost` be reported raw (and the
-  research cost model told to compare like with like), or should subscription-mode cost
-  measurement simply be declared invalid and all cost figures taken from `api` runs? My
-  instinct is the latter plus a documented caveat; inventing an adjusted number is worse
-  than declining to report one. Raised in the 2026-08-09 entry; not blocking.
-  Separately and not needing a ruling: `input_tokens` logs as `2` on every
-  subscription call — a usage-capture hole in that adapter, which is why the cache-write
-  effect went unnoticed until the log was summed. CC to fix.
+**None.** (OD-16 ruled 2026-08-10 — see below.)
 
 *(OD-15 was ruled 2026-08-05 and implemented 2026-08-09 — see below.)*
 
@@ -42,6 +27,41 @@ blockers into this list.
   exists.
 - **A Fable ruling takes effect only once recorded in the repo.**
 - **One session, one commit. No code edits under a live play session.**
+
+### Ruled 2026-08-10 (Fable, after the Phase-1-close + P2.1 handoffs)
+
+- **OD-16 — log raw, exclude from the campaign cost model.** `would_have_cost` keeps
+  being recorded exactly as provider-reported (measurements are never adjusted or
+  discarded), but subscription-mode cost figures are declared measurements of the
+  *harness*, not the campaign: **all campaign cost claims come from `api` runs
+  only.** Caveat recorded in D-008 (amended same day). No engineering effort on the
+  per-turn `cache_write` — each `claude -p` is a fresh process whose harness context
+  plausibly differs per invocation, so the rewrite is likely inherent, and either way
+  it is outside our system boundary. The `input_tokens=2` capture hole: fix approved
+  as CC proposed. *(Outcome 2026-08-10: **no fix written — it is not a bug.** Two live
+  probes showed the adapter already reads the correct aggregate and the `2` is a true
+  measurement of a prompt that is cache-written every turn. Evidence and the pinning
+  test are in that day's entry.)*
+- **P2.1 contradiction rule ratified: canon-wins, conflict logged.** "A ledger that
+  follows the latest narration has agreed with the drift by definition" is the whole
+  argument — the claims-ledger lesson in pure form. World changes are supersession
+  (deliberate, provenanced); contradictions are model errors, and errors do not
+  mutate ground truth. GM-arbitration explicitly rejected (the model that produced
+  the error is the wrong arbiter, at extra cost). Door left open, not built: a
+  deliberate human retcon someday = an explicit table command performing
+  supersession — never automatic.
+- **CC's D-008 vocabulary additions ratified**: `conflict` operation,
+  `inventory_change` (implements the 08-05 items-are-state ruling),
+  `chronicle_write` as a separate family (a lossy summary must not be able to enter
+  the ledger as fact — good), and the `CanonScope` doc correction.
+- **Phase-1-close deviations approved** (`CommandResult` is the honest signature;
+  `/switch` on player names is right for a two-person table). **OD-15
+  implementation endorsed** — the test asserting no prompt template mentions
+  `/scaffolding` makes the fiction/chrome principle structural, in the OD-12
+  tradition. **DC-anchoring watch closed** as an n=3 artifact (12/12/13/14 this
+  session); the ladder stays pre-authorized only if anchoring returns.
+- Both drift fixtures confirmed on the NAS per the retention rule (Ashmill 08-06,
+  Salt Road 08-09) — Phase 2's drift test may proceed against them.
 
 ### Ruled 2026-08-05 (Fable, after the first play session — see docs/playtests/2026-08-05-first-play-session.md)
 
@@ -226,6 +246,129 @@ blockers into this list.
 
 ---
 
+## 2026-08-10 — P2.1 + P2.2: canon persists, and the GM writes it (Claude Code, kelly-pc)
+
+**P2.1 and P2.2 done. 640 tests, suite still fully offline.** Fable's 2026-08-10 rulings
+were applied before any new code, per protocol — the contradiction rule is now built as
+ratified rather than as my proposal, and the `FOR DESIGN:` tag on it is retired.
+
+Also, at Kelly's request: **`config.yaml` billing default is back to `api`.** That happens
+to be what OD-16 implies anyway — campaign cost claims come from `api` runs only, so the
+default play path should be the one that produces usable measurements.
+
+### The `input_tokens = 2` "capture hole" is not a bug — no fix was written
+
+OD-16 approved this fix; I am reporting that there is nothing to fix, with the evidence,
+rather than writing a change that would have made the numbers worse.
+
+Two live `claude -p --output-format json` probes on kelly-pc today. In a **two-turn**
+invocation, the top-level `usage` block reported 16/128/47,033/16,820 — matching
+`modelUsage` and `total_cost_usd` exactly — while `usage.iterations` carried **one entry
+for two turns** (6/8/25,673/6,210). So the top-level block *is* the correct aggregate, the
+adapter already reads it, and the obvious "fix" (summing `iterations`) would have
+under-reported by about 60%.
+
+The `2` is a true measurement. Confirmed against the archived Salt Road logs: every
+subscription cost row reads `input_tokens: 2` with 8.7k–11k `cache_write` — the prompt is
+cache-*written* every turn, so there is almost no uncached input left to count. That is
+the per-turn rewrite OD-16 already ruled inherent to headless CC and outside our boundary.
+Pinned by `test_subscription_usage_reads_the_aggregate_not_the_iteration_list`, which
+carries the real captured payload so the next person to read `iterations` and think it
+looks more precise has a test explaining why it is not.
+
+*(Method note: the first probe ran with `ANTHROPIC_API_KEY` live in the shell and so
+billed the key ~$0.015 rather than the pool — the exact trap `subscription.py` exists to
+avoid, met in person. The second stripped both metered vars, which live-verified
+`child_env()` at the same time.)*
+
+### P2.1 — `CanonStore` (`src/dndc/memory/canon_store.py`)
+
+The ledger, its file, and the log are three things every canon write has to touch, so one
+object owns all three. Every write persists immediately and atomically (temp file, then
+`os.replace`): a session that dies at turn 40 must not lose forty turns of world, and a
+crash *during* a save must not leave half a ledger where a whole one was. Cost is a small
+YAML rewrite per new fact, which is nothing beside the model call that produced it.
+
+Three outcomes when the GM declares something — `establish`, silent suppression if the
+ledger already holds it, and `note_conflict`. Restatement suppression matters more than it
+looks: the GM names the town every other turn, and a ledger that grows a row each time is
+not a ledger. It is suppressed in the *log* too, or Phase 7 counts restatements as
+establishment and every campaign scores as maximally generative.
+
+### P2.2 — inline `[[CANON: ...]]` (`src/dndc/gm/canontag.py`)
+
+    [[CANON: <scope> (<subject>) — <the fact>]]
+
+Scope and subject optional; `[[CANON: The bridge is out.]]` is a well-formed world fact.
+The parser's rule is that **it must never lose a fact to a formatting slip** — an
+unrecognised leading word becomes part of the statement rather than a rejected scope. That
+is the opposite of `[[CHECK]]`'s posture and deliberately so: a missing DC means the GM
+never made the ruling, so guessing invents the adjudication the log exists to audit, while
+here the fallback *is* the common case. Scope alternatives are generated from the
+`CanonScope` enum, so a new scope cannot be parseable in one place and unknown in another.
+
+Extraction happens in `turn.py::_call` — the one place every GM call passes through,
+including the second narration call of a turn that asked for a check. Two call sites would
+each have been correct on the day they were written and one of them wrong later.
+
+Two guards worth naming:
+
+1. **The engine rebinds `campaign.ledger` to the store's ledger.** A store over a
+   *different* ledger object would file facts to disk that never reach the prompt —
+   durable, invisible, and unnoticeable in play. Now it cannot be wired wrong from outside.
+2. **`gm_only` facts are never displayed, not even counted.** The CLI shows the table what
+   the world just committed to; a line reading "1 fact recorded (hidden)" tells the players
+   a secret was written, which is a smaller leak of the same kind. Test pins it.
+
+### Live run (protocol: a model-facing surface is not done without one)
+
+Throwaway campaign, `api`, two turns, since the prompt template changed. The GM tagged two
+facts on its first player turn, both parsed with the right scope, both written to
+`campaigns/<slug>/canon.yaml` with session and turn provenance, both logged as `create`,
+neither tag visible in the prose. A second `TurnEngine` built cold from that directory
+carried "Halda Orrin" into its prompt — the Phase 1 known issue, closed.
+
+**Finding, and it is the argument for P2.3:** the opening scene tagged nothing at all, and
+the second turn established several concrete facts (lay brothers through four or five days
+ago, a peddler two weeks back, the road otherwise quiet) and tagged none of them. Inline
+extraction gets what the GM remembers to declare, which is not everything it establishes.
+The end-of-session utility-tier sweep is not a nice-to-have; it is the half that catches
+what the GM does not think to write down. Free and local, so there is no reason to skip it.
+
+### Deliberate deferral: no inline supersession
+
+The GM cannot supersede an entry from a tag, only create. Superseding needs the target's
+id, which would mean rendering ids into the prompt — tokens on every turn, and an
+invitation to retcon by tag, which is close to the "narration wins" model Fable explicitly
+rejected. `CanonStore.supersede()` exists and is tested; nothing in the turn loop calls it.
+
+The cost is real and I would rather state it than bury it: if the world genuinely changes
+(the bridge collapses), the ledger will hold both "the bridge stands" and "the bridge is
+out" as live facts, and the prompt will carry the contradiction. **P2.6's drift test should
+measure how often that happens** before we decide the fix — a `/canon supersede` table
+command, a sweep-driven proposal, or something else. Choosing now would be guessing.
+
+**FOR DESIGN:** none blocking. The deferral above is a scoping call, not a rule change,
+and it is reversible; flagging it only so Fable sees it named rather than discovering it in
+P2.6's numbers.
+
+### Recommended next task
+
+**P2.3** — the end-of-session backstop sweep on the utility tier. The live run above is the
+case for it, and it needs no ruling.
+
+### Known issues / notes
+
+- Turn provenance counts the opening scene as turn 1, so a player's first turn records as
+  `turn: 2`. Consistent with `campaign.history` indexing; noting it so nobody reads it as
+  an off-by-one.
+- Backgrounds and starting equipment still not ingested (unchanged, queued).
+- `dndc play --canon PATH` loads a ledger but does not adopt it: canon established in that
+  session is logged and held in memory, never written back to the file passed in. Writing
+  to a file handed over for inspection would be a surprise.
+
+---
+
 ## 2026-08-09 (b) — Phase 2 started: D-008 vocabulary + ledger machinery (Claude Code, kelly-pc)
 
 Same day, after the Phase 1 close below. **P2.1 partially done**; 599 tests.
@@ -273,7 +416,8 @@ agreed with the drift by definition.
 **FOR DESIGN:** the contradiction rule above is my call, not a ruling — flagged for the
 Phase 2 batch. If Fable wants new narration to win, or wants the GM asked to arbitrate,
 that changes P2.2. Building to canon-wins meanwhile; it is the conservative direction and
-the reversible one.
+the reversible one. *(Resolved: ratified as canon-wins, 2026-08-10. GM-arbitration
+explicitly rejected.)*
 
 ### Still to do in Phase 2
 

@@ -205,6 +205,14 @@ mode). Model-call events (`gm_narration`, `npc_turn`) carry `CallStatus`
 under interleaved calls (Phase 4 runs two Ollama endpoints); `cost` events carry the
 same `call_id`. Extend the vocabulary here first, then in code.
 *(Amended 2026-08-04 per OD-9: CallStatus, call_id, dirty_worktree ratified.)*
+*(Amended 2026-08-09 by CC, ratified 2026-08-10: `canon_write.scope` = the `CanonScope`
+enum; `canon_write.operation` gains `conflict` — narration contradicted an entry and
+the entry was kept; `inventory_change`; `chronicle_write` as a separate family so a
+lossy summary cannot enter the ledger as fact.)*
+*(Amended 2026-08-10 per OD-16: subscription-mode `cost` / `would_have_cost` values
+are recorded raw as provider-reported but measure the headless-CC harness, not the
+campaign — they are excluded from campaign cost analysis; all campaign cost claims
+come from `api` runs only.)*
 
 **Amended 2026-08-09 (Phase 2, doc-first per this decision's own rule).**
 
@@ -217,7 +225,7 @@ same `call_id`. Extend the vocabulary here first, then in code.
    pairs with the existing `supersedes` field. **`conflict` records that new narration
    contradicted an existing entry and the entry was kept** — the ledger never silently
    updates itself to match drift, because measuring drift is the point (see the Phase 2
-   contradiction rule, tagged `FOR DESIGN:` in PROGRESS.md).
+   contradiction rule, ratified 2026-08-10).
 3. **New event family `inventory_change`** — item acquisition and loss, per the
    2026-08-05 ruling that items are state and acquisition joins canon extraction. Fields:
    `character`, `item`, `quantity` (default 1), `direction` (`gain` | `lose`),

@@ -39,11 +39,13 @@ from dndc.gm import (
     SCAFFOLDING_TEMPLATES,
     CampaignContext,
     CanonLedger,
+    CanonScope,
     CreationPromptBuilder,
     GMPromptBuilder,
     PartyMember,
 )
 from dndc.logging import SessionLog, git_commit_sha, resolve_log_dir
+from dndc.memory import CanonStore
 from dndc.models import (
     THROTTLE_WARNING,
     GMBackendError,
@@ -631,6 +633,37 @@ def _render_mechanics(console: Console, results) -> None:
         console.print(f"  [dim]seed {result.seed}[/dim]")
 
 
+def _render_canon(console: Console, entries) -> None:
+    """Show the table what the world just committed to — minus what it must not see.
+
+    `gm_only` entries are omitted entirely, not summarised or counted. A line saying "1
+    fact recorded (hidden)" tells the players a secret was just written down, which is
+    itself information they should not have; the leak is smaller than a plaintext reveal
+    but it is the same kind of leak, and the fix costs nothing.
+    """
+    visible = [entry for entry in entries if entry.scope is not CanonScope.GM_ONLY]
+    if not visible:
+        return
+    console.print()
+    for entry in visible:
+        console.print(f"  [dim]canon: {entry.text}[/dim]")
+
+
+def _canon_store(args: argparse.Namespace, campaign, log: SessionLog) -> CanonStore:
+    """Where this session's canon gets filed.
+
+    A campaign has a `canon.yaml` and the world survives the process. A scratch session
+    (`--character` with no campaign, or an explicit `--canon` file) gets an in-memory
+    store: it still logs `canon_write` events, it just has nowhere durable to put them.
+    Writing into a `--canon` file passed for inspection would be a surprise — that flag
+    loads a ledger, it does not adopt one.
+    """
+    slug = getattr(args, "campaign", None)
+    if not slug or args.canon:
+        return CanonStore(campaign.ledger, log=log)
+    return CanonStore.for_campaign(campaign_dir(slug), log=log)
+
+
 def _cmd_play(console: Console, args: argparse.Namespace) -> int:
     """The hot-seat turn loop (P1.3, OD-4)."""
     cfg = load_config()
@@ -663,6 +696,7 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
         max_tokens=args.max_tokens,
         billing=billing.value,
         prices=load_prices(cfg.pricing),
+        canon=_canon_store(args, campaign, log),
     )
 
     sheets = {member.name.lower(): member for member in campaign.party}
@@ -722,6 +756,7 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
             if result.refused:
                 console.print("[yellow]the model declined that turn[/yellow]")
             _render_mechanics(console, result.mechanics)
+            _render_canon(console, result.canon)
             if should_hint_scaffolding(player_turns, engine.builder.scaffolding):
                 console.print(
                     f"\n[dim]— GM offering you options more than you want? "

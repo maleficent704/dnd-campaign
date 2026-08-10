@@ -580,3 +580,48 @@ def test_version_flag(capsys):
         main(["--version"])
     assert exit_info.value.code == 0
     assert "dndc" in capsys.readouterr().out
+
+
+# --- canon display (P2.2) --------------------------------------------------
+
+
+def _canon_output(entries) -> str:
+    from rich.console import Console
+
+    from dndc.game.cli import _render_canon
+
+    console = Console(force_terminal=False, no_color=True, width=200)
+    with console.capture() as captured:
+        _render_canon(console, entries)
+    return captured.get()
+
+
+def test_established_canon_is_shown_to_the_table():
+    from dndc.gm.canon import CanonEntry
+
+    output = _canon_output([CanonEntry(id="world-1", text="The gate is barred at dusk.")])
+    assert "The gate is barred at dusk." in output
+
+
+def test_a_gm_only_fact_is_never_displayed():
+    """The chrome may not leak what the prompt withholds — OD-11's split cuts both ways."""
+    from dndc.gm.canon import CanonEntry, CanonScope
+
+    secret = CanonEntry(
+        id="gm-1", text="The reeve took the bribe.", scope=CanonScope.GM_ONLY
+    )
+    assert _canon_output([secret]) == ""
+
+
+def test_a_hidden_fact_is_not_even_counted():
+    """"1 fact recorded (hidden)" still tells the players a secret was just written."""
+    from dndc.gm.canon import CanonEntry, CanonScope
+
+    entries = [
+        CanonEntry(id="w-1", text="The gate is barred."),
+        CanonEntry(id="gm-1", text="The reeve took the bribe.", scope=CanonScope.GM_ONLY),
+    ]
+    output = _canon_output(entries)
+    assert "The gate is barred." in output
+    assert "bribe" not in output
+    assert "1" not in output and "hidden" not in output.lower()
