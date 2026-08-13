@@ -216,6 +216,10 @@ come from `api` runs only.)*
 *(Amended 2026-08-12 by CC for P2.3: `canon_write` gains `source` and `confirmed` —
 the end-of-session sweep is a second ledger writer on a cheaper tier, and a row that
 cannot say who wrote it cannot be weighed.)*
+*(Amended 2026-08-13 by CC for P2.4: the `[[GAIN:]]` / `[[LOSE:]]` wire format is
+specified here, and `inventory_change` gains `applied` — "the table said yes" and "the
+sheet changed" are different facts, and the gap between them is the desync Finding 5
+was about.)*
 
 **Amended 2026-08-09 (Phase 2, doc-first per this decision's own rule).**
 
@@ -255,6 +259,38 @@ level of trust, so `canon_write` has to say which one wrote a row.
    `confirmed: false` and **never enters the ledger**; the GM's own tags and co-creation
    facts are `true`. What a model proposed and the humans rejected is a measurement of
    the proposer, and it is only available if the rejection is written down.
+
+**Amended 2026-08-13 (P2.4, doc-first per this decision's own rule).** The 2026-08-05
+ruling left the wire format to CC and required it be written down before it is built.
+
+7. **The tag the GM writes** is, on its own line:
+
+   ```
+   [[GAIN: <character> — <item> ×<quantity>]]
+   [[LOSE: <character> — <item> ×<quantity>]]
+   ```
+
+   Character and quantity are both optional — `[[GAIN: a tallow candle]]` is well-formed
+   and means one, for whoever is acting. Two verbs rather than one tag with a direction
+   field, because `[[INVENTORY: gain ...]]` is a form the GM can get subtly wrong (a
+   missing or misspelled direction would have to be guessed, and guessing which way an
+   item moved is worse than any parse failure). It is the fifth use of the `[[TAG:]]`
+   convention `[[CHECK]]` established, and the `[[`-suppressing stream filter already
+   keeps it off the players' screens.
+
+   The parser is forgiving about surface form and **strict about direction and item** —
+   a tag naming no item is dropped rather than guessed at, the `[[CHECK]]` posture rather
+   than the `[[CANON]]` one. A dropped canon fact costs the ledger a line; a guessed item
+   change writes fiction into the sheet, which is the failure this task exists to fix.
+
+8. **`inventory_change.applied`** — whether the sheet actually changed as proposed.
+   `confirmed` says the humans agreed; `applied` says the engine could do it. They come
+   apart when the GM narrates losing something the sheet never had, or more of it than
+   the sheet holds — which is precisely the fiction/state divergence Finding 5 recorded,
+   so it needs to be visible as a field and not inferred from a join nobody will write.
+   The change still happens as far as the sheet can honour it (phantom items left behind
+   because the narration was ahead of the sheet is the worse failure); `applied: false`
+   is the flag that says the two did not match.
 
 **Rationale.** Same discipline as the mystery; the additions (canon_write provenance,
 cost, escalation) are what Phase 7's instruments — canon-drift measurement, ruling

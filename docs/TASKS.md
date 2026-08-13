@@ -97,6 +97,12 @@ Task breakdown (D-008 amended 2026-08-09 for all four vocabulary changes below):
   gains `source` and `confirmed`.)*
 - **P2.4** `[[GAIN: ...]]` / `[[LOSE: ...]]` → `inventory_change` events → engine mutates
   the sheet, with player/CLI confirmation. Rejected proposals are logged too.
+  *(Done 2026-08-13. `gm/inventorytag.py` parses, `rules/inventory.py` performs,
+  `game/inventory.py` owns the sheets and the log, the CLI confirms per turn. The parser
+  drops what it cannot read cleanly — the `[[CHECK]]` posture, not `[[CANON]]`'s, because
+  a guessed item change writes fiction into state. D-008 amended first: the wire format,
+  and `inventory_change.applied` for when the table says yes and the sheet cannot comply.
+  `/inventory` added, since the GM is now told it does not know what anyone carries.)*
 - **P2.5** Chronicle layer: compression job on the utility tier writing `chronicle_write`
   events; prompt builder consumes ledger + chronicle + window.
 - **P2.6** Drift test: replay the archived Ashmill and Salt Road logs, extract canon,

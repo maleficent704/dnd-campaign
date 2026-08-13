@@ -254,6 +254,11 @@ class InventoryChange(_Event):
     direction: InventoryDirection
     established_by: str | None = None
     confirmed: bool = True
+    #: Whether the sheet changed *as proposed* (D-008, amended 2026-08-13). `confirmed`
+    #: is the humans agreeing; this is the engine managing it. They come apart when the
+    #: GM narrates losing something the sheet never held — the fiction/state divergence
+    #: the whole task exists to measure, which no join over these rows could recover.
+    applied: bool = True
     turn_seq: int | None = None
 
 

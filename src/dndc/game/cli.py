@@ -22,6 +22,7 @@ from rich.table import Table
 from dndc import __version__
 from dndc.config import Billing, load_config, load_env_file, save_billing_default
 from dndc.game.campaign import (
+    CHARACTERS_DIRNAME,
     CampaignError,
     campaign_dir,
     create_campaign,
@@ -34,6 +35,8 @@ from dndc.game.creation import (
     load_campaign_sheets,
     summarize,
 )
+from dndc.game.inventory import InventoryStore, describe_change, proposals_for
+from dndc.game.party import resolve_member
 from dndc.game.turn import TurnEngine
 from dndc.gm import (
     DEFAULT_WINDOW,
@@ -55,8 +58,10 @@ from dndc.models import (
     estimate_cost,
     load_prices,
 )
+from dndc.gm.inventorytag import InventoryTag
 from dndc.rules.build import BuildError, grant_issues
 from dndc.rules.dice import Advantage, DiceError, roll, roll_d20
+from dndc.schema.campaign import slugify
 from dndc.schema.events import Cost, DiceRoll, GMNarration, RulesResolution, SeatInfo, SessionMeta
 from dndc.schema.sheet import SKILL_ABILITY, Ability, CharacterSheet, Skill
 from dndc.schema.srd import IngestScope
@@ -344,9 +349,19 @@ def _cmd_roll(console: Console, args: argparse.Namespace) -> int:
 
 # --- gm --------------------------------------------------------------------
 
-def _gm_campaign_context(
-    console: Console, args: argparse.Namespace
-) -> tuple[CampaignContext, dict[str, CharacterSheet]] | None:
+@dataclass
+class LoadedParty:
+    """What a session needs about its characters: the prompt's view, the engine's, and
+    the files they came from — kept apart because they are three different things."""
+
+    campaign: CampaignContext
+    sheets: dict[str, CharacterSheet]
+    #: Where each sheet lives, so P2.4 can write an item change back to it. A sheet with
+    #: no path is in-memory only.
+    paths: dict[str, Path]
+
+
+def _gm_campaign_context(console: Console, args: argparse.Namespace) -> LoadedParty | None:
     """Assemble what the builder needs, plus the sheets the engine resolves against.
 
     The party summary in the prompt is deliberately thin (the GM narrates; it does not
@@ -360,6 +375,7 @@ def _gm_campaign_context(
     slug = getattr(args, "campaign", None)
     campaign = CampaignContext(name=args.campaign_name or "Untitled campaign")
     sheets: dict[str, CharacterSheet] = {}
+    paths: dict[str, Path] = {}
 
     if slug:
         try:
@@ -369,9 +385,11 @@ def _gm_campaign_context(
             return None
         campaign.name = args.campaign_name or record.name
         campaign.ledger = load_campaign_canon(slug)
+        characters = campaign_dir(slug) / CHARACTERS_DIRNAME
         for sheet in load_campaign_sheets(slug):
             campaign.party.append(PartyMember.from_sheet(sheet))
             sheets[sheet.name.lower()] = sheet
+            paths[sheet.name.lower()] = characters / f"{slugify(sheet.name)}.yaml"
 
     campaign.scene = args.scene or ""
     if args.canon:
@@ -385,7 +403,10 @@ def _gm_campaign_context(
             continue
         campaign.party.append(PartyMember.from_sheet(sheet))
         sheets[sheet.name.lower()] = sheet
-    return campaign, sheets
+        # A sheet passed by path is written back to that path. Unlike `--canon`, which
+        # loads a ledger for inspection, `--character` *is* where that character lives.
+        paths[sheet.name.lower()] = Path(path)
+    return LoadedParty(campaign=campaign, sheets=sheets, paths=paths)
 
 
 def _cmd_gm(console: Console, args: argparse.Namespace) -> int:
@@ -396,7 +417,7 @@ def _cmd_gm(console: Console, args: argparse.Namespace) -> int:
     loaded = _gm_campaign_context(console, args)
     if loaded is None:
         return 1
-    campaign, _sheets = loaded
+    campaign = loaded.campaign
     request = builder.build(
         campaign,
         player_input=args.prompt,
@@ -501,6 +522,7 @@ def _cmd_gm(console: Console, args: argparse.Namespace) -> int:
 
 PLAY_HELP = """[bold]commands[/bold]
   /who                    show the party and who is currently acting
+  /inventory [name]       what a character is carrying
   /switch <name>          hand the keyboard to another player
   /scaffolding <level>    high | low | off — how much the GM offers you options
   /scene <text>           set where the party is
@@ -521,46 +543,6 @@ class CommandResult:
     quit: bool = False
     #: Name of the character who now holds the keyboard, if the command changed it.
     active: str | None = None
-
-
-def resolve_member(query: str, party: Sequence[PartyMember]) -> list[PartyMember]:
-    """Who a player could mean by `query` — narrowest reading first.
-
-    At a table you say "Corin", not "Corin Vale", and the first two-player session hit
-    exactly that: `/switch corin` was rejected because the lookup was an exact full-name
-    match. Matching runs in tiers — full name, then a single name out of the full one,
-    then a prefix — and stops at the first tier that hits, so a unique first name is
-    never made ambiguous by some longer name it happens to prefix.
-
-    Player names match too. "Sam's turn" is as natural a thing to say as the character's
-    name, and character names are tried first, so a collision resolves toward the
-    character.
-
-    Returns every candidate: none means unknown, more than one means genuinely ambiguous
-    and the caller should say so rather than pick.
-    """
-    wanted = query.strip().casefold()
-    if not wanted:
-        return []
-
-    def whole(member: PartyMember, field: str) -> str:
-        return getattr(member, field).casefold()
-
-    def words(member: PartyMember, field: str) -> tuple[str, ...]:
-        return tuple(whole(member, field).split())
-
-    tiers = (
-        lambda member, field: whole(member, field) == wanted,
-        lambda member, field: wanted in words(member, field),
-        lambda member, field: whole(member, field).startswith(wanted)
-        or any(word.startswith(wanted) for word in words(member, field)),
-    )
-    for matches in tiers:
-        for field in ("name", "player"):
-            found = [member for member in party if matches(member, field)]
-            if found:
-                return found
-    return []
 
 
 class _NarrationStream:
@@ -677,6 +659,26 @@ def parse_selection(answer: str, count: int) -> set[int] | None:
     return chosen
 
 
+def ask_selection(console: Console, count: int, question: str, attempts: int = 3) -> set[int]:
+    """Ask the table which of `count` listed things to keep. One retry policy, two callers.
+
+    An unreadable answer is asked again rather than acted on, and running out of patience
+    (or out of stdin) declines everything — the conservative reading in both places this
+    is used, since a declined proposal is still logged and nothing is lost but a keystroke.
+    """
+    for attempt in range(attempts):
+        try:
+            answer = Prompt.ask(question, default="all")
+        except (EOFError, KeyboardInterrupt):
+            return set()
+        chosen = parse_selection(answer, count)
+        if chosen is not None:
+            return chosen
+        if attempt < attempts - 1:
+            console.print("[yellow]didn't follow that[/yellow] — 'all', 'none', or e.g. 1 3")
+    return set()
+
+
 def choose_proposals(
     console: Console, proposals: Sequence[SweepProposal], attempts: int = 3
 ) -> tuple[list[SweepProposal], list[SweepProposal]]:
@@ -684,26 +686,65 @@ def choose_proposals(
     for index, proposal in enumerate(proposals, start=1):
         console.print(f"  [bold]{index}.[/bold] {proposal.text}")
 
-    chosen: set[int] | None = None
-    for attempt in range(attempts):
-        try:
-            answer = Prompt.ask("  [dim]file which?[/dim] all / none / numbers", default="all")
-        except (EOFError, KeyboardInterrupt):
-            # Nobody is there to answer. Declining is the conservative reading, and the
-            # proposals are still logged, so nothing is actually lost.
-            console.print("[dim]nothing filed[/dim]")
-            answer = "none"
-        chosen = parse_selection(answer, len(proposals))
-        if chosen is not None:
-            break
-        if attempt < attempts - 1:
-            console.print(f"[yellow]didn't follow that[/yellow] — 'all', 'none', or e.g. 1 3")
-    if chosen is None:
-        chosen = set()
-
+    chosen = ask_selection(
+        console, len(proposals), "  [dim]file which?[/dim] all / none / numbers", attempts
+    )
     accepted = [p for index, p in enumerate(proposals, start=1) if index in chosen]
     declined = [p for index, p in enumerate(proposals, start=1) if index not in chosen]
     return accepted, declined
+
+
+def confirm_inventory(
+    console: Console,
+    tags: Sequence[InventoryTag],
+    store: InventoryStore,
+    acting: str | None,
+    turn: int | None = None,
+    attempts: int = 3,
+) -> int:
+    """The table's say over what goes on the sheets (P2.4). Returns how many were applied.
+
+    Items are state, so the GM proposes and the players decide — the same split `[[CHECK]]`
+    draws around dice, and the reason this is here in the interface rather than in the turn
+    engine. Every proposal is logged either way: accepted ones with what the sheet could
+    actually do, declined ones with `confirmed: false`.
+    """
+    if not tags:
+        return 0
+
+    paired = proposals_for(tags, store, acting)
+    known = [(tag, sheet) for tag, sheet in paired if sheet is not None]
+    unknown = [tag for tag, sheet in paired if sheet is None]
+
+    for tag in unknown:
+        # Not offered for confirmation: there is nobody to give it to. Logged, because the
+        # GM handing gear to a character who is not at the table is worth seeing.
+        console.print(f"  [yellow]?[/yellow] [dim]{tag.render()} — no such character[/dim]")
+        store.decline(tag, character=tag.character or "", turn=turn)
+
+    if not known:
+        return 0
+
+    console.print()
+    for index, (tag, sheet) in enumerate(known, start=1):
+        count = f" ×{tag.quantity}" if tag.quantity > 1 else ""
+        console.print(f"  [bold]{index}.[/bold] {sheet.name} {tag.verb} {tag.item}{count}")
+
+    chosen = ask_selection(
+        console, len(known), "  [dim]apply to the sheet?[/dim] all / none / numbers", attempts
+    )
+
+    applied = 0
+    for index, (tag, sheet) in enumerate(known, start=1):
+        if index not in chosen:
+            store.decline(tag, character=sheet.name, turn=turn)
+            continue
+        outcome = store.apply(tag, sheet, turn=turn)
+        line = describe_change(outcome, tag.direction, sheet.name)
+        colour = "green" if outcome.applied else "yellow"
+        console.print(f"  [{colour}]{line}[/{colour}]")
+        applied += 1
+    return applied
 
 
 def _run_sweep(console: Console, cfg, campaign, store: CanonStore, log: SessionLog) -> None:
@@ -773,7 +814,7 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
     loaded = _gm_campaign_context(console, args)
     if loaded is None:
         return 1
-    campaign, loaded_sheets = loaded
+    campaign, loaded_sheets = loaded.campaign, loaded.sheets
     if not campaign.party:
         console.print(
             "[yellow]no characters loaded[/yellow] — pass --campaign SLUG (after "
@@ -802,6 +843,10 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
         canon=_canon_store(args, campaign, log),
     )
 
+    items = InventoryStore(log=log)
+    for key, sheet in loaded_sheets.items():
+        items.add(sheet, path=loaded.paths.get(key))
+
     sheets = {member.name.lower(): member for member in campaign.party}
     active = campaign.party[0].name
     player_turns = 0
@@ -815,7 +860,7 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
         if not campaign.history:
             stream = _NarrationStream(console)
             try:
-                engine.open_scene(on_text=stream.feed)
+                opened = engine.open_scene(on_text=stream.feed)
             except GMBackendError as exc:
                 console.print(f"[red]error:[/red] {exc}")
                 return 1
@@ -824,6 +869,12 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
                 return 1
             finally:
                 stream.finish()
+            # The opening scene should not be handing out gear — the prompt says as much
+            # — but a proposal silently dropped here would be a hole, and holes are what
+            # this task is closing.
+            confirm_inventory(
+                console, opened.inventory, items, acting=active, turn=len(campaign.history)
+            )
             console.print("\n")
 
         while True:
@@ -838,7 +889,9 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
             if not text:
                 continue
             if text.startswith("/"):
-                outcome = _play_command(console, text, campaign, engine.builder)
+                outcome = _play_command(
+                    console, text, campaign, engine.builder, items=items, acting=active
+                )
                 if outcome.quit:
                     break
                 if outcome.active:
@@ -860,6 +913,9 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
                 console.print("[yellow]the model declined that turn[/yellow]")
             _render_mechanics(console, result.mechanics)
             _render_canon(console, result.canon)
+            confirm_inventory(
+                console, result.inventory, items, acting=active, turn=len(campaign.history)
+            )
             if should_hint_scaffolding(player_turns, engine.builder.scaffolding):
                 console.print(
                     f"\n[dim]— GM offering you options more than you want? "
@@ -876,7 +932,14 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
     return 0
 
 
-def _play_command(console: Console, text: str, campaign, builder) -> CommandResult:
+def _play_command(
+    console: Console,
+    text: str,
+    campaign,
+    builder,
+    items: InventoryStore | None = None,
+    acting: str | None = None,
+) -> CommandResult:
     """Slash commands. The loop acts on what comes back."""
     parts = text.split(maxsplit=1)
     command = parts[0].lower()
@@ -889,6 +952,8 @@ def _play_command(console: Console, text: str, campaign, builder) -> CommandResu
     elif command == "/who":
         for member in campaign.party:
             console.print(f"  {member.render()}")
+    elif command == "/inventory":
+        _inventory_command(console, argument, items, acting)
     elif command == "/switch":
         return _switch_command(console, argument, campaign)
     elif command == "/scaffolding":
@@ -906,6 +971,31 @@ def _play_command(console: Console, text: str, campaign, builder) -> CommandResu
     else:
         console.print(f"[yellow]unknown command {command}[/yellow] — /help")
     return CommandResult()
+
+
+def _inventory_command(
+    console: Console, argument: str, items: InventoryStore | None, acting: str | None
+) -> None:
+    """What a character is carrying — the interface's answer, from the sheet.
+
+    The GM is told it does not know what is in anyone's pack, which is only workable if
+    the players can look. Same principle as OD-11: the authoritative state is displayed
+    from state, and the model is never the one saying what it is.
+    """
+    if items is None:
+        console.print("[dim]no sheets loaded[/dim]")
+        return
+    sheet = items.resolve(argument or None, default=acting)
+    if sheet is None:
+        console.print(f"[yellow]no character matching {argument!r}[/yellow] — /who")
+        return
+    if not sheet.inventory:
+        console.print(f"[dim]{sheet.name} is carrying nothing[/dim]")
+        return
+    console.print(f"[bold]{sheet.name}[/bold] [dim]({sheet.carried_weight:g} lb)[/dim]")
+    for held in sheet.inventory:
+        count = f" ×{held.quantity}" if held.quantity > 1 else ""
+        console.print(f"  {held.name}{count}{' [dim](equipped)[/dim]' if held.equipped else ''}")
 
 
 def should_hint_scaffolding(player_turns: int, scaffolding: str) -> bool:

@@ -34,6 +34,7 @@ from typing import Callable
 from dndc.gm.canon import CanonEntry
 from dndc.gm.canontag import find_canon_tags, strip_canon_tags
 from dndc.gm.checkrequest import CheckRequest, CheckRequestError, find_check_request, strip_check_requests
+from dndc.gm.inventorytag import InventoryTag, find_inventory_tags, strip_inventory_tags
 from dndc.gm.context import CampaignContext, GMPromptBuilder, Turn
 from dndc.logging import SessionLog
 from dndc.memory.canon_store import CanonStore
@@ -55,10 +56,10 @@ from dndc.schema.sheet import CharacterSheet, Proficiency
 def _clean(text: str) -> str:
     """Narration with every machine tag removed, for the screen and the recent window.
 
-    Both strippers, always. A tag left in the window comes back to the GM as its own past
+    Every stripper, always. A tag left in the window comes back to the GM as its own past
     voice, and it learns to narrate in tags.
     """
-    return strip_canon_tags(strip_check_requests(text))
+    return strip_inventory_tags(strip_canon_tags(strip_check_requests(text)))
 
 
 #: Max GM calls per turn: one to consider the action, one to narrate the outcome. A
@@ -107,6 +108,11 @@ class TurnResult:
     #: Facts this turn added to the ledger. Restatements of known canon are not here —
     #: they were suppressed at the store, having established nothing.
     canon: list[CanonEntry] = field(default_factory=list)
+    #: Item changes the GM *proposed* this turn. Nothing has been applied and nothing has
+    #: been logged: items are state, so a change needs the table's confirmation, and
+    #: confirmation is an interface act rather than an engine one (D-008 amended
+    #: 2026-08-13; the 2026-08-05 ruling this implements).
+    inventory: list[InventoryTag] = field(default_factory=list)
 
     @property
     def total_usd(self) -> float:
@@ -153,7 +159,7 @@ class TurnEngine:
         `player_input` event is emitted because no player spoke, and a check request is
         stripped rather than resolved — nothing has been attempted yet.
         """
-        response, established = self._call(
+        response, established, items = self._call(
             "", speaker="", resolutions=(), interim="", on_text=on_text, opening=True
         )
         narration = _clean(response.text)
@@ -166,6 +172,7 @@ class TurnEngine:
             responses=[response],
             refused=response.refused,
             canon=established,
+            inventory=items,
         )
 
     def run(
@@ -185,11 +192,12 @@ class TurnEngine:
         narrations: list[str] = []
 
         for call_index in range(MAX_GM_CALLS):
-            response, established = self._call(
+            response, established, items = self._call(
                 player_input, speaker, resolutions, interim=interim, on_text=on_text
             )
             result.responses.append(response)
             result.canon.extend(established)
+            result.inventory.extend(items)
 
             if response.refused:
                 result.refused = True
@@ -229,7 +237,7 @@ class TurnEngine:
         interim: str,
         on_text: Callable[[str], None] | None,
         opening: bool = False,
-    ) -> tuple[GMResponse, list[CanonEntry]]:
+    ) -> tuple[GMResponse, list[CanonEntry], list[InventoryTag]]:
         # The id is minted *here*, not in the backend, because the pending write happens
         # before the response exists — an id created alongside the response could never
         # be on the row that precedes it, which is exactly the pairing OD-9 asked for.
@@ -270,7 +278,9 @@ class TurnEngine:
         # one place every GM call passes through. A second narration call in the same turn
         # can establish facts too, and a code path that forgot to look would lose them
         # silently — the failure mode that is hardest to notice and worst to inherit.
-        return response, self._record_canon(response)
+        # Canon is filed on the spot; item changes are only *collected*, because the
+        # sheet does not move until the table says so.
+        return response, self._record_canon(response), self._item_proposals(response)
 
     def _record_canon(self, response: GMResponse) -> list[CanonEntry]:
         """File whatever the GM declared. A refusal declares nothing."""
@@ -283,6 +293,12 @@ class TurnEngine:
             # completes, so the turn in progress is the next one.
             turn=len(self.campaign.history) + 1,
         )
+
+    def _item_proposals(self, response: GMResponse) -> list[InventoryTag]:
+        """What the GM said the party picked up or lost. A refusal proposes nothing."""
+        if response.refused or not response.text:
+            return []
+        return find_inventory_tags(response.text)
 
     def _check_request(self, text: str) -> CheckRequest | None:
         """A malformed request is a narration, not a crash — the turn still lands."""

@@ -246,6 +246,119 @@ blockers into this list.
 
 ---
 
+## 2026-08-13 — P2.4: items are state (Claude Code, kelly-pc)
+
+**P2.4 done. 741 tests, suite still fully offline.** No open decisions waiting; the only
+live `FOR DESIGN:` is yesterday's non-blocking utility-seat question, which this task does
+not touch (`config.yaml` seats unchanged) — though see the sweep note below, which is
+fresh evidence for it.
+
+This closes Finding 5 from the first playtest: the party finished that session carrying,
+in the fiction, several things no sheet had ever heard of. Fable's 2026-08-05 ruling —
+items are state, the GM proposes and the engine performs, wire format is CC's call,
+doc-first per D-008.
+
+### D-008 amended first
+
+Two things written down before any code:
+
+- **The tag.** `[[GAIN: <character> — <item> ×<quantity>]]` and `[[LOSE: ...]]`, both
+  optional fields optional. **Two verbs rather than one tag with a direction field**,
+  because a direction word is a thing a model can get subtly wrong, and a missing one
+  would have to be guessed — which way an item moved is not a guessable field. Fifth use
+  of the `[[TAG:]]` convention, and the `[[`-suppressing stream filter already hides it.
+- **`inventory_change.applied`** — whether the sheet changed *as proposed*. `confirmed`
+  is the humans agreeing; `applied` is the engine managing it. They come apart when the
+  GM narrates losing something the sheet never held, which is Finding 5 exactly, and a
+  row that cannot say so cannot be weighed. (Same argument as yesterday's `canon_write`
+  fields; I am aware that is twice in two days, and both times the field existed to make
+  a real divergence visible rather than to decorate a row.)
+
+### The parser drops what it cannot read — the opposite of the canon parser
+
+`canontag.py` bends over backwards never to lose a fact: an unrecognised leading word
+becomes part of the statement rather than a bad scope, because a fact filed under the
+wrong scope beats a fact on the floor. `inventorytag.py` does the reverse — no item name,
+or a narrated clause where a name should be, and the tag is dropped.
+
+The asymmetry is the point. A lost canon line costs the ledger a sentence. A misread item
+change writes the model's fiction into a character sheet, which is the failure the task
+exists to end. Same reasoning that makes `[[CHECK]]` refuse to guess a DC.
+
+Surface form is still forgiving, because the producer is a language model: `×3`, `x3`,
+`(3)`, `3 torches`, `three torches`, `a pair of boots`. Only an em/en dash or `--`
+separates the character from the item — a single hyphen and a colon both live inside
+ordinary item names ("half-empty waterskin"), and splitting on those would invent a
+character out of half an item.
+
+### Where each piece lives
+
+- `gm/inventorytag.py` — parse and strip. No state.
+- `rules/inventory.py` — pure functions over an inventory list, per the rules-core rule.
+- `game/inventory.py` — `InventoryStore`: resolves who a tag meant, performs the change,
+  writes the sheet back atomically **per change** (same argument as the canon ledger — a
+  session that dies at turn 40 must not take the party's gear with it), logs the event.
+- `game/turn.py` — collects proposals at the same choke point canon uses, and applies
+  **nothing**. Confirmation is an interface act, so the engine only carries the proposal.
+- `game/cli.py` — `confirm_inventory`, run per turn right after the canon lines.
+
+`resolve_member` moved out of `cli.py` into a new `game/party.py`. Three callers now need
+"who does this name mean" (`/switch`, `/inventory`, and the item store), and the live run
+proved it: the GM wrote `[[LOSE: Corin — waterskin]]` for *Corin Vale*, and a second,
+dumber matcher in the store would have had to be right about that independently.
+
+### `/inventory` was not in the task, and the task is wrong without it
+
+The prompt now tells the GM it does **not** know what the party is carrying — the sheets
+are not in its context, so narrating someone using or running out of a specific item is
+inventing state. That instruction is hollow if the players have no way to look. `/inventory
+[name]` prints the pack from the sheet, which is OD-11's principle applied to gear:
+authoritative state is displayed from state, and the model is never the one saying what
+it is.
+
+### Live run — all three outcomes, on the real GM seat
+
+Two short `api` sessions, ~$0.05 total.
+
+1. **confirmed + applied.** Traded a waterskin for a lantern; the GM tagged both sides of
+   the trade unprompted. Both filed, sheet on disk updated, `/inventory` showed the new
+   pack.
+2. **confirmed + not applied.** Gave away the waterskin a second time — no longer on the
+   sheet. Printed `loses waterskin — not on the sheet` in yellow and logged
+   `applied: false`. That is Finding 5's divergence, now visible in one field.
+3. **declined.** Refused the dagger in the same batch; logged `confirmed: false`, and the
+   sheet still shows both daggers.
+
+Also confirmed live: EOF at the prompt declines everything (the sweep's proposals at the
+end of run 1 were all declined that way when stdin ran out), and the GM did *not* tag a
+gain for the NPC receiving the items — only player characters have sheets.
+
+### Known issues
+
+- **The P2.3 sweep proposed 22 facts for a 3-exchange session, with heavy near-duplication**
+  — the same barking dog four times in different words, the same wobbling rail twice, the
+  same cold draught three times. Grounding is doing its job (all 22 were real), but
+  `llama3.1:8b` restates itself within a single chunk and the store only suppresses exact
+  ledger matches. This is not a P2.4 regression and I did not fix it inside a P2.4
+  session, but it is worth reading next to yesterday's measurement (the 70B gave 3 clean
+  facts on a longer transcript) as evidence on the seat question already flagged.
+- Weight for a gained item is **0.0** — this module has no SRD repository, and inventing a
+  plausible weight would put a fabricated number into carried weight. So encumbrance is
+  understated for anything picked up in play until the SRD equipment table is wired in
+  (that lookup is a natural pairing with the queued starting-equipment ingest).
+- SRD backgrounds and class starting equipment still not ingested (queued, non-blocking).
+
+### Recommended next task
+
+**P2.5** — the chronicle layer: a compression job on the utility tier writing
+`chronicle_write` events, and a prompt builder that consumes ledger + chronicle + window.
+This is where the utility-seat question stops being hypothetical (a 180s batch job nobody
+watches has the opposite latency/quality tradeoff to the sweep), so a ruling on that
+`FOR DESIGN:` before or during P2.5 would be useful — but P2.5 is not blocked on it, and
+the default is to keep one seat.
+
+---
+
 ## 2026-08-12 — P2.3: the end-of-session sweep (Claude Code, kelly-pc)
 
 **P2.3 done. 685 tests, suite still fully offline.** No open decisions were waiting, and
