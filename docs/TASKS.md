@@ -88,6 +88,13 @@ Task breakdown (D-008 amended 2026-08-09 for all four vocabulary changes below):
   the handoff entry.)*
 - **P2.3** End-of-session sweep on the utility tier as the backstop for P2.2 — the GM
   forgetting to tag is the one failure mode inline extraction has. Local model, so free.
+  *(Done 2026-08-12. `src/dndc/memory/sweep.py` + `gm/prompts/sweep.md`, run from
+  `_cmd_play` after the GM backend closes; `--no-sweep` opts out. Four structural guards
+  rather than prompt instructions: scope forced to `player_known` in code, `gm_only`
+  never sent to the local model, every proposal grounded against its own transcript
+  chunk, and the table confirms before anything is filed. Declines are logged with
+  `confirmed: false` and never enter the ledger. D-008 amended first — `canon_write`
+  gains `source` and `confirmed`.)*
 - **P2.4** `[[GAIN: ...]]` / `[[LOSE: ...]]` → `inventory_change` events → engine mutates
   the sheet, with player/CLI confirmation. Rejected proposals are logged too.
 - **P2.5** Chronicle layer: compression job on the utility tier writing `chronicle_write`

@@ -33,7 +33,14 @@ from dndc.models.base import GMBackend, GMResponse, Message, new_call_id
 from dndc.models.pricing import estimate_cost
 from dndc.rules.build import BuildError, build_character
 from dndc.schema.campaign import slugify
-from dndc.schema.events import CallStatus, CanonWrite, Cost, GMNarration, PlayerInput
+from dndc.schema.events import (
+    CallStatus,
+    CanonSource,
+    CanonWrite,
+    Cost,
+    GMNarration,
+    PlayerInput,
+)
 from dndc.schema.sheet import CharacterSheet
 from dndc.srd.repository import SRDRepository
 
@@ -266,6 +273,7 @@ class CreationSession:
                 scope=entry.scope.value,
                 statement=entry.text,
                 established_by=f"co-creation ({self.player})",
+                source=CanonSource.CO_CREATION,
             )
         ledger.save(canon_path)
         return sheet_path, canon_path

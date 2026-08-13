@@ -79,7 +79,15 @@ def build_npc_backend(config: Config) -> OllamaBackend:
     return OllamaBackend(model=seat.model, endpoint=seat.endpoint)
 
 
-def build_utility_backend(config: Config) -> OllamaBackend:
-    """Recaps, compression, SRD RAG — the small local seat."""
+def build_utility_backend(
+    config: Config, temperature: float | None = None
+) -> OllamaBackend:
+    """Recaps, compression, SRD RAG — the small local seat.
+
+    `temperature` is for the caller to set when the job is extraction rather than prose;
+    the model and endpoint still come from config, as everything must (OD-5).
+    """
     seat = config.seats.utility
-    return OllamaBackend(model=seat.model, endpoint=seat.endpoint)
+    return OllamaBackend(
+        model=seat.model, endpoint=seat.endpoint, temperature=temperature
+    )

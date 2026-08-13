@@ -39,12 +39,18 @@ class OllamaBackend(GMBackend):
         max_tokens: int = DEFAULT_MAX_TOKENS,
         timeout: int = DEFAULT_TIMEOUT_SECONDS,
         opener: Callable[..., object] | None = None,
+        temperature: float | None = None,
     ) -> None:
         self.model = model
         self.endpoint = endpoint.rstrip("/")
         self.max_tokens = max_tokens
         self.timeout = timeout
         self._open = opener or urllib.request.urlopen
+        #: None leaves the model's own default alone, which is right for anything that
+        #: should sound like a person. Extraction jobs set it low: the P2.3 sweep read one
+        #: session twice at the default and answered "23 facts" once and "none" the other
+        #: time, which is not a measurement of anything.
+        self.temperature = temperature
 
     def payload(self, request: GMRequest) -> dict:
         messages = []
@@ -56,11 +62,16 @@ class OllamaBackend(GMBackend):
             {"role": message.role.value, "content": message.content}
             for message in request.messages
         ]
+        options: dict[str, object] = {
+            "num_predict": request.max_tokens or self.max_tokens
+        }
+        if self.temperature is not None:
+            options["temperature"] = self.temperature
         return {
             "model": request.model or self.model,
             "messages": messages,
             "stream": False,
-            "options": {"num_predict": request.max_tokens or self.max_tokens},
+            "options": options,
         }
 
     def generate(

@@ -246,6 +246,133 @@ blockers into this list.
 
 ---
 
+## 2026-08-12 — P2.3: the end-of-session sweep (Claude Code, kelly-pc)
+
+**P2.3 done. 685 tests, suite still fully offline.** No open decisions were waiting, and
+no `FOR DESIGN:` tags were blocking, so this is straight TASKS.md order.
+
+The premise, from the 2026-08-10 entry: *"the opening scene tagged nothing at all, and the
+second turn established several concrete facts … and tagged none of them."* Inline
+extraction gets what the GM remembers to declare, which is not everything it establishes.
+The sweep is the backstop — at session end, the utility tier reads the session's turns and
+proposes the durable facts nobody wrote down.
+
+### D-008 amended first, per its own rule
+
+The sweep gives the canon ledger a **second writer**, on a different model tier and at a
+different level of trust. A row that cannot say who wrote it cannot be weighed, so
+`canon_write` gained two fields:
+
+- **`source`** — `gm_tag` | `sweep` | `co_creation` | `authored`. Without it, "how much of
+  this ledger was written by a local 8B?" is a string match on `established_by`.
+- **`confirmed`** — as on `inventory_change`, and for the same reason. A proposal the
+  table declined is logged with `confirmed: false` and **never enters the ledger**.
+
+Doc first, then `schema/events.py`, then the writers.
+
+### Four guards, all structural
+
+In the OD-11/OD-12 tradition — protection by construction, not by instruction. The prompt
+asks nicely; the code is what actually holds.
+
+1. **Scope is forced to `player_known` in code.** The sweep cannot file a secret. Whatever
+   scope the model claims is discarded, not honoured.
+2. **`gm_only` canon is never sent to the local model.** Its proposals get printed to the
+   table, so anything it reads is one echo away from the players' screen.
+3. **Every proposal is grounded against its own transcript chunk** — see the hallucination
+   finding below.
+4. **The table confirms.** GM-tagged canon auto-files (the GM is the authority and the tag
+   is deliberate); an 8B *inferring* that a fact was established has a real false-positive
+   rate, and unreviewed local-model facts entering the ledger would be drift we injected
+   into the instrument we use to measure drift. Batch confirm costs one keystroke.
+
+The sweep reuses the GM's `[[CANON: ...]]` format, so `find_canon_tags` is the single
+parser: preamble from a chatty small model is ignored structurally, and there is one place
+to fix a parsing bug.
+
+### Three live-run findings, all of which changed the code
+
+Per the live-run rule — a task with a model-facing surface is not done without one.
+
+**Run 1 — play-by-play.** 25 proposals from 11 turns, mostly scene ("The guard notices
+Corin crouched by the wagons"), player actions, and weather. The prompt was rewritten
+around one durability test — *if the party leaves and comes back in three sessions' time,
+will this still be true?* — with an explicit non-facts list and a `{{ party }}` block so
+the model knows whose actions are never the world's.
+
+**Run 2 — the model recited my examples.** The 8B answered with the prompt's own three
+worked examples verbatim, naming an NPC who appears nowhere in the transcript. Fixed
+twice over: the examples moved to an unmistakably different setting with "these are
+illustrations only — writing any of them down would be an error", **and** a deterministic
+`_grounded()` check landed, because prose cannot stop that and it *was* prose that caused
+it. The check requires every non-sentence-initial capitalised word to appear in the
+transcript, plus ≥50% content-word overlap; it strips the possessive (`Ashmill's` →
+`Ashmill`) and nothing else. Deliberately no further stemming: a matcher clever enough to
+equate "burned" with "burning" is also clever enough to accept an invention. Ungrounded
+proposals are dropped and counted in the report.
+
+**Run 3 — the sweep answered NONE** (2 output tokens) on a log that gave 23 proposals when
+swept standalone minutes earlier. Two causes: the prompt said NONE was "a good answer you
+should expect to give often" (softened), and **the local seat was running at Ollama's
+default temperature**, so the same input gave "23 facts" and "none" on consecutive reads —
+not a measurement of anything. `OllamaBackend` now takes an optional `temperature`, and
+the sweep pins `SWEEP_TEMPERATURE = 0.1`. Three repeat sweeps after the fix agreed on 5–6
+facts with `ungrounded=0`.
+
+### 8B vs 70B on the same fixture — a config choice, not a code change
+
+Same 11-turn Salt Road log, same prompt: `llama3.1:8b` gave **10 grounded proposals in
+~3.7s**; `llama3.3:70b` gave **3 clean durable facts in ~180s**. The 70B is visibly more
+selective; the 8B trades precision for recall, which the confirmation gate absorbs.
+
+I did **not** change `config.yaml`. The utility seat is also P2.5's compression seat, where
+the tradeoff runs the other way (a lossy summary nobody confirms wants the better model,
+and 180s at session end is fine), and the model is data. So this is a one-line choice for
+Kelly with the numbers recorded rather than a decision I made quietly.
+
+**FOR DESIGN:** *(non-blocking — P2.5 raises it for real, I am flagging it early.)* Should
+the utility seat be **split** — a fast small model for interactive jobs the table waits on
+(the sweep, at 3.7s) and a bigger one for batch jobs nobody watches (chronicle
+compression, at 180s)? Today one seat serves both, and the numbers above say the right
+answer differs per job. This does not block P2.4.
+
+### End-to-end verification
+
+A live play session on a throwaway campaign, GM seat included: 6 proposals surfaced, answer
+`1 2`, "2 filed" with `canon:` lines and "4 declined (logged, not filed)". The log carries
+one `utility llama3.1:8b local 1347/174 $0.0` cost row, two `source=sweep confirmed=True`
+rows and four `confirmed=False` rows; `canon.yaml` holds exactly the two accepted facts,
+stamped with the session id. Throwaway campaign deleted, as with the P2.1 one.
+
+### Deviations and notes
+
+- **`OllamaBackend` gained a `temperature` argument** — not in P2.3's scope as written, but
+  a sweep that answers differently on identical input is not testable, and this is the
+  smallest fix that makes it so. `options` is only sent when the temperature is set, so
+  every existing caller is byte-identical on the wire.
+- **`parse_selection` returns `None` for unreadable input** rather than an empty set, so
+  "" and "wat" are not both silently treated as "decline everything". Three attempts,
+  then decline; EOF/Ctrl-C declines.
+- The sweep chunks at 8 turns and caps at 40 proposals; later chunks are told what earlier
+  chunks found, so the model does not re-propose within a session. Grounding is per-chunk,
+  not per-session — a fact must be grounded in the text it came from.
+- A failed sweep (backend unreachable, or any unexpected error) writes nothing and reports
+  the error. Session end never fails because the local box is down.
+
+### Known issues
+
+- The sweep proposes nothing about **items** — inventory is P2.4's `[[GAIN/LOSE]]` path,
+  and deliberately not something the sweep infers.
+- SRD backgrounds and class starting equipment still not ingested (queued, non-blocking).
+
+### Recommended next task
+
+**P2.4** — `[[GAIN: ...]]` / `[[LOSE: ...]]` → `inventory_change` events, engine mutates
+the sheet, player/CLI confirmation, rejected proposals logged. The confirmation UI built
+here (`parse_selection` / `choose_proposals`) is the obvious thing to reuse.
+
+---
+
 ## 2026-08-10 — P2.1 + P2.2: canon persists, and the GM writes it (Claude Code, kelly-pc)
 
 **P2.1 and P2.2 done. 640 tests, suite still fully offline.** Fable's 2026-08-10 rulings

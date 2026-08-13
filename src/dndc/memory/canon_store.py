@@ -28,6 +28,12 @@ entry on file with a pointer to its replacement. The difference between the two 
 authorship: supersession is the GM saying the world changed, conflict is the GM
 misremembering, and only the first is allowed to move ground truth.
 
+**Every write says who wrote it** (`CanonSource`, D-008 amended 2026-08-12). Since P2.3
+the ledger has two writers on two model tiers: the GM declaring facts inline as it
+narrates, and the end-of-session sweep on a local 8B inferring what it forgot to declare.
+They are not equally trustworthy, so the sweep's proposals are confirmed by the table
+before they land and a declined one is logged via `decline()` without touching the ledger.
+
 Scoping note: this makes the **world** survive a process restart, not the transcript.
 Resuming a session mid-scene is Phase 5.
 """
@@ -42,7 +48,7 @@ from typing import Sequence
 from dndc.gm.canon import CanonEntry, CanonLedger, CanonScope
 from dndc.gm.canontag import CanonTag
 from dndc.logging import SessionLog
-from dndc.schema.events import CanonOperation, CanonWrite
+from dndc.schema.events import CanonOperation, CanonSource, CanonWrite
 
 #: Filename for a campaign's canon ledger, alongside `campaign.yaml`.
 CANON_FILENAME = "canon.yaml"
@@ -85,6 +91,7 @@ class CanonStore:
         session: str | None = None,
         turn: int | None = None,
         established_by: str | None = None,
+        source: CanonSource = CanonSource.GM_TAG,
     ) -> CanonEntry | None:
         """File a new fact. Returns None if the ledger already holds it.
 
@@ -104,9 +111,36 @@ class CanonStore:
             turn=turn,
         )
         self.ledger.add(entry)
-        self._emit(entry, CanonOperation.CREATE, established_by=established_by)
+        self._emit(entry, CanonOperation.CREATE, established_by=established_by, source=source)
         self.save()
         return entry
+
+    def decline(
+        self,
+        text: str,
+        scope: CanonScope = CanonScope.WORLD,
+        established_by: str | None = None,
+        source: CanonSource = CanonSource.SWEEP,
+    ) -> CanonWrite | None:
+        """A proposal the table refused. Logged, and the ledger is not touched.
+
+        The same argument as `inventory_change.confirmed` (D-008): what a model proposed
+        and the humans declined measures the proposer, and it is a measurement only if
+        somebody writes it down. Precision of the P2.3 sweep is exactly this count against
+        its accepted one.
+
+        The id is minted but never reserved, so if the same fact is later established for
+        real it lands on the same id — which is what makes the pair queryable rather than
+        two unrelated rows.
+        """
+        entry = CanonEntry(id=self.ledger.mint_id(scope, text), text=text.strip(), scope=scope)
+        return self._emit(
+            entry,
+            CanonOperation.CREATE,
+            established_by=established_by,
+            source=source,
+            confirmed=False,
+        )
 
     def supersede(
         self,
@@ -117,6 +151,7 @@ class CanonStore:
         session: str | None = None,
         turn: int | None = None,
         established_by: str | None = None,
+        source: CanonSource = CanonSource.AUTHORED,
     ) -> CanonEntry:
         """The world changed. The old entry stays on file, pointing at its replacement.
 
@@ -143,6 +178,7 @@ class CanonStore:
             CanonOperation.SUPERSEDE,
             established_by=established_by,
             supersedes=entry_id,
+            source=source,
         )
         self.save()
         return replacement
@@ -167,6 +203,7 @@ class CanonStore:
         tags: Sequence[CanonTag],
         session: str | None = None,
         turn: int | None = None,
+        source: CanonSource = CanonSource.GM_TAG,
     ) -> list[CanonEntry]:
         """Everything the GM declared this turn. Only the genuinely new comes back."""
         written = []
@@ -178,6 +215,7 @@ class CanonStore:
                 session=session,
                 turn=turn,
                 established_by=tag.raw or None,
+                source=source,
             )
             if entry is not None:
                 written.append(entry)
@@ -214,6 +252,8 @@ class CanonStore:
         operation: CanonOperation,
         established_by: str | None = None,
         supersedes: str | None = None,
+        source: CanonSource = CanonSource.GM_TAG,
+        confirmed: bool = True,
     ) -> CanonWrite | None:
         if self.log is None:
             return None
@@ -225,4 +265,6 @@ class CanonStore:
             statement=entry.text,
             established_by=established_by,
             supersedes=supersedes,
+            source=source,
+            confirmed=confirmed,
         )

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import random
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -45,11 +46,12 @@ from dndc.gm import (
     PartyMember,
 )
 from dndc.logging import SessionLog, git_commit_sha, resolve_log_dir
-from dndc.memory import CanonStore
+from dndc.memory import SWEEP_TEMPERATURE, CanonStore, CanonSweep, SweepProposal
 from dndc.models import (
     THROTTLE_WARNING,
     GMBackendError,
     build_gm_backend,
+    build_utility_backend,
     estimate_cost,
     load_prices,
 )
@@ -649,6 +651,107 @@ def _render_canon(console: Console, entries) -> None:
         console.print(f"  [dim]canon: {entry.text}[/dim]")
 
 
+#: Answers meaning "file all of them" and "file none of them" at the sweep prompt. Enter
+#: on its own is `all`: at the end of a session the common case is that the sweep is
+#: right, and the players have already read the list before they press anything.
+_SELECT_ALL = {"", "all", "a", "y", "yes", "*"}
+_SELECT_NONE = {"none", "n", "no", "nope", "0", "q", "skip"}
+
+
+def parse_selection(answer: str, count: int) -> set[int] | None:
+    """Which proposals the table kept. `None` means the answer made no sense.
+
+    Returning `None` rather than an empty set matters: "" and "nonsense" must not both
+    silently discard a session's worth of recovered canon. The caller asks again.
+    """
+    cleaned = answer.strip().casefold()
+    if cleaned in _SELECT_ALL:
+        return set(range(1, count + 1))
+    if cleaned in _SELECT_NONE:
+        return set()
+
+    numbers = {int(token) for token in re.findall(r"\d+", cleaned)}
+    chosen = {number for number in numbers if 1 <= number <= count}
+    if not chosen:
+        return None
+    return chosen
+
+
+def choose_proposals(
+    console: Console, proposals: Sequence[SweepProposal], attempts: int = 3
+) -> tuple[list[SweepProposal], list[SweepProposal]]:
+    """Show the sweep's proposals and split them into kept and declined."""
+    for index, proposal in enumerate(proposals, start=1):
+        console.print(f"  [bold]{index}.[/bold] {proposal.text}")
+
+    chosen: set[int] | None = None
+    for attempt in range(attempts):
+        try:
+            answer = Prompt.ask("  [dim]file which?[/dim] all / none / numbers", default="all")
+        except (EOFError, KeyboardInterrupt):
+            # Nobody is there to answer. Declining is the conservative reading, and the
+            # proposals are still logged, so nothing is actually lost.
+            console.print("[dim]nothing filed[/dim]")
+            answer = "none"
+        chosen = parse_selection(answer, len(proposals))
+        if chosen is not None:
+            break
+        if attempt < attempts - 1:
+            console.print(f"[yellow]didn't follow that[/yellow] — 'all', 'none', or e.g. 1 3")
+    if chosen is None:
+        chosen = set()
+
+    accepted = [p for index, p in enumerate(proposals, start=1) if index in chosen]
+    declined = [p for index, p in enumerate(proposals, start=1) if index not in chosen]
+    return accepted, declined
+
+
+def _run_sweep(console: Console, cfg, campaign, store: CanonStore, log: SessionLog) -> None:
+    """The P2.3 backstop, run once as the session ends.
+
+    Everything here is best-effort. The sweep is a nicety at the end of an evening, and a
+    session must not finish in a traceback because toto-llm was asleep — so a failure
+    prints a line and the session ends normally.
+    """
+    if not campaign.history:
+        return
+
+    backend = build_utility_backend(cfg, temperature=SWEEP_TEMPERATURE)
+    sweep = CanonSweep(
+        backend, store, log=log, party=[member.name for member in campaign.party]
+    )
+    console.print(
+        f"\n[dim]canon sweep — {cfg.seats.utility.model} reading back "
+        f"{len(campaign.history)} exchange(s)...[/dim]"
+    )
+    try:
+        report = sweep.propose(campaign.history)
+    finally:
+        backend.close()
+
+    if not report.ran:
+        console.print(f"[yellow]canon sweep skipped[/yellow] — {report.error}")
+        return
+    if not report.proposals:
+        console.print("[dim]canon sweep: nothing the GM left unrecorded[/dim]")
+        return
+
+    console.print(
+        f"[bold]canon sweep[/bold] — {len(report.proposals)} fact(s) the GM "
+        f"established but did not record:"
+    )
+    if report.dropped:
+        console.print(f"  [dim](and {report.dropped} more, not shown — the sweep ran long)[/dim]")
+
+    accepted, declined = choose_proposals(console, report.proposals)
+    written = sweep.record(accepted, declined, session=log.session_id)
+    if written:
+        console.print(f"[green]{len(written)} filed[/green]")
+        _render_canon(console, written)
+    if declined:
+        console.print(f"[dim]{len(declined)} declined (logged, not filed)[/dim]")
+
+
 def _canon_store(args: argparse.Namespace, campaign, log: SessionLog) -> CanonStore:
     """Where this session's canon gets filed.
 
@@ -765,6 +868,9 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
             console.print()
     finally:
         backend.close()
+
+    if not args.no_sweep:
+        _run_sweep(console, cfg, campaign, engine.canon, log)
 
     console.print(f"[dim]logged -> {log.path}[/dim]")
     return 0
@@ -1247,6 +1353,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     play.add_argument(
         "--seed", type=int, help="master seed (one is generated and logged if omitted)"
+    )
+    play.add_argument(
+        "--no-sweep", action="store_true",
+        help="skip the end-of-session canon sweep on the local utility model (P2.3)",
     )
     play.add_argument("--max-tokens", type=int, default=1024)
 

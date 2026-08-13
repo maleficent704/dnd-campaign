@@ -195,6 +195,25 @@ class CanonOperation(str, Enum):
     CONFLICT = "conflict"
 
 
+class CanonSource(str, Enum):
+    """Which mechanism wrote a `canon_write` (D-008, amended 2026-08-12).
+
+    The ledger has more than one writer and they are not equally trustworthy: `gm_tag` is
+    the GM seat declaring a fact as it narrates, `sweep` is a local 8B inferring after the
+    fact what the GM established and forgot to declare. Phase 7 cannot weigh a ledger
+    whose rows do not say which of those wrote them.
+    """
+
+    #: The GM's inline `[[CANON: ...]]`, written as it narrated (P2.2).
+    GM_TAG = "gm_tag"
+    #: The end-of-session utility-tier backstop (P2.3). Table-confirmed before it lands.
+    SWEEP = "sweep"
+    #: Backstory facts from guided character creation (D-005, P1.4).
+    CO_CREATION = "co_creation"
+    #: Hand-written into `canon.yaml` by a human. No model involved.
+    AUTHORED = "authored"
+
+
 class CanonWrite(_Event):
     """A canon-ledger mutation with provenance (D-002). Feeds canon-drift metrics."""
 
@@ -206,6 +225,12 @@ class CanonWrite(_Event):
     statement: str
     established_by: str | None = None
     supersedes: str | None = None
+    source: CanonSource = CanonSource.GM_TAG
+    #: False for a proposal the table declined — which is logged, and does **not** enter
+    #: the ledger. Same field and same argument as `inventory_change.confirmed`: what a
+    #: model proposed and the humans rejected measures the proposer, and only exists as a
+    #: measurement if the rejection is written down.
+    confirmed: bool = True
 
 
 class InventoryDirection(str, Enum):

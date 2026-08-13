@@ -213,6 +213,9 @@ lossy summary cannot enter the ledger as fact.)*
 are recorded raw as provider-reported but measure the headless-CC harness, not the
 campaign — they are excluded from campaign cost analysis; all campaign cost claims
 come from `api` runs only.)*
+*(Amended 2026-08-12 by CC for P2.3: `canon_write` gains `source` and `confirmed` —
+the end-of-session sweep is a second ledger writer on a cheaper tier, and a row that
+cannot say who wrote it cannot be weighed.)*
 
 **Amended 2026-08-09 (Phase 2, doc-first per this decision's own rule).**
 
@@ -237,6 +240,21 @@ come from `api` runs only.)*
    Separate from `canon_write` because a chronicle entry is lossy prose about many turns,
    where a canon entry is a discrete fact with provenance; conflating them would let a
    compression artifact enter the ledger as an established fact.
+
+**Amended 2026-08-12 (P2.3, doc-first per this decision's own rule).** The end-of-session
+sweep gives the ledger a *second* writer, on a different model tier and at a different
+level of trust, so `canon_write` has to say which one wrote a row.
+
+5. **`canon_write.source`** — the mechanism that established the fact: `gm_tag` (the GM's
+   inline `[[CANON: ...]]`), `sweep` (the end-of-session utility-tier backstop),
+   `co_creation` (D-005 backstory facts), `authored` (hand-written into `canon.yaml`).
+   Without it, "how much of this ledger was written by a local 8B?" is a string match on
+   `established_by` — and that question is the whole reason the sweep needs measuring.
+6. **`canon_write.confirmed`** — as `inventory_change.confirmed`, for the same reason and
+   with the same semantics. A sweep proposal the table declined is logged with
+   `confirmed: false` and **never enters the ledger**; the GM's own tags and co-creation
+   facts are `true`. What a model proposed and the humans rejected is a measurement of
+   the proposer, and it is only available if the rejection is written down.
 
 **Rationale.** Same discipline as the mystery; the additions (canon_write provenance,
 cost, escalation) are what Phase 7's instruments — canon-drift measurement, ruling
