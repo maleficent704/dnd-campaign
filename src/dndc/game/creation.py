@@ -22,6 +22,7 @@ from typing import Callable, Sequence
 
 from dndc.game.campaign import CHARACTERS_DIRNAME, campaign_dir
 from dndc.gm.canon import CanonEntry, CanonLedger, CanonScope
+from dndc.gm.chronicle import Chronicle
 from dndc.gm.creation import CreationPromptBuilder, assistant, user
 from dndc.gm.proposal import ProposalError, find_facts, find_proposal, strip_tags
 from dndc.logging import SessionLog
@@ -29,6 +30,7 @@ from dndc.logging import SessionLog
 # play (P2.1). Two constants naming the same file is exactly how a ledger ends up written
 # to one path and read from another.
 from dndc.memory.canon_store import CANON_FILENAME
+from dndc.memory.chronicle import CHRONICLE_FILENAME
 from dndc.models.base import GMBackend, GMResponse, Message, new_call_id
 from dndc.models.pricing import estimate_cost
 from dndc.rules.build import BuildError, build_character
@@ -345,6 +347,10 @@ def load_campaign_sheets(campaign_slug: str, root: Path | None = None) -> list[C
 
 def load_campaign_canon(campaign_slug: str, root: Path | None = None) -> CanonLedger:
     return CanonLedger.load(campaign_dir(campaign_slug, root) / CANON_FILENAME)
+
+
+def load_campaign_chronicle(campaign_slug: str, root: Path | None = None) -> Chronicle:
+    return Chronicle.load(campaign_dir(campaign_slug, root) / CHRONICLE_FILENAME)
 
 
 def summarize(sheet: CharacterSheet, facts: Sequence[str] = ()) -> str:

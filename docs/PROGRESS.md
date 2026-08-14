@@ -246,6 +246,120 @@ blockers into this list.
 
 ---
 
+## 2026-08-14 — P2.5: the chronicle, and the prompt stops growing (Claude Code, kelly-pc)
+
+**P2.5 done. 776 tests, suite still fully offline.** No open decisions waiting. The
+utility-seat `FOR DESIGN:` from 08-12 is still open and still non-blocking; `config.yaml`
+seats are untouched, and there are numbers for it below.
+
+D-002's third layer. The ledger can tell the GM that the mill burned down and who keeps
+the waystation; it cannot tell it that the party spent an evening failing to get a
+straight answer out of her. At session end the utility tier writes the session up as one
+paragraph, and that paragraph is in every later session's prompt.
+
+### No confirmation gate, unlike the sweep — and why
+
+**FOR DESIGN:** *(non-blocking; the work is reversible in about ten lines if Fable
+disagrees.)* The P2.3 sweep is table-confirmed because its output enters the canon ledger,
+which is the instrument this project measures drift with. I did **not** gate the
+chronicle, on three grounds:
+
+1. **It is not canon and structurally cannot become canon.** D-008 keeps `chronicle_write`
+   a separate event family for exactly this reason — a lossy summary must not be able to
+   enter the ledger as a fact — and nothing in the code path can file one.
+2. **It is regenerable and hand-editable.** `chronicle.yaml` is data. A wrong entry is
+   deleted or rewritten; a wrong canon entry has already been counted as ground truth.
+3. **Asking the table to approve a paragraph of prose at 11pm buys little and costs the
+   thing that makes it usable**, which is that it happens by itself. Six one-line facts
+   are reviewable at the end of an evening. A paragraph is not, and "yes" would become
+   reflexive within two sessions — which is a gate in name only.
+
+Instead it is *printed* at session end so a bad one is seen, and it is **subordinated in
+the prompt**: the section is labelled "recollection, not record", and where it disagrees
+with canon, canon wins. That is the ratified contradiction rule applied to the layer most
+likely to be wrong.
+
+### The grounding check moved, and now guards both jobs
+
+`memory/grounding.py` — extracted verbatim from the sweep, no behaviour change beyond one
+correction noted below. The chronicle needs it for the same live reason the sweep did: a
+small model handed a tight prompt will answer with names from somewhere other than the
+text. A summary that names someone the session never mentioned is **retried once with the
+offending names quoted back at it, then skipped**. No chronicle entry is strictly better
+than a fabricated one — the ledger still has the facts, the window still has the last
+turns, and it regenerates for free next session.
+
+One deliberate correction while extracting: the name check is now sentence-aware, so a
+capitalised word opening the *second* sentence is no longer treated as a name. The old
+version only skipped the first word of the whole statement, which was right for the
+sweep's one-sentence facts and wrong for a paragraph. This slightly loosens the sweep for
+multi-sentence proposals; the alternative was two copies of one rule, drifting.
+
+`_transcript` also moved out of `sweep.py` to `gm/context.py` as `render_transcript` —
+both memory jobs read a session back, and neither should have to import the other.
+
+### The fold, which is the part that makes it a compression job
+
+Without it the chronicle is a growing transcript in slow motion, and D-002's prompt rule
+quietly stops being true around session twelve. Past eight entries the oldest four are
+compressed into one entry covering all their sessions (`chronicle_write.covers_sessions`
+is a tuple for exactly this). The originals are **dropped**, not kept the way superseded
+canon is — superseded canon is the record of what used to be true and is what drift is
+measured against, whereas a pre-fold summary is just a longer version of the text
+replacing it, and the session log still has every word.
+
+A failed fold is not a failed session: tonight's entry is already filed, and the next
+session tries again.
+
+### Live runs — six sessions on the real seat, plus one end to end
+
+Standalone over archived logs, `llama3.1:8b` at temperature 0.2:
+
+- Six sessions summarised, **`ungrounded`/`invented` empty on every one**, 1.6–6.2s each.
+- Entries run **690–1,120 characters (~170–280 tokens)**. Eight of them before the fold is
+  ~1,800 tokens added to the volatile half of every prompt. Real, and roughly two orders
+  of magnitude cheaper than the transcript it replaces.
+- **The fold fired live**: five sessions in, three entries out, the fold covering the
+  oldest three, grounded.
+
+End to end with the real GM seat: a two-turn `api` session wrote `chronicle.yaml`, logged
+one `chronicle_write` (`covers=('20260814-184923',)`, ~281 tokens) and two free `local`
+cost rows, and `dndc gm --campaign … --show-prompt` shows the paragraph in the next
+session's prompt under "The story so far".
+
+### One prompt fix the live runs forced
+
+The first pass reported *options* as events — "Corin could have pressed him about the
+boy" turned into narrative. The GM ends turns by naming things the party could do (D-006
+scaffolding), and to a small model reading the transcript those look like beats. The
+template now says explicitly that an offered option is not an event, and the leak stopped.
+
+### Known issues
+
+- **The 8B inverts relationships it has the facts for.** In the end-to-end run it wrote
+  that the party "arrived at Brakewater landing after crossing the river" when they were
+  at Brakewater and the ferry left without them, and called Hammond stranded on the wrong
+  bank. Every name and object is real; the geometry is wrong. Grounding cannot catch this
+  — it is a comprehension failure, not a fabrication — and it is the strongest evidence
+  yet for the seat question already flagged: a batch job nobody waits on has no reason to
+  run on the fastest model. See the numbers under the `FOR DESIGN:` from 08-12.
+- The chronicle is not yet consumed by anything except the GM prompt. A `/chronicle`
+  command to read it during play would be the obvious small addition; not built, not
+  needed yet.
+- The sweep's near-duplicate flood (noted 08-13) is unchanged.
+- SRD backgrounds and class starting equipment still not ingested (queued, non-blocking).
+
+### Recommended next task
+
+**P2.6** — the drift test, and the last task in Phase 2: replay the archived Ashmill and
+Salt Road logs, extract canon, and assert the established world survives into a second
+session. Fixtures are on the NAS at `\\TRUENAS\shared\data\dnd-campaign-logs\`, confirmed
+present by Fable on 08-10. This is the task the whole phase was built to make possible,
+and it is also where the two local-model quality findings above become measurements
+rather than anecdotes.
+
+---
+
 ## 2026-08-13 — P2.4: items are state (Claude Code, kelly-pc)
 
 **P2.4 done. 741 tests, suite still fully offline.** No open decisions waiting; the only

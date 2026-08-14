@@ -105,6 +105,15 @@ Task breakdown (D-008 amended 2026-08-09 for all four vocabulary changes below):
   `/inventory` added, since the GM is now told it does not know what anyone carries.)*
 - **P2.5** Chronicle layer: compression job on the utility tier writing `chronicle_write`
   events; prompt builder consumes ledger + chronicle + window.
+  *(Done 2026-08-14. `gm/chronicle.py` is the value type + `chronicle.yaml`,
+  `memory/chronicle.py` the job, run from `_cmd_play` after the sweep; `--no-chronicle`
+  opts out. One entry per session, folding into one when the chronicle outgrows eight —
+  without the fold the prompt grows a paragraph per session forever, which is the thing
+  D-002's prompt rule exists to prevent. The sweep's grounding check moved to
+  `memory/grounding.py` and guards this too: a summary naming someone the session never
+  did is retried once, then skipped, because no entry beats a fabricated one. **No
+  confirmation gate** — see the handoff; it is not canon and cannot become canon.
+  Rendered into the prompt as recollection, explicitly subordinate to the ledger.)*
 - **P2.6** Drift test: replay the archived Ashmill and Salt Road logs, extract canon,
   assert the established world survives into a second session. Fixtures live at
   `\\TRUENAS\shared\data\dnd-campaign-logs\` (`logs/` is gitignored).

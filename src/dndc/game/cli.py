@@ -32,12 +32,14 @@ from dndc.game.campaign import (
 from dndc.game.creation import (
     CreationSession,
     load_campaign_canon,
+    load_campaign_chronicle,
     load_campaign_sheets,
     summarize,
 )
 from dndc.game.inventory import InventoryStore, describe_change, proposals_for
 from dndc.game.party import resolve_member
 from dndc.game.turn import TurnEngine
+from dndc.gm.inventorytag import InventoryTag
 from dndc.gm import (
     DEFAULT_WINDOW,
     SCAFFOLDING_TEMPLATES,
@@ -49,7 +51,14 @@ from dndc.gm import (
     PartyMember,
 )
 from dndc.logging import SessionLog, git_commit_sha, resolve_log_dir
-from dndc.memory import SWEEP_TEMPERATURE, CanonStore, CanonSweep, SweepProposal
+from dndc.memory import (
+    CHRONICLE_TEMPERATURE,
+    SWEEP_TEMPERATURE,
+    CanonStore,
+    CanonSweep,
+    Chronicler,
+    SweepProposal,
+)
 from dndc.models import (
     THROTTLE_WARNING,
     GMBackendError,
@@ -58,7 +67,6 @@ from dndc.models import (
     estimate_cost,
     load_prices,
 )
-from dndc.gm.inventorytag import InventoryTag
 from dndc.rules.build import BuildError, grant_issues
 from dndc.rules.dice import Advantage, DiceError, roll, roll_d20
 from dndc.schema.campaign import slugify
@@ -385,6 +393,7 @@ def _gm_campaign_context(console: Console, args: argparse.Namespace) -> LoadedPa
             return None
         campaign.name = args.campaign_name or record.name
         campaign.ledger = load_campaign_canon(slug)
+        campaign.chronicle = load_campaign_chronicle(slug)
         characters = campaign_dir(slug) / CHARACTERS_DIRNAME
         for sheet in load_campaign_sheets(slug):
             campaign.party.append(PartyMember.from_sheet(sheet))
@@ -793,6 +802,70 @@ def _run_sweep(console: Console, cfg, campaign, store: CanonStore, log: SessionL
         console.print(f"[dim]{len(declined)} declined (logged, not filed)[/dim]")
 
 
+def _run_chronicle(
+    console: Console, cfg, campaign, args: argparse.Namespace, log: SessionLog
+) -> None:
+    """The P2.5 compression job, run once as the session ends (D-002's third layer).
+
+    Best-effort, like the sweep and for the same reason: this is housekeeping at the end
+    of an evening, and a session must not finish in a traceback because toto-llm was
+    asleep. Unlike the sweep there is nothing to confirm — a chronicle entry is not canon,
+    it is regenerable, and `chronicle.yaml` is hand-editable. It is printed so a bad one
+    is seen.
+    """
+    if not campaign.history:
+        return
+
+    slug = getattr(args, "campaign", None)
+    backend = build_utility_backend(cfg, temperature=CHRONICLE_TEMPERATURE)
+    chronicler = (
+        Chronicler.for_campaign(
+            backend,
+            campaign_dir(slug),
+            log=log,
+            party=[member.name for member in campaign.party],
+        )
+        if slug
+        else Chronicler(
+            backend,
+            chronicle=campaign.chronicle,
+            log=log,
+            party=[member.name for member in campaign.party],
+        )
+    )
+    console.print(f"\n[dim]chronicle — {cfg.seats.utility.model} writing the session up...[/dim]")
+    try:
+        report = chronicler.record(campaign.history, session=log.session_id)
+    finally:
+        backend.close()
+
+    if not report.ran:
+        console.print(f"[yellow]chronicle skipped[/yellow] — {report.error}")
+        return
+    if report.already_covered:
+        console.print("[dim]chronicle: this session is already written up[/dim]")
+        return
+    if report.entry is None:
+        if report.invented:
+            # The summary named people the session did not. Saying which is the useful
+            # part: it is a direct measurement of the utility seat, not a mystery.
+            console.print(
+                f"[yellow]chronicle skipped[/yellow] — the summary invented "
+                f"{', '.join(report.invented)}"
+            )
+        else:
+            console.print("[dim]chronicle: nothing written[/dim]")
+        return
+
+    console.print("[bold]chronicle[/bold] — this session, for the sessions after it:")
+    console.print(f"  [dim]{report.entry.summary}[/dim]")
+    if report.folded is not None:
+        console.print(
+            f"[dim]earlier sessions folded into one entry "
+            f"({len(report.folded.sessions)} covered)[/dim]"
+        )
+
+
 def _canon_store(args: argparse.Namespace, campaign, log: SessionLog) -> CanonStore:
     """Where this session's canon gets filed.
 
@@ -927,6 +1000,12 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
 
     if not args.no_sweep:
         _run_sweep(console, cfg, campaign, engine.canon, log)
+    if not args.no_chronicle:
+        # After the sweep, deliberately: the sweep can still be reading the session back
+        # when the chronicle is written, and the two are independent, but running the
+        # cheap confirmable one first means an interrupted end-of-session loses the
+        # summary rather than the canon.
+        _run_chronicle(console, cfg, campaign, args, log)
 
     console.print(f"[dim]logged -> {log.path}[/dim]")
     return 0
@@ -1447,6 +1526,10 @@ def build_parser() -> argparse.ArgumentParser:
     play.add_argument(
         "--no-sweep", action="store_true",
         help="skip the end-of-session canon sweep on the local utility model (P2.3)",
+    )
+    play.add_argument(
+        "--no-chronicle", action="store_true",
+        help="skip the end-of-session chronicle summary on the local utility model (P2.5)",
     )
     play.add_argument("--max-tokens", type=int, default=1024)
 

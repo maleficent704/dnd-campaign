@@ -21,8 +21,8 @@ instruction, because an instruction a model follows on turn 3 is one it drops on
 confirmation, so anything it reads is one echo away from the players' screen. A model
 that was never given the secret cannot leak it.
 
-**Every proposal is checked against the transcript** (`_grounded`). The first live run
-produced a fact about a person who does not exist in the session it was reading — the
+**Every proposal is checked against the transcript** (`memory/grounding.py`). The first
+live run produced a fact about a person who does not exist in the session it read — the
 model had recited the prompt's own worked examples back. A claim that cannot be found in
 its source is dropped before anyone sees it.
 
@@ -38,17 +38,17 @@ would be a worse bug than the one this fixes.
 
 from __future__ import annotations
 
-import re
 import time
 from dataclasses import dataclass, field
 from typing import Sequence
 
 from dndc.gm.canon import CanonEntry, CanonScope, render_entries
 from dndc.gm.canontag import find_canon_tags
-from dndc.gm.context import Turn
+from dndc.gm.context import Turn, render_transcript
 from dndc.gm.templates import render_template
 from dndc.logging import SessionLog
 from dndc.memory.canon_store import CanonStore, normalise
+from dndc.memory.grounding import grounded, vocabulary
 from dndc.models.base import GMBackend, GMBackendError, GMRequest, Message, Role
 from dndc.schema.events import CanonSource, Cost
 
@@ -80,17 +80,6 @@ LOCAL_BILLING = "local"
 
 _NO_CANON = "(nothing recorded yet)"
 _NO_PARTY = "(none named — treat any recurring first-person actor as a player)"
-
-_WORD = re.compile(r"[A-Za-z][A-Za-z'’-]*")
-
-#: Words this short carry no evidence either way; requiring them to match would reject
-#: honest paraphrase over "the" and "was".
-_MIN_CONTENT_LEN = 4
-
-#: How much of a proposal's substance has to appear in the text it was drawn from. Set by
-#: what the first live run needed: a fact the model copied out of the prompt's own worked
-#: examples scored near zero, and every genuine extraction scored well above this.
-_MIN_OVERLAP = 0.5
 
 
 @dataclass(frozen=True)
@@ -170,7 +159,7 @@ class CanonSweep:
         found: list[SweepProposal] = []
 
         for chunk in _chunks(playable, self.chunk_turns):
-            transcript = _transcript(chunk)
+            transcript = render_transcript(chunk)
             try:
                 response = self.backend.generate(
                     self._request(transcript, extra_known=[p.text for p in found])
@@ -214,17 +203,17 @@ class CanonSweep:
         `SWEEP_SCOPE`.
 
         Everything that survives is then checked against the transcript it was supposedly
-        drawn from — see `_grounded`. Returns the survivors and how many were thrown out
+        drawn from — see `memory/grounding.py`. Returns the survivors and how many were thrown out
         as ungrounded, because that count is the honest measure of the seat's model.
         """
         proposals = []
         ungrounded = 0
-        vocabulary = _vocabulary(transcript)
+        known = vocabulary(transcript)
         for tag in find_canon_tags(text):
             statement = " ".join(tag.text.split())
             if not statement or len(statement) > MAX_FACT_CHARS:
                 continue
-            if not _grounded(statement, vocabulary):
+            if not grounded(statement, known):
                 ungrounded += 1
                 continue
             if self.store.holds(statement, SWEEP_SCOPE):
@@ -326,78 +315,5 @@ class CanonSweep:
         )
 
 
-def _stem(word: str) -> str:
-    """A word as the grounding check compares it.
-
-    Only the possessive is stripped, and only because "Ashmill's waystation" is what a
-    paraphrase of "the waystation at Ashmill" actually looks like — the check rejected
-    exactly that until this existed. Nothing further is stemmed: the point is to compare
-    words, and a matcher clever enough to equate "burned" with "burning" is also clever
-    enough to accept an invention.
-    """
-    folded = word.casefold().strip("-'’")
-    for suffix in ("'s", "’s"):
-        if folded.endswith(suffix):
-            return folded[: -len(suffix)]
-    return folded
-
-
-def _vocabulary(text: str) -> set[str]:
-    return {_stem(word) for word in _WORD.findall(text)}
-
-
-def _grounded(statement: str, vocabulary: set[str]) -> bool:
-    """Does this fact actually come from the text it claims to?
-
-    The second live run needed this. Given a tightly-worded prompt with three worked
-    examples, `llama3.1:8b` answered with the three worked examples — including a person
-    and a place that appear nowhere in the transcript it was reading. Prose cannot stop
-    that; it *was* prose that caused it. So the claim is checked against its source, in
-    code, and the check holds whatever model ends up in the utility seat.
-
-    Two tests, and a proposal must pass both:
-
-    * **Every name it uses must appear in the transcript.** A capitalised word that is not
-      sentence-initial is a name, and a name the session never mentioned is the signature
-      of a model reciting rather than reading — the exact failure that was observed.
-    * **Half its substance must appear too.** Loose enough for honest paraphrase, which is
-      what a good extraction is, and tight enough to catch a plausible invention.
-    """
-    words = _WORD.findall(statement)
-    if not words:
-        return False
-
-    for word in words[1:]:
-        if word[0].isupper() and _stem(word) not in vocabulary:
-            return False
-
-    content = [_stem(word) for word in words if len(_stem(word)) >= _MIN_CONTENT_LEN]
-    if not content:
-        # Nothing long enough to check. The names passed, so let the table judge it.
-        return True
-    matched = sum(1 for word in content if word in vocabulary)
-    return matched / len(content) >= _MIN_OVERLAP
-
-
 def _chunks(turns: Sequence[Turn], size: int) -> list[Sequence[Turn]]:
     return [turns[start:start + size] for start in range(0, len(turns), size)]
-
-
-def _transcript(turns: Sequence[Turn]) -> str:
-    """The session as the clerk reads it.
-
-    Player input is included even though the sweep must not record it. Half the narration
-    in a session is a reply — "you push it open, and the hinges give" means nothing
-    without the line that prompted it — and a clerk given only the answers writes down
-    facts that are missing their subject.
-    """
-    blocks = []
-    for index, turn in enumerate(turns, start=1):
-        lines = [f"--- exchange {index} ---"]
-        if turn.opening:
-            lines.append("(the session opens)")
-        elif turn.player_input.strip():
-            lines.append(f"{turn.speaker or 'A player'}: {turn.player_input.strip()}")
-        lines.append(f"GM: {turn.narration.strip()}")
-        blocks.append("\n".join(lines))
-    return "\n\n".join(blocks)

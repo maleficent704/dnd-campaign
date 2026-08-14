@@ -1,6 +1,7 @@
 """GM brain: prompt assembly, canon ledger, NPC gating, threshold escalation."""
 
 from dndc.gm.canon import CanonEntry, CanonLedger, CanonScope, render_entries
+from dndc.gm.chronicle import Chronicle, ChronicleEntry
 from dndc.gm.checkrequest import CheckRequest, CheckRequestError, find_check_request
 from dndc.gm.context import (
     DEFAULT_WINDOW,
@@ -9,6 +10,7 @@ from dndc.gm.context import (
     GMPromptBuilder,
     PartyMember,
     Turn,
+    render_transcript,
 )
 from dndc.gm.creation import CreationPromptBuilder, render_options
 from dndc.gm.proposal import Proposal, ProposalError, find_facts, find_proposal, strip_tags
@@ -21,6 +23,8 @@ __all__ = [
     "CanonScope",
     "CheckRequest",
     "CheckRequestError",
+    "Chronicle",
+    "ChronicleEntry",
     "CreationPromptBuilder",
     "DEFAULT_WINDOW",
     "GMPromptBuilder",
@@ -37,6 +41,7 @@ __all__ = [
     "render",
     "render_entries",
     "render_options",
+    "render_transcript",
     "render_template",
     "strip_tags",
 ]

@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from typing import Sequence
 
 from dndc.gm.canon import CanonEntry, CanonLedger, render_entries
+from dndc.gm.chronicle import Chronicle
 from dndc.gm.templates import render_template
 from dndc.models.base import DEFAULT_MAX_TOKENS, GMRequest, Message, Role
 from dndc.schema.sheet import CharacterSheet
@@ -117,6 +118,9 @@ class CampaignContext:
     scene: str = ""
     party: list[PartyMember] = field(default_factory=list)
     ledger: CanonLedger = field(default_factory=CanonLedger)
+    #: D-002's third layer (P2.5): earlier sessions as prose. Empty in session one, and
+    #: the only reason session nine's prompt does not carry session two's transcript.
+    chronicle: Chronicle = field(default_factory=Chronicle)
     history: list[Turn] = field(default_factory=list)
 
     def record(self, turn: Turn) -> None:
@@ -169,6 +173,7 @@ class GMPromptBuilder:
             "context",
             campaign=_campaign_block(campaign),
             party=_party_block(campaign.party),
+            chronicle=campaign.chronicle.render(),
             scene=campaign.scene.strip() or _NO_SCENE,
             canon=render_entries(campaign.ledger.for_gm()),
         )
@@ -278,3 +283,27 @@ def _resolutions_block(resolutions: Sequence[str]) -> str:
 def entries_for_prompt(ledger: CanonLedger) -> list[CanonEntry]:
     """What the GM seat sees: everything, secrets included (D-003)."""
     return ledger.for_gm()
+
+
+def render_transcript(turns: Sequence[Turn]) -> str:
+    """A run of turns as flat prose, for a utility-tier reader.
+
+    Used by the P2.3 sweep and the P2.5 chronicle, which both read a session back rather
+    than continue it — so they want one block of text, not the alternating messages the
+    GM prompt is built from.
+
+    Player input is included even though the sweep must not record it. Half the narration
+    in a session is a reply — "you push it open, and the hinges give" means nothing
+    without the line that prompted it — and a clerk given only the answers writes down
+    facts that are missing their subject.
+    """
+    blocks = []
+    for index, turn in enumerate(turns, start=1):
+        lines = [f"--- exchange {index} ---"]
+        if turn.opening:
+            lines.append("(the session opens)")
+        elif turn.player_input.strip():
+            lines.append(f"{turn.speaker or 'A player'}: {turn.player_input.strip()}")
+        lines.append(f"GM: {turn.narration.strip()}")
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
