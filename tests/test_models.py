@@ -715,3 +715,16 @@ def test_the_seat_names_are_the_ones_the_cost_rows_use():
 
     seats = _seats_for_meta(load_config())
     assert INTERACTIVE_SEAT in seats and BATCH_SEAT in seats
+
+
+def test_a_seed_reaches_the_ollama_options_only_when_set():
+    """A tightener, never a substitute for the committed baseline (Fable, 2026-08-15).
+    Absent by default so ordinary play is byte-identical on the wire."""
+    from dndc.models.base import GMRequest
+    from dndc.models.ollama import OllamaBackend
+
+    seeded = OllamaBackend(model="m", endpoint="http://x", seed=7)
+    plain = OllamaBackend(model="m", endpoint="http://x")
+
+    assert seeded.payload(GMRequest(system="s", messages=()))["options"]["seed"] == 7
+    assert "seed" not in plain.payload(GMRequest(system="s", messages=()))["options"]

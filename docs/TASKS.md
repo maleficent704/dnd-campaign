@@ -143,11 +143,22 @@ the rest are PHB and outside D-007's licence, so the mechanism is complete and t
 is one row. Whether to author original backgrounds as campaign data is a design question,
 tagged `FOR DESIGN:` in the handoff.)*
 
-**Still outstanding from the 2026-08-15 ruling:** the drift-baseline fixtures ("the
-fixture, not the seed"). Fable scoped it as able to ride with this task; it did not, to
-keep one commit reviewable. It is the next task.
+## Between phases — the drift baseline ("the fixture, not the seed")
 
-## Phase 3 — Combat
+Ruled by Fable 2026-08-15, implemented 2026-08-17.
+
+*(Recovered canon is now a committed artifact: `data/drift/*.baseline.yaml`, one per
+archived session, carrying the facts plus provenance — model, temperature, seed, date,
+`dndc` version, commit, and the SHA-256 of the source log so a fixture knows when its log
+changed underneath it. `src/dndc/analysis/baseline.py` owns the type;
+`dndc drift check | record | measure` are the three operations.
+
+**Survival now needs no model, no NAS and no logs** — it loads a file and renders it
+through the real prompt builder, so it is a test (`test_the_committed_baselines_all
+_survive`) rather than an errand. Recovery stability is split out as its own number:
+re-sweep the log and diff against the fixture, reporting identical / reworded / missed /
+new. A seed was added to the Ollama adapter as a tightener per the ruling, never a
+substitute — and the live numbers show exactly why. See the handoff.)*
 
 ## Phase 3 — Combat
 

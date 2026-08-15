@@ -22,8 +22,7 @@ campaign data beside `canon.yaml`, or (3) let co-creation propose one and file i
 confirmation? Nothing is blocked — an unknown background stays flavour under all three.
 Content decision, not engineering.
 
-*(Drift-baseline reproducibility ruled 2026-08-15 — implementation is the next task, not
-yet done.)*
+*(Drift-baseline reproducibility ruled 2026-08-15 — implemented 2026-08-17.)*
 
 *(The 2026-08-14 block below is ruled; both CC-owned items — the utility seat split and
 the sweep's display grouping — were implemented 2026-08-15.)*
@@ -325,6 +324,93 @@ the sweep's display grouping — were implemented 2026-08-15.)*
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-08-17 — the drift baseline: the fixture, not the seed (Claude Code, kelly-pc)
+
+**Fable's 2026-08-15 ruling implemented. 866 tests, suite still fully offline.** The
+background question from 08-16 is still open and untouched — it is a content decision and
+nothing here depends on it.
+
+### What landed
+
+`data/drift/*.baseline.yaml` — one committed artifact per archived session, carrying the
+recovered canon plus how it was recovered: model, temperature, seed, date, `dndc` version,
+commit, and the **SHA-256 of the source log**. That last field is the one that earns its
+place: an archived log edited or replaced after the fixture was cut would otherwise show up
+as the world mysteriously drifting, and now it reports "baseline is stale — re-record it".
+
+`dndc drift` became three operations, because they are three genuinely different things:
+
+- **`check`** — survival against the committed baselines. **No model, no NAS, no logs.**
+- **`record`** — cut a baseline. The expensive, model-touching half; refuses to overwrite
+  without `--force`, because a baseline quietly re-cut is a measurement that moved without
+  anyone deciding it should.
+- **`measure`** — the model-assisted half: contradiction frequency, plus the recovery
+  stability diff against the fixture.
+
+### The part that pays off most
+
+With the canon in a file, **survival stopped being an errand and became an assertion**. It
+is now a test (`test_the_committed_baselines_all_survive`) that runs in milliseconds with
+the GPU box off and the NAS unmounted. Phase 2's central claim — established facts reach
+the next session's prompt — is checked on every `pytest` run rather than when someone
+remembers to point a command at the NAS. **206 facts across two baselines, all surviving.**
+
+### The seed: measured, and it makes the ruling's case better than the ruling did
+
+Fable allowed a seed as a tightener and warned it is hostage to model version and server
+internals. I added it and measured it, and the numbers are sharper than expected:
+
+- **Same seed, back to back: byte-identical.** Three runs of the 11-turn log at seed
+  20260815 gave the same 15 facts every time; two runs at seed 999 gave the same 21.
+- **Different seed: a different world.** 37% vs 11% stability against the same baseline.
+  The seed is not a small perturbation — it changes which facts are found.
+- **Same seed, different server state: not reproducible.** The 11-turn log recorded
+  *alongside another log* gave 19 facts; recorded alone, 15 — same seed, same temperature,
+  same model, same input. Recovery is a **chain** (each turn's sweep prompt carries the
+  ledger built so far), so one divergence cascades through everything after it.
+- **And it degrades with length.** Re-measuring immediately after recording: **100% stable
+  over 11 turns, 63% over 32.** Deterministic run-to-run (63% twice, identical breakdown),
+  just not across the recording state.
+
+So a seed buys repeatability within one process on one machine and buys nothing across
+them. That is exactly why the fixture is the answer, and I would not have been able to say
+so with numbers if the ruling had not told me to add the seed anyway.
+
+**Procedural note for whoever cuts the next baseline: one log per invocation.** Both
+committed baselines were re-cut that way after the finding above.
+
+### Recovery stability is now its own number
+
+`compare()` diffs a fresh sweep against the fixture and reports **identical / reworded /
+missed / new**. Two readings rather than one on purpose: *identical* is whether the model
+said the same words, *equivalent* is whether it found the same fact, and collapsing them
+would hide which happened. A one-to-one match is enforced, so a sweep that collapsed three
+facts into one cannot score as stable.
+
+### Known issues
+
+- **The baselines contain scene noise.** "The guard has sized up Hammond and is now sizing
+  up Corin" is in there as a `player_known` fact. That is the sweep's known volume problem
+  (Fable's standing observation: act when the table finds confirmation fatiguing, not on a
+  number in a log), and for a *baseline* it is harmless — the fixture's job is to be fixed,
+  not to be good. Worth knowing before anyone reads one as a curated world.
+- `commit_sha` in both baselines ends `-dirty`: they were cut from an uncommitted working
+  tree, which is truthful and slightly unfortunate for a committed artifact. Re-cutting
+  after the commit would only move the problem, since the SHA would then predate the
+  baselines it stamps.
+- The 32-turn baseline is 1,093 lines of YAML. Fine at two sessions; worth watching if this
+  becomes a per-session habit rather than a fixed set of before-pictures.
+
+### Recommended next task
+
+**Phase 3 — combat.** Initiative tracker, action economy, SRD monster stat blocks,
+deterministic resolution with GM narration layered per round, encounter builder on a CR
+budget. It is the first phase since Phase 0 where the deterministic core does the heavy
+lifting and the model narrates around it, which is D-001's boundary under the most load it
+has seen.
 
 ---
 

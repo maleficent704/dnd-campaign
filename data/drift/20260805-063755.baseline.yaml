@@ -1,0 +1,1093 @@
+source:
+  log: 20260805-063755.jsonl
+  sha256: 1f69bf6c9505d983dda1615431d27093d792266eba361fda75c2fff46b0105d5
+  session_id: 20260805-063755
+  campaign: smoke-test-1
+  turns: 32
+  tagged: 0
+provenance:
+  recorded: '2026-08-15'
+  model: llama3.1:8b
+  temperature: 0.1
+  seed: 20260815
+  chunk_turns: 1
+  dndc_version: 0.1.0
+  commit_sha: aff8c2098a6c8e91c932cfeb6b63ac12c96ab5fb-dirty
+entries:
+- id: player_known-the-road-from-ashmill
+  text: The road from Ashmill is muddy and difficult to navigate.
+  scope: player_known
+  turn: 1
+  tags: []
+- id: player_known-there-is-a-market
+  text: There is a market day in Ashmill, with vendors selling bread and tools near the mill
+    bridge.
+  scope: player_known
+  turn: 1
+  tags: []
+- id: player_known-the-grey-hollow-is
+  text: The Grey Hollow is an inn in Ashmill.
+  scope: player_known
+  turn: 1
+  tags: []
+- id: player_known-the-fishmonger-s-stall
+  text: The fishmonger's stall has sticky friends who might cause trouble if not treated carefully.
+  scope: player_known
+  turn: 1
+  tags: []
+- id: player_known-the-mill-bridge-is
+  text: The mill bridge is grey and swollen with old rain.
+  scope: player_known
+  turn: 2
+  tags: []
+- id: player_known-hollis-is-the-baker
+  text: Hollis is the baker in Ashmill, who might give free heels of yesterday's loaf to those
+    sent by him.
+  scope: player_known
+  turn: 2
+  tags: []
+- id: player_known-vennhollow-is-a-destination
+  text: Vennhollow is a destination that can be reached from Ashmill after getting one's bearings.
+  scope: player_known
+  turn: 2
+  tags: []
+- id: player_known-hollis-has-a-cart
+  text: Hollis has a cart that passes through the mill bridge and into the market square of
+    Ashmill.
+  scope: player_known
+  turn: 2
+  tags: []
+- id: player_known-the-town-of-ashmill
+  text: The town of Ashmill is waking up to its morning business as you approach from the
+    bridge.
+  scope: player_known
+  turn: 2
+  tags: []
+- id: player_known-there-is-a-miller
+  text: There is a miller's daughter who has been involved in a broken betrothal, according
+    to local gossip at the Grey Hollow.
+  scope: player_known
+  turn: 3
+  tags: []
+- id: player_known-the-fire-is-near
+  text: The fire is near where Corin Vale sits.
+  scope: player_known
+  turn: 4
+  tags: []
+- id: player_known-there-are-two-men
+  text: There are two men having a conversation near the hearth.
+  scope: player_known
+  turn: 4
+  tags: []
+- id: player_known-one-of-the-men
+  text: One of the men has burn scars on his forearms.
+  scope: player_known
+  turn: 4
+  tags: []
+- id: player_known-there-is-an-old
+  text: There is an old chapel near Vennhollow.
+  scope: player_known
+  turn: 5
+  tags: []
+- id: player_known-the-reeve-of-vennhollow
+  text: The reeve of Vennhollow is asking questions about the chapel's roof caving in on someone.
+  scope: player_known
+  turn: 5
+  tags: []
+- id: player_known-there-is-a-crypt
+  text: There is a crypt near Vennhollow that is somehow connected to the old chapel.
+  scope: player_known
+  turn: 5
+  tags: []
+- id: player_known-the-reeve-of-vennhollow-2
+  text: The reeve of Vennhollow is trying to silence someone about the chapel or crypt, possibly
+    by paying them off.
+  scope: player_known
+  turn: 5
+  tags: []
+- id: player_known-the-innkeeper-knows-about
+  text: The innkeeper knows about the old chapel at Vennhollow and its fenced-off status.
+  scope: player_known
+  turn: 6
+  tags: []
+- id: player_known-hollis-s-name-gets
+  text: Hollis's name gets Corin Vale a discount on his purchase at the tavern.
+  scope: player_known
+  turn: 6
+  tags: []
+- id: player_known-there-is-an-old-2
+  text: There is an old chapel called Saint Brannoc's near Vennhollow, which has been half-fallen
+    for years.
+  scope: player_known
+  turn: 6
+  tags: []
+- id: player_known-a-person-who-went
+  text: A person who went into the chapel last season came out wrong in the head after searching
+    for scrap stone.
+  scope: player_known
+  turn: 6
+  tags: []
+- id: player_known-the-reeve-of-vennhollow-3
+  text: The reeve of Vennhollow has had the chapel fenced off since the incident with the
+    forager.
+  scope: player_known
+  turn: 6
+  tags: []
+- id: player_known-the-reeve-of-vennhollow-4
+  text: The reeve of Vennhollow is trying to discourage people from visiting the chapel by
+    having it fenced off.
+  scope: player_known
+  turn: 6
+  tags: []
+- id: player_known-dunnett-loam-fell-into
+  text: Dunnett Loam fell into the old chapel and has been addled since then.
+  scope: player_known
+  turn: 7
+  tags: []
+- id: player_known-the-innkeeper-knows-dunnett
+  text: The innkeeper knows Dunnett Loam from before he became ill.
+  scope: player_known
+  turn: 7
+  tags: []
+- id: player_known-the-reeve-s-story
+  text: The reeve's story about the roof caving in may not be true.
+  scope: player_known
+  turn: 7
+  tags: []
+- id: player_known-dunnett-loam-complains-of
+  text: Dunnett Loam complains of headaches after falling into the chapel.
+  scope: player_known
+  turn: 7
+  tags: []
+- id: player_known-dunnett-loam-now-stares
+  text: Dunnett Loam now stares at walls and makes nonsensical statements, such as "the stones
+    singing" or "watching".
+  scope: player_known
+  turn: 7
+  tags: []
+- id: player_known-reeve-petrus-ellard-has
+  text: Reeve Petrus Ellard has been the King's man in these parts for nearly ten years.
+  scope: player_known
+  turn: 8
+  tags: []
+- id: player_known-ashmill-and-vennhollow-both
+  text: Ashmill and Vennhollow both answer to Reeve Petrus Ellard.
+  scope: player_known
+  turn: 8
+  tags: []
+- id: player_known-the-chapel-near-vennhollow
+  text: The chapel near Vennhollow was fenced off by Reeve Petrus Ellard after Dunnett came
+    out wrong.
+  scope: player_known
+  turn: 8
+  tags: []
+- id: player_known-reeve-petrus-ellard-collects
+  text: Reeve Petrus Ellard collects a peacekeeping toll from the folk of Vennhollow this
+    past year, in addition to taxes and other duties.
+  scope: player_known
+  turn: 8
+  tags: []
+- id: player_known-the-innkeeper-knows-more
+  text: The innkeeper knows more about the chapel than she is willing to share with Corin
+    Vale.
+  scope: player_known
+  turn: 8
+  tags: []
+- id: player_known-there-is-a-ledger
+  text: There is a ledger of Ashmill's business that the innkeeper has access to, which she
+    offers to show Corin Vale if he wants it.
+  scope: player_known
+  turn: 8
+  tags: []
+- id: player_known-the-innkeeper-knows-about-2
+  text: The innkeeper knows about Dunnett Loam and his condition after falling into the chapel
+    near Vennhollow.
+  scope: player_known
+  turn: 9
+  tags: []
+- id: player_known-the-market-square-in
+  text: The market square in Ashmill is busy with various stalls selling goods.
+  scope: player_known
+  turn: 10
+  tags: []
+- id: player_known-a-secondhand-cart-is
+  text: A secondhand cart is present in the market square, containing a mix of items including
+    grandmother's silverware, a chipped hunting horn, and mismatched daggers.
+  scope: player_known
+  turn: 10
+  tags: []
+- id: player_known-a-leatherworker-s-stall
+  text: A leatherworker's stall is set up in the market square, displaying belts and boot-soles
+    for sale.
+  scope: player_known
+  turn: 10
+  tags: []
+- id: player_known-there-is-a-notice
+  text: There is a notice board at the far edge of the market square with nailed-up papers,
+    possibly including proclamations or bounties from the reeve.
+  scope: player_known
+  turn: 10
+  tags: []
+- id: player_known-chickens-are-being-kept
+  text: Chickens are being kept in a crate near the well in the market square.
+  scope: player_known
+  turn: 10
+  tags: []
+- id: player_known-a-boy-is-selling
+  text: A boy is selling meat pies on a tray and calling out prices to passersby.
+  scope: player_known
+  turn: 10
+  tags: []
+- id: player_known-the-lane-leading-into
+  text: The lane leading into Ashmill's market square opens onto cobbles that are slick with
+    damp from the previous night.
+  scope: player_known
+  turn: 10
+  tags: []
+- id: player_known-the-business-of-a
+  text: The business of a working morning is underway in the market square, with various vendors
+    and customers present.
+  scope: player_known
+  turn: 10
+  tags: []
+- id: player_known-a-fishmonger-is-selling
+  text: A fishmonger is selling goods on a bed of ice near one of the stalls.
+  scope: player_known
+  turn: 10
+  tags: []
+- id: player_known-a-woman-is-selling
+  text: A woman is selling bundled herbs and dubious cures at another stall in the market
+    square.
+  scope: player_known
+  turn: 10
+  tags: []
+- id: player_known-there-are-various-vendors
+  text: There are various vendors and customers present in the market square, including a
+    leatherworker, a fishmonger, a woman selling herbs, and a boy selling meat pies.
+  scope: player_known
+  turn: 10
+  tags: []
+- id: player_known-the-market-square-is
+  text: The market square is located near the well and has a lane leading into it from elsewhere
+    in Ashmill.
+  scope: player_known
+  turn: 10
+  tags: []
+- id: player_known-a-reeve-s-proclamations
+  text: A reeve's proclamations or bounties might be posted on the notice board in the market
+    square.
+  scope: player_known
+  turn: 10
+  tags: []
+- id: player_known-there-is-a-market-2
+  text: There is a market day in Ashmill, with vendors selling goods near the mill bridge.
+  scope: player_known
+  turn: 10
+  tags: []
+- id: player_known-the-ruins-of-saint
+  text: The ruins of Saint Brannoc's chapel are closed to all persons due to public safety
+    concerns.
+  scope: player_known
+  turn: 11
+  tags: []
+- id: player_known-fenwick-s-wares-include
+  text: Fenwick's wares include notched daggers, tarnished silverware, good hemp rope, and
+    a leather satchel with a broken buckle.
+  scope: player_known
+  turn: 12
+  tags: []
+- id: player_known-fenwick-has-sold-to
+  text: Fenwick has sold to both pickpockets and priests in the past.
+  scope: player_known
+  turn: 12
+  tags: []
+- id: player_known-fenwick-refers-to-himself
+  text: Fenwick refers to himself as "purveyor of previously-owned treasures".
+  scope: player_known
+  turn: 12
+  tags: []
+- id: player_known-fenwick-sells-his-wares
+  text: Fenwick sells his wares through inheritance sales, estate clearances, and desperate
+    travelers needing quick coin.
+  scope: player_known
+  turn: 13
+  tags: []
+- id: player_known-the-king-s-road
+  text: The King's road narrows to a cart-track as it leaves Ashmill.
+  scope: player_known
+  turn: 15
+  tags: []
+- id: player_known-a-farmer-is-driving
+  text: A farmer is driving an ox-cart in the opposite direction from Vennhollow.
+  scope: player_known
+  turn: 15
+  tags: []
+- id: player_known-the-main-road-is
+  text: The main road is behind Corin Vale as he walks along the overgrown path.
+  scope: player_known
+  turn: 16
+  tags: []
+- id: player_known-a-shallow-valley-with
+  text: A shallow valley with a slow stream lies ahead of Corin Vale, partially wooded and
+    visible from a low rise.
+  scope: player_known
+  turn: 16
+  tags: []
+- id: player_known-there-is-a-grey
+  text: There is a grey stone building, possibly a chapel, in the distance to the west, half-swallowed
+    by ivy.
+  scope: player_known
+  turn: 16
+  tags: []
+- id: player_known-the-strip-of-cloth
+  text: The strip of cloth is knotted around a splintered picket near an old fence post.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-the-fence-post-marks
+  text: The fence post marks off what was once a kitchen garden or paddock for a farmstead.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-a-grey-chapel-shape
+  text: A grey chapel shape, overgrown with ivy, lies beyond the stream from the old fence
+    post.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-the-cloth-has-been
+  text: The cloth has been tied deliberately around the picket and not simply blown there.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-there-are-no-other
+  text: There are no other signs of struggle or disturbance near the knotted cloth.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-the-strip-of-cloth-2
+  text: The strip of cloth is weathered thin, having been exposed to sun and rain for months
+    or longer.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-the-fabric-was-once
+  text: The fabric was once dyed a deep blue but has faded to a pale color due to exposure.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-the-old-fence-post
+  text: The old fence post and surrounding area are overgrown with dead orchard grass and
+    bracken.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-a-stream-lies-beyond
+  text: A stream lies beyond the slope from the old fence post, heading towards the grey chapel
+    in the distance.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-there-is-no-indication
+  text: There is no indication of what the cloth might be a marker for or its original purpose.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-the-chapel-behind-the
+  text: The chapel behind the stream appears to be overgrown with ivy and has been there for
+    some time.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-the-surrounding-area-shows
+  text: The surrounding area shows no signs of recent human activity other than the knotted
+    cloth.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-the-strip-of-cloth-3
+  text: The strip of cloth is tied around a picket, not just caught on it by chance.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-the-old-fence-post-2
+  text: The old fence post marks the boundary of what was once a farmstead's kitchen garden
+    or paddock.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-there-are-no-bones
+  text: There are no bones or other signs of struggle near the knotted cloth.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-the-grey-chapel-shape
+  text: The grey chapel shape is visible in the distance, beyond the stream from the old fence
+    post.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-the-surrounding-area-appears
+  text: The surrounding area appears to be abandoned and overgrown with dead orchard grass
+    and bracken.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-there-is-no-indication-2
+  text: There is no indication of what might have caused the cloth to be tied around the picket
+    in this deliberate manner.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-the-old-fence-post-3
+  text: The old fence post and surrounding area are covered in dead orchard grass and bracken,
+    indicating a lack of recent maintenance or use.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-a-stream-lies-beyond-2
+  text: A stream lies beyond the slope from the old fence post, heading towards the grey chapel
+    in the distance, which appears to be overgrown with ivy.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-the-strip-of-cloth-4
+  text: The strip of cloth is tied around a picket, not just caught on it by chance, and has
+    been exposed to the elements for a significant amount of time.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-there-are-no-signs
+  text: There are no signs of recent human activity other than the knotted cloth near the
+    old fence post.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-the-grey-chapel-shape-2
+  text: The grey chapel shape appears to be overgrown with ivy and has been there for some
+    time, visible in the distance beyond the stream from the old fence post.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-the-strip-of-cloth-5
+  text: The strip of cloth was once dyed a deep blue but has faded to a pale color due to
+    exposure to sun and rain.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-there-is-no-indication-3
+  text: There is no indication of what might have caused the cloth to be tied around the picket
+    in this deliberate manner, or its original purpose.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-the-old-fence-post-4
+  text: The old fence post marks the boundary of what was once a farmstead's kitchen garden
+    or paddock, now overgrown with dead orchard grass and bracken.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-there-are-no-signs-2
+  text: There are no signs of struggle or disturbance near the knotted cloth, only the deliberate
+    knot itself.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-the-strip-of-cloth-6
+  text: The strip of cloth was once dyed a deep blue but has faded to a pale color due to
+    exposure to sun and rain, and is now tied around a picket near an old fence post.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-there-are-no-bones-2
+  text: There are no bones or other signs of struggle near the knotted cloth, only the deliberate
+    knot itself, indicating that it may have been left as a marker or signal.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-the-strip-of-cloth-7
+  text: The strip of cloth is tied around a picket near an old fence post, not just caught
+    on it by chance, and has been exposed to the elements for a significant amount of time,
+    causing it to fade and weather.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-there-are-no-signs-3
+  text: There are no signs of recent human activity other than the knotted cloth near the
+    old fence post, indicating that the area may be abandoned or rarely visited.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-the-strip-of-cloth-8
+  text: The strip of cloth was once dyed a deep blue but has faded to a pale color due to
+    exposure to sun and rain, and is now tied around a picket near an old fence post, possibly
+    as a marker or signal.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-there-are-no-bones-3
+  text: There are no bones or other signs of struggle near the knotted cloth, only the deliberate
+    knot itself, indicating that it may have been left as a marker or signal by someone who
+    has since departed.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-a-stream-lies-beyond-3
+  text: A stream lies beyond the slope from the old fence post, heading towards the grey chapel
+    in the distance, which appears to be overgrown with ivy and has been there for some time.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-the-strip-of-cloth-9
+  text: The strip of cloth is tied around a picket near an old fence post, not just caught
+    on it by chance, and has been exposed to the elements for a significant amount of time,
+    causing it to fade and weather, possibly as a marker or signal left behind by someone
+    who has since departed.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-the-grey-chapel-shape-3
+  text: The grey chapel shape appears to be overgrown with ivy and has been there for some
+    time, visible in the distance beyond the stream from the old fence post, possibly a place
+    of significance or interest.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-the-strip-of-cloth-10
+  text: The strip of cloth was once dyed a deep blue but has faded to a pale color due to
+    exposure to sun and rain, and is now tied around a picket near an old fence post, possibly
+    as a marker or signal left behind by someone who has since departed, with possible long-term
+    significance.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-there-are-no-bones-4
+  text: There are no bones or other signs of struggle near the knotted cloth, only the deliberate
+    knot itself, indicating that it may have been left as a marker or signal by someone who
+    has since departed, possibly with long-term significance.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-the-grey-chapel-shape-4
+  text: The grey chapel shape appears to be overgrown with ivy and has been there for some
+    time, visible in the distance beyond the stream from the old fence post, possibly a place
+    of interest or significance.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-the-strip-of-cloth-11
+  text: The strip of cloth was once dyed a deep blue but has faded to a pale color due to
+    exposure to sun and rain, and is now tied around a picket near an old fence post, possibly
+    as a marker or signal left behind by someone who has since departed, with possible long-term
+    significance and disuse.
+  scope: player_known
+  turn: 17
+  tags: []
+- id: player_known-the-orchard-rows-are
+  text: The orchard rows are empty and quiet around the fence post.
+  scope: player_known
+  turn: 19
+  tags: []
+- id: player_known-the-stream-glints-beyond
+  text: The stream glints beyond the orchard rows.
+  scope: player_known
+  turn: 19
+  tags: []
+- id: player_known-the-chapel-is-patient
+  text: The chapel is patient as stone, waiting beyond the stream.
+  scope: player_known
+  turn: 19
+  tags: []
+- id: player_known-there-is-a-strip
+  text: There is a strip of old cloth tied around a picket near an old fence post in the orchard.
+  scope: player_known
+  turn: 19
+  tags: []
+- id: player_known-time-has-erased-any
+  text: Time has erased any signs of human activity or dropped items around the fence post.
+  scope: player_known
+  turn: 19
+  tags: []
+- id: player_known-the-chapel-and-the
+  text: The chapel and the stream are visible from where you stand, beyond the orchard rows.
+  scope: player_known
+  turn: 19
+  tags: []
+- id: player_known-you-can-see-the
+  text: You can see the orchard trees casting thin shade on the ground around them.
+  scope: player_known
+  turn: 19
+  tags: []
+- id: player_known-there-is-no-story
+  text: There is no story attached to the old cloth that you can read by examining it.
+  scope: player_known
+  turn: 19
+  tags: []
+- id: player_known-the-strip-of-cloth-12
+  text: The strip of cloth is tied around a picket near an old fence post in the orchard rows.
+  scope: player_known
+  turn: 19
+  tags: []
+- id: player_known-there-is-a-stream
+  text: There is a stream running beyond the slope from the old fence post, heading towards
+    the chapel in the distance.
+  scope: player_known
+  turn: 19
+  tags: []
+- id: player_known-the-chapel-appears-to
+  text: The chapel appears to be overgrown with ivy and has been there for some time, visible
+    in the distance beyond the stream from the old fence post.
+  scope: player_known
+  turn: 19
+  tags: []
+- id: player_known-the-chapel-is-smaller
+  text: The chapel is smaller than it looked from a distance but has a collapsed section of
+    roof and a warped door.
+  scope: player_known
+  turn: 20
+  tags: []
+- id: player_known-ivy-has-pried-its
+  text: Ivy has pried its way between the stones in multiple places on the chapel's exterior.
+  scope: player_known
+  turn: 20
+  tags: []
+- id: player_known-a-carved-symbol-above
+  text: A carved symbol above the doorframe has been worn nearly smooth by weather, making
+    it difficult to identify what it once was.
+  scope: player_known
+  turn: 20
+  tags: []
+- id: player_known-the-chapel-makes-small
+  text: The chapel makes small creaking noises when the wind moves through it, indicating
+    that it is old and settling.
+  scope: player_known
+  turn: 20
+  tags: []
+- id: player_known-there-are-no-sounds
+  text: There are no sounds coming from within the chapel.
+  scope: player_known
+  turn: 20
+  tags: []
+- id: player_known-the-door-of-the
+  text: The door of the chapel hangs on one hinge and is warped with rot.
+  scope: player_known
+  turn: 20
+  tags: []
+- id: player_known-the-chapel-is-built
+  text: The chapel is built of dark fieldstone gone slick with moss.
+  scope: player_known
+  turn: 20
+  tags: []
+- id: player_known-a-shaft-of-daylight
+  text: A shaft of daylight falls inside the chapel through a collapsed section of roof.
+  scope: player_known
+  turn: 20
+  tags: []
+- id: player_known-the-chapel-appears-to-2
+  text: The chapel appears to be overgrown with ivy, which has pried its way between the stones
+    in multiple places.
+  scope: player_known
+  turn: 20
+  tags: []
+- id: player_known-the-chapel-is-located
+  text: The chapel is located near a stream that can be crossed without trouble by hopping
+    from one bank to the other.
+  scope: player_known
+  turn: 20
+  tags: []
+- id: player_known-the-chapel-is-situated
+  text: The chapel is situated on the far side of the stream, accessible via a narrow water
+    crossing.
+  scope: player_known
+  turn: 20
+  tags: []
+- id: player_known-the-chapel-s-exterior
+  text: The chapel's exterior shows signs of age and neglect, with a collapsed roof and a
+    warped door.
+  scope: player_known
+  turn: 20
+  tags: []
+- id: player_known-the-chapel-s-dark
+  text: The chapel's dark fieldstone exterior is slick with moss, indicating a long period
+    of exposure to the elements.
+  scope: player_known
+  turn: 20
+  tags: []
+- id: player_known-a-carved-symbol-above-2
+  text: A carved symbol above the doorframe has been worn smooth by weather, making it difficult
+    to identify what it once was, but it may be significant.
+  scope: player_known
+  turn: 20
+  tags: []
+- id: player_known-the-chapel-makes-small-2
+  text: The chapel makes small creaking noises when the wind moves through it, indicating
+    that it is old and settling, but there are no other sounds coming from within.
+  scope: player_known
+  turn: 20
+  tags: []
+- id: player_known-the-chapel-s-door
+  text: The chapel's door hangs on one hinge and is warped with rot, suggesting a long period
+    of disuse and neglect.
+  scope: player_known
+  turn: 20
+  tags: []
+- id: player_known-a-shaft-of-daylight-2
+  text: A shaft of daylight falls inside the chapel through a collapsed section of roof, illuminating
+    the interior in some way.
+  scope: player_known
+  turn: 20
+  tags: []
+- id: player_known-the-chapel-is-located-2
+  text: The chapel is located near a stream that can be crossed without trouble by hopping
+    from one bank to the other, making it accessible via a narrow water crossing.
+  scope: player_known
+  turn: 20
+  tags: []
+- id: player_known-a-carved-symbol-above-3
+  text: A carved symbol above the doorframe has been worn smooth by weather, making it difficult
+    to identify what it once was, but it may be significant, and the chapel's dark fieldstone
+    exterior is slick with moss, indicating a long period of exposure to the elements.
+  scope: player_known
+  turn: 20
+  tags: []
+- id: player_known-the-chapel-makes-small-3
+  text: The chapel makes small creaking noises when the wind moves through it, indicating
+    that it is old and settling, but there are no other sounds coming from within, and the
+    door hangs on one hinge and is warped with rot, suggesting a long period of disuse and
+    neglect.
+  scope: player_known
+  turn: 20
+  tags: []
+- id: player_known-a-shaft-of-daylight-3
+  text: A shaft of daylight falls inside the chapel through a collapsed section of roof, illuminating
+    the interior in some way, and the chapel appears to be overgrown with ivy, which has pried
+    its way between the stones in multiple places, indicating a long period of abandonment
+    and neglect.
+  scope: player_known
+  turn: 20
+  tags: []
+- id: player_known-the-chapel-s-exterior-2
+  text: The chapel's exterior shows signs of age and neglect, with a collapsed roof and a
+    warped door, indicating that it has been abandoned for some time, but there may be significance
+    in the carved symbol above the doorframe.
+  scope: player_known
+  turn: 20
+  tags: []
+- id: player_known-the-chapel-appears-to-3
+  text: The chapel appears to be overgrown with ivy, which has pried its way between the stones
+    in multiple places, indicating a long period of abandonment and neglect, but there may
+    be significance in the carved symbol above the doorframe.
+  scope: player_known
+  turn: 20
+  tags: []
+- id: player_known-the-chapel-is-boarded
+  text: The chapel is boarded up.
+  scope: player_known
+  turn: 21
+  tags: []
+- id: player_known-there-is-ivy-growing
+  text: There is ivy growing on the chapel's walls.
+  scope: player_known
+  turn: 21
+  tags: []
+- id: player_known-whatever-was-inside-the
+  text: Whatever was inside the chapel did not respond to Corin Vale's call out.
+  scope: player_known
+  turn: 21
+  tags: []
+- id: player_known-the-wind-can-cause
+  text: The wind can cause the loose door to groan when it picks up.
+  scope: player_known
+  turn: 21
+  tags: []
+- id: player_known-there-may-be-another
+  text: There may be another entrance to the chapel besides the main door.
+  scope: player_known
+  turn: 21
+  tags: []
+- id: player_known-corin-vale-is-standing
+  text: Corin Vale is standing outside the chapel, observing it from a distance.
+  scope: player_known
+  turn: 21
+  tags: []
+- id: player_known-whatever-was-inside-the-2
+  text: Whatever was inside the chapel may be aware of Corin Vale's presence.
+  scope: player_known
+  turn: 21
+  tags: []
+- id: player_known-corin-vale-can-see
+  text: Corin Vale can see the chapel from a distance, but it is not in plain view.
+  scope: player_known
+  turn: 21
+  tags: []
+- id: player_known-the-day-is-sliding
+  text: The day is sliding past noon now.
+  scope: player_known
+  turn: 22
+  tags: []
+- id: player_known-the-broken-door-still
+  text: The broken door still hangs open on its ruined hinge, dark beyond it.
+  scope: player_known
+  turn: 22
+  tags: []
+- id: player_known-the-worn-carving-above
+  text: The worn carving above the frame still keeps whatever meaning it once had.
+  scope: player_known
+  turn: 22
+  tags: []
+- id: player_known-the-orchard-and-stream
+  text: The orchard and stream lie quiet behind you.
+  scope: player_known
+  turn: 22
+  tags: []
+- id: player_known-you-could-push-the
+  text: You could push the door open and see for yourself what's inside
+  scope: player_known
+  turn: 22
+  tags: []
+- id: player_known-the-chapel-has-a
+  text: The chapel has a blind north wall with ivy covering several courses of fieldstone.
+  scope: player_known
+  turn: 23
+  tags: []
+- id: player_known-there-is-a-narrow
+  text: There is a narrow gap in the rear wall where it has slumped, partially hidden by dead
+    creeper.
+  scope: player_known
+  turn: 23
+  tags: []
+- id: player_known-a-worn-path-leads
+  text: A worn path leads from the back gap towards the tree line, indicating recent foot
+    traffic.
+  scope: player_known
+  turn: 23
+  tags: []
+- id: player_known-a-single-boot-print
+  text: A single boot print is visible near the gap, half-filled with old rainwater.
+  scope: player_known
+  turn: 23
+  tags: []
+- id: player_known-the-front-door-of
+  text: The front door of the chapel is broken and hangs open, allowing light into the room.
+  scope: player_known
+  turn: 26
+  tags: []
+- id: player_known-a-stone-altar-stands
+  text: A stone altar stands at the front of the chapel, with something dark smeared or spilled
+    across its surface.
+  scope: player_known
+  turn: 26
+  tags: []
+- id: player_known-the-interior-of-the
+  text: The interior of the chapel is largely empty, with rows of pews overturned or broken.
+  scope: player_known
+  turn: 26
+  tags: []
+- id: player_known-the-chapel-s-floor
+  text: The chapel's floor is made of cracked tile.
+  scope: player_known
+  turn: 26
+  tags: []
+- id: player_known-a-shaft-of-daylight-4
+  text: A shaft of daylight falls across the center aisle of the chapel through a collapsed
+    section of roof.
+  scope: player_known
+  turn: 26
+  tags: []
+- id: player_known-the-far-corners-of
+  text: The far corners of the chapel are still in shadow, despite the light from the collapsed
+    roof.
+  scope: player_known
+  turn: 26
+  tags: []
+- id: player_known-there-is-a-nesting
+  text: There is a nesting smell inside the chapel, along with old wax and colder stone.
+  scope: player_known
+  turn: 26
+  tags: []
+- id: player_known-the-chapel-appears-to-4
+  text: The chapel appears to be abandoned and has been so for some time, as evidenced by
+    the broken pews and fallen support beam.
+  scope: player_known
+  turn: 26
+  tags: []
+- id: player_known-the-chapel-s-interior
+  text: The chapel's interior is dusty, with drifting dust visible in the light from the collapsed
+    roof.
+  scope: player_known
+  turn: 26
+  tags: []
+- id: player_known-the-air-inside-the
+  text: The air inside the chapel is stale and musty, with a strong smell of nesting and old
+    wax.
+  scope: player_known
+  turn: 26
+  tags: []
+- id: player_known-a-single-person-can
+  text: A single person can move through the narrow gap in the rear wall and enter the chapel.
+  scope: player_known
+  turn: 26
+  tags: []
+- id: player_known-there-may-be-useful
+  text: There may be useful or dropped items among the broken pews and floor debris inside
+    the chapel.
+  scope: player_known
+  turn: 26
+  tags: []
+- id: player_known-the-chapel-appears-to-5
+  text: The chapel appears to have been abandoned for some time, as evidenced by the broken
+    pews and fallen support beam.
+  scope: player_known
+  turn: 26
+  tags: []
+- id: player_known-the-chapel-s-interior-2
+  text: The chapel's interior is dimly lit, with only a shaft of daylight falling across the
+    center aisle through a collapsed section of roof.
+  scope: player_known
+  turn: 26
+  tags: []
+- id: player_known-the-chapel-s-interior-3
+  text: The chapel's interior is largely empty, with rows of pews overturned or broken.
+  scope: player_known
+  turn: 26
+  tags: []
+- id: player_known-the-chapel-has-a-2
+  text: The chapel has a makeshift camp in its north corner.
+  scope: player_known
+  turn: 27
+  tags: []
+- id: player_known-there-is-a-bedroll
+  text: There is a bedroll, burnt sticks, and tin cans at the camp site.
+  scope: player_known
+  turn: 27
+  tags: []
+- id: player_known-the-ash-from-the
+  text: The ash from the fire is cold.
+  scope: player_known
+  turn: 27
+  tags: []
+- id: player_known-the-bedroll-is-damp
+  text: The bedroll is damp with old rain.
+  scope: player_known
+  turn: 27
+  tags: []
+- id: player_known-the-camp-s-owner
+  text: The camp's owner is not present in the chapel right now.
+  scope: player_known
+  turn: 27
+  tags: []
+- id: player_known-the-burnt-sticks-and
+  text: The burnt sticks and ash are from a recent fire, but it has gone out for several days.
+  scope: player_known
+  turn: 27
+  tags: []
+- id: player_known-there-is-no-sign
+  text: There is no sign that anyone disturbed the camp today.
+  scope: player_known
+  turn: 27
+  tags: []
+- id: player_known-a-leather-satchel-with
+  text: A leather satchel with a rusted buckle was found under the damp blanket of the bedroll.
+  scope: player_known
+  turn: 28
+  tags: []
+- id: player_known-the-satchel-contained-stale
+  text: The satchel contained stale bread, a whittling knife, and a folded scrap of paper
+    with charcoal writing that is mostly illegible.
+  scope: player_known
+  turn: 28
+  tags: []
+- id: player_known-the-charcoal-note-mentions
+  text: The charcoal note mentions "the ridge past the mill".
+  scope: player_known
+  turn: 28
+  tags: []
+- id: player_known-a-small-plain-silver
+  text: A small, plain silver ring was found wrapped in cloth in a side pocket of the satchel.
+  scope: player_known
+  turn: 28
+  tags: []
+- id: player_known-the-camp-inside-the
+  text: The camp inside the chapel has been abandoned for at least a week.
+  scope: player_known
+  turn: 29
+  tags: []
+- id: player_known-the-owner-of-the
+  text: The owner of the camp still intends to return rather than abandoning it for good.
+  scope: player_known
+  turn: 29
+  tags: []
+- id: player_known-there-is-a-dark
+  text: There is a dark stain on the stone altar in the chapel.
+  scope: player_known
+  turn: 29
+  tags: []
+- id: player_known-the-chapel-has-an
+  text: The chapel has an old, pitted stone altar with worn carvings.
+  scope: player_known
+  turn: 30
+  tags: []
+- id: player_known-there-is-a-dark-2
+  text: There is a dark stain on the altar, dried and cracked brown, pooling at the center
+    and trailing off towards one edge.
+  scope: player_known
+  turn: 30
+  tags: []
+- id: player_known-someone-has-arranged-a
+  text: Someone has arranged a collection of objects beside the stain, including a burnt-down
+    candle stub, a bent coin, and a bird's skull, as if an offering rather than clutter.
+  scope: player_known
+  turn: 30
+  tags: []
+- id: player_known-there-are-worn-carvings
+  text: There are worn carvings on the stone altar that are no longer easily recognizable
+    as shapes.
+  scope: player_known
+  turn: 30
+  tags: []
+- id: player_known-the-objects-arranged-beside
+  text: The objects arranged beside the stain appear to be a deliberate arrangement rather
+    than simply clutter or debris.
+  scope: player_known
+  turn: 30
+  tags: []
+- id: player_known-whatever-happened-at-the
+  text: Whatever happened at the chapel did not happen today, as evidenced by the dryness
+    of the dark stain and the presence of dead leaves on the floor.
+  scope: player_known
+  turn: 30
+  tags: []
+- id: player_known-the-chapel-has-been
+  text: The chapel has been used for some sort of ritual or ceremony in the past, as suggested
+    by the arranged objects and worn carvings on the altar.
+  scope: player_known
+  turn: 30
+  tags: []
+- id: player_known-there-is-a-stone
+  text: There is a stone altar at the front of the chapel, with something dark smeared or
+    spilled across its surface.
+  scope: player_known
+  turn: 30
+  tags: []
+- id: player_known-there-is-a-small
+  text: There is a small collection of objects arranged beside the dark stain on the altar,
+    including a burnt-down candle stub, a bent coin, and a bird's skull.
+  scope: player_known
+  turn: 30
+  tags: []
+- id: player_known-the-chapel-has-carvings
+  text: The chapel has carvings on its altar that depict a circle with flames or rays around
+    it, and at the center, a worn shape that could be either a hand or a bird.
+  scope: player_known
+  turn: 31
+  tags: []
+- id: player_known-the-chapel-predates-the
+  text: The chapel predates the person who is camping in its back corner by a long stretch.
+  scope: player_known
+  turn: 31
+  tags: []
+- id: player_known-the-chapel-has-an-2
+  text: The chapel has an old stone altar with worn carvings.
+  scope: player_known
+  turn: 31
+  tags: []

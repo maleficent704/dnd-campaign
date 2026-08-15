@@ -19,13 +19,25 @@ from rich.console import Console
 from rich.prompt import Prompt
 from rich.table import Table
 
+from datetime import date
+
 from dndc import __version__
 from dndc.analysis import (
     DRIFT_TEMPERATURE,
+    BaselineProvenance,
+    BaselineSource,
     ContradictionScan,
+    DriftBaseline,
+    baseline_path,
+    compare,
+    digest,
+    load_baselines,
     measure,
+    recover,
+    record_baseline,
     replay,
     store_for_replay,
+    survives,
 )
 from dndc.config import Billing, load_config, load_env_file, save_billing_default
 from dndc.game.campaign import (
@@ -88,6 +100,12 @@ from dndc.srd import SRDIngestError, ingest, load_dataset, validate_dataset, ver
 from dndc.srd.repository import SRDRepository
 
 MAX_SEED = 2**32
+
+#: Seed for analysis-context sweeps. A tightener, never a substitute for the committed
+#: baseline (Fable, 2026-08-15) — reproducibility through a seed is hostage to model
+#: version and server internals, so narrowing the variance is worth having and relying
+#: on it is not.
+DEFAULT_ANALYSIS_SEED = 20260815
 
 #: Rendered into every message that has to name the levels, so they cannot drift apart.
 SCAFFOLDING_CHOICES = " | ".join(sorted(SCAFFOLDING_TEMPLATES))
@@ -927,15 +945,111 @@ def _canon_store(args: argparse.Namespace, campaign, log: SessionLog) -> CanonSt
     return CanonStore.for_campaign(campaign_dir(slug), log=log)
 
 
-def _cmd_drift(console: Console, args: argparse.Namespace) -> int:
-    """The P2.6 drift instrument, over logs rather than over a campaign.
+def _cmd_drift_check(console: Console, args: argparse.Namespace) -> int:
+    """The survival baseline — deterministic, offline, no model and no logs.
 
-    Read-only in every direction: no campaign file is touched, no session log is written,
-    and the ledger it builds lives for the length of the command. What comes out is the
-    report.
+    This is what the committed fixtures buy (Fable, 2026-08-15). The facts are in git, so
+    the only question left is whether the pipeline still carries them into a prompt, and
+    that question has one right answer every time. A hole here is the silent failure the
+    whole of Phase 2 exists to prevent, so it exits non-zero.
+    """
+    baselines = load_baselines(args.into)
+    if not baselines:
+        console.print(
+            "[yellow]no baselines[/yellow] — record one with "
+            "`dndc drift record LOG` (they live in data/drift/)"
+        )
+        return 1
+
+    lost = 0
+    for baseline in baselines:
+        survived, missing = survives(baseline.ledger())
+        colour = "red" if missing else "green"
+        console.print(
+            f"[bold]{baseline.source.log}[/bold] [dim]{baseline.source.campaign or '-'} · "
+            f"{baseline.source.turns} turns · recovered "
+            f"{baseline.provenance.recorded} on {baseline.provenance.model}[/dim]"
+        )
+        console.print(
+            f"  [{colour}]{survived}/{len(baseline)} facts reach the prompt[/{colour}]"
+        )
+        for text in missing:
+            console.print(f"    [red]- {text}[/red]")
+        lost += len(missing)
+    return 1 if lost else 0
+
+
+def _cmd_drift_record(console: Console, args: argparse.Namespace) -> int:
+    """Cut a baseline from a log: recover its canon and freeze it with its provenance.
+
+    The expensive, model-touching half — run once, deliberately, and committed. Refuses
+    to overwrite without `--force`, because a baseline quietly re-cut is a measurement
+    that moved without anyone deciding it should.
     """
     cfg = load_config()
-    interactive = build_interactive_backend(cfg, temperature=SWEEP_TEMPERATURE)
+    backend = build_interactive_backend(
+        cfg, temperature=SWEEP_TEMPERATURE, seed=args.seed
+    )
+    sha, dirty = git_commit_sha()
+
+    try:
+        for path in args.logs:
+            target = baseline_path(path, args.into)
+            if target.exists() and not args.force:
+                console.print(f"[yellow]{target.name} exists[/yellow] — --force to re-cut")
+                continue
+
+            session = replay(path)
+            if not session.turns:
+                console.print(f"[yellow]{Path(path).name} has no play turns[/yellow]")
+                continue
+
+            console.print(
+                f"[dim]recovering {len(session.turns)} turns from {Path(path).name} "
+                f"on {cfg.seats.utility_interactive.model}...[/dim]"
+            )
+            sweep = CanonSweep(
+                backend, store_for_replay(), chunk_turns=1, party=list(session.party)
+            )
+            established = recover(session.turns, sweep)
+
+            baseline = record_baseline(
+                established,
+                BaselineSource(
+                    log=Path(path).name,
+                    sha256=digest(path),
+                    session_id=session.session_id,
+                    campaign=session.campaign,
+                    turns=len(session.turns),
+                    tagged=len(session.tagged),
+                ),
+                BaselineProvenance(
+                    recorded=date.today(),
+                    model=cfg.seats.utility_interactive.model,
+                    temperature=SWEEP_TEMPERATURE,
+                    seed=args.seed,
+                    chunk_turns=1,
+                    dndc_version=__version__,
+                    commit_sha=f"{sha}-dirty" if dirty else sha,
+                ),
+            )
+            baseline.save(target)
+            console.print(f"[green]{len(baseline)} facts[/green] -> {target}")
+    finally:
+        backend.close()
+    return 0
+
+
+def _cmd_drift_measure(console: Console, args: argparse.Namespace) -> int:
+    """The model-assisted half: contradiction frequency, and recovery stability.
+
+    Read-only in every direction — no campaign file is touched, no session log is
+    written, and the ledger it builds lives for the length of the command.
+    """
+    cfg = load_config()
+    interactive = build_interactive_backend(
+        cfg, temperature=SWEEP_TEMPERATURE, seed=args.seed
+    )
     scan = None
     if not args.no_scan:
         scan = ContradictionScan(build_batch_backend(cfg, temperature=DRIFT_TEMPERATURE))
@@ -948,12 +1062,11 @@ def _cmd_drift(console: Console, args: argparse.Namespace) -> int:
     try:
         for path in args.logs:
             session = replay(path)
-            store = store_for_replay()
             sweep = CanonSweep(
-                interactive, store, chunk_turns=1, party=list(session.party)
+                interactive, store_for_replay(), chunk_turns=1, party=list(session.party)
             )
             console.print(
-                f"\n[bold]{Path(path).name}[/bold] [dim]{session.campaign or '—'} · "
+                f"\n[bold]{Path(path).name}[/bold] [dim]{session.campaign or '-'} · "
                 f"{len(session.turns)} turns[/dim]"
             )
             report = measure(session, sweep, scan)
@@ -970,6 +1083,7 @@ def _cmd_drift(console: Console, args: argparse.Namespace) -> int:
                     console.print(f"    [red]- {text}[/red]")
             for found in report.contradictions:
                 console.print(f"  [yellow]{found.render()}[/yellow]")
+            _report_stability(console, path, report, args)
             if args.facts:
                 for turn, entry in report.established:
                     console.print(f"    [dim]t{turn + 1}: {entry.text}[/dim]")
@@ -988,6 +1102,32 @@ def _cmd_drift(console: Console, args: argparse.Namespace) -> int:
             f"{sum(len(r.missing) for r in reports)} lost"
         )
     return 1 if any(r.missing or not r.ran for r in reports) else 0
+
+
+def _report_stability(console: Console, path, report, args: argparse.Namespace) -> None:
+    """Diff this run's recovery against the committed baseline, if there is one.
+
+    A number about the model rather than about us, and reported separately for exactly
+    that reason: the sweep finding different words for the same fact is not the pipeline
+    losing anything.
+    """
+    target = baseline_path(path, args.into)
+    if not target.exists():
+        return
+    baseline = DriftBaseline.load(target)
+    if not baseline.matches(path):
+        # The log changed after the baseline was cut. Without this the world would look
+        # like it had drifted, when what moved was the source.
+        console.print(
+            f"  [yellow]baseline is stale[/yellow] — {target.name} was cut from a "
+            f"different {baseline.source.log}; re-record it"
+        )
+        return
+    stability = compare(baseline.entries, [entry for _, entry in report.established])
+    console.print(f"  [dim]recovery: {stability.summary()}[/dim]")
+    if args.facts:
+        for text in stability.lost:
+            console.print(f"    [dim]missed: {text}[/dim]")
 
 
 def _cmd_play(console: Console, args: argparse.Namespace) -> int:
@@ -1649,17 +1789,49 @@ def build_parser() -> argparse.ArgumentParser:
     )
     play.add_argument("--max-tokens", type=int, default=1024)
 
-    drift = commands.add_parser(
-        "drift", help="measure canon drift over one or more logged sessions (P2.6)"
+    drift = commands.add_parser("drift", help="canon drift instruments (P2.6)")
+    drift_commands = drift.add_subparsers(dest="drift_command")
+
+    def _baseline_root(parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--into", type=Path, default=None, metavar="DIR",
+            help="baseline directory (default: data/drift/)",
+        )
+
+    check = drift_commands.add_parser(
+        "check", help="survival against the committed baselines — offline, no model"
     )
-    drift.add_argument("logs", nargs="+", metavar="LOG", help="session JSONL log(s)")
-    drift.add_argument(
+    _baseline_root(check)
+
+    record = drift_commands.add_parser(
+        "record", help="cut a baseline from a log and freeze it with its provenance"
+    )
+    record.add_argument("logs", nargs="+", metavar="LOG", help="session JSONL log(s)")
+    record.add_argument(
+        "--force", action="store_true", help="re-cut a baseline that already exists"
+    )
+    record.add_argument(
+        "--seed", type=int, default=DEFAULT_ANALYSIS_SEED,
+        help="sweep seed — a tightener, never a guarantee (default: %(default)s)",
+    )
+    _baseline_root(record)
+
+    measure_cmd = drift_commands.add_parser(
+        "measure", help="contradiction frequency and recovery stability — slow, uses models"
+    )
+    measure_cmd.add_argument("logs", nargs="+", metavar="LOG", help="session JSONL log(s)")
+    measure_cmd.add_argument(
         "--no-scan", action="store_true",
-        help="survival check only — skip the contradiction scan on the batch seat",
+        help="skip the contradiction scan on the batch seat",
     )
-    drift.add_argument(
+    measure_cmd.add_argument(
         "--facts", action="store_true", help="list every fact recovered from each session"
     )
+    measure_cmd.add_argument(
+        "--seed", type=int, default=DEFAULT_ANALYSIS_SEED,
+        help="sweep seed — a tightener, never a guarantee (default: %(default)s)",
+    )
+    _baseline_root(measure_cmd)
 
     sheet = commands.add_parser("sheet", help="character sheets")
     sheet_commands = sheet.add_subparsers(dest="sheet_command")
@@ -1706,7 +1878,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "play":
             return _cmd_play(console, args)
         if args.command == "drift":
-            return _cmd_drift(console, args)
+            if args.drift_command == "check":
+                return _cmd_drift_check(console, args)
+            if args.drift_command == "record":
+                return _cmd_drift_record(console, args)
+            if args.drift_command == "measure":
+                return _cmd_drift_measure(console, args)
+            parser.parse_args(["drift", "--help"])
+            return 0
         if args.command == "sheet":
             if args.sheet_command == "show":
                 return _cmd_sheet_show(console, args)

@@ -370,6 +370,16 @@ def cluster(
     return clusters
 
 
+def similarity(left: str, right: str) -> float:
+    """How much two statements say the same thing, 0..1.
+
+    Public because two callers need one answer: the confirmation prompt groups by it
+    (P2.3), and the drift baseline's recovery-stability diff decides by it whether a
+    re-sweep found the same fact in different words (P2.6 / the 2026-08-15 ruling).
+    """
+    return _similarity(_content_words(left), _content_words(right))
+
+
 def _content_words(text: str) -> set[str]:
     """The words a restatement would keep. Short words are noise for this purpose —
     "there is a" versus "the stair has" is phrasing, not content."""

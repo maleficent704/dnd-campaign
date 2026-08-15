@@ -1,0 +1,98 @@
+source:
+  log: 20260807-174124.jsonl
+  sha256: 41bc456d839c16998684c5988b4f0ba2ada959242e89a4c18640ba5e30056035
+  session_id: 20260807-174124
+  campaign: The Salt Road
+  turns: 11
+  tagged: 0
+provenance:
+  recorded: '2026-08-15'
+  model: llama3.1:8b
+  temperature: 0.1
+  seed: 20260815
+  chunk_turns: 1
+  dndc_version: 0.1.0
+  commit_sha: aff8c2098a6c8e91c932cfeb6b63ac12c96ab5fb-dirty
+entries:
+- id: player_known-the-third-wagon-has
+  text: The third wagon has its canvas flap tied down loosely, with one corner still swinging
+    faintly as if retied in a hurry.
+  scope: player_known
+  turn: 2
+  tags: []
+- id: player_known-there-are-dozens-of
+  text: There are dozens of footprints overlapping into mud-colored mush around the wheels
+    of the wagons, indicating a caravan stop.
+  scope: player_known
+  turn: 2
+  tags: []
+- id: player_known-the-dirt-around-the
+  text: The dirt around the wheels is chewed up by two days of boots and hooves.
+  scope: player_known
+  turn: 2
+  tags: []
+- id: player_known-the-guard-is-sizing
+  text: The guard is sizing up Corin after initially focusing on Hammond.
+  scope: player_known
+  turn: 3
+  tags: []
+- id: player_known-the-guard-has-not
+  text: The guard has not yet closed the distance to Corin Vale.
+  scope: player_known
+  turn: 4
+  tags: []
+- id: player_known-the-third-wagon-has-2
+  text: The third wagon has a gap in its load where something crate-sized was recently removed.
+  scope: player_known
+  turn: 5
+  tags: []
+- id: player_known-there-is-no-sign
+  text: There is no sign of forced entry on the third wagon.
+  scope: player_known
+  turn: 5
+  tags: []
+- id: player_known-the-guard-is-already
+  text: The guard is already suspicious of people lingering around the third wagon.
+  scope: player_known
+  turn: 6
+  tags: []
+- id: player_known-the-guard-s-eyes
+  text: The guard's eyes are on the canvas tie behind Corin Vale.
+  scope: player_known
+  turn: 8
+  tags: []
+- id: player_known-the-teamster-looks-like
+  text: The teamster looks like he's watching someone else get pulled into trouble instead
+    of being overwhelmed himself.
+  scope: player_known
+  turn: 9
+  tags: []
+- id: player_known-the-guard-had-accused
+  text: The guard had accused Corin of pawing through his cargo and lying about it before
+    Hammond intervened.
+  scope: player_known
+  turn: 10
+  tags: []
+- id: player_known-there-is-a-crowd
+  text: There is a crowd watching the scene, which has turned its attention to the three of
+    them instead of the wagons.
+  scope: player_known
+  turn: 10
+  tags: []
+- id: player_known-the-teamster-was-being
+  text: The teamster was being held by another guard while watching Hammond's arrival with
+    interest.
+  scope: player_known
+  turn: 10
+  tags: []
+- id: player_known-the-guard-s-hand
+  text: The guard's hand remained on Corin's shoulder after Hammond arrived, but his grip
+    did not loosen.
+  scope: player_known
+  turn: 10
+  tags: []
+- id: player_known-the-guard-referred-to
+  text: The guard referred to Brother Hammond as "Friar".
+  scope: player_known
+  turn: 10
+  tags: []

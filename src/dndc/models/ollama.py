@@ -40,6 +40,7 @@ class OllamaBackend(GMBackend):
         timeout: int = DEFAULT_TIMEOUT_SECONDS,
         opener: Callable[..., object] | None = None,
         temperature: float | None = None,
+        seed: int | None = None,
     ) -> None:
         self.model = model
         self.endpoint = endpoint.rstrip("/")
@@ -51,6 +52,12 @@ class OllamaBackend(GMBackend):
         #: session twice at the default and answered "23 facts" once and "none" the other
         #: time, which is not a measurement of anything.
         self.temperature = temperature
+        #: A tightener, never a guarantee (Fable, 2026-08-15). Ollama honours a seed, but
+        #: reproducibility through it is hostage to model version, quantization and
+        #: server internals — it breaks silently on the first upgrade, which is exactly
+        #: why the drift baseline is a committed fixture and not a seed. Set on analysis
+        #: sweeps because narrowing the variance costs nothing; relied on nowhere.
+        self.seed = seed
 
     def payload(self, request: GMRequest) -> dict:
         messages = []
@@ -67,6 +74,8 @@ class OllamaBackend(GMBackend):
         }
         if self.temperature is not None:
             options["temperature"] = self.temperature
+        if self.seed is not None:
+            options["seed"] = self.seed
         return {
             "model": request.model or self.model,
             "messages": messages,

@@ -45,9 +45,9 @@ from dndc.analysis.replay import ReplayedSession
 from dndc.gm.canon import CanonEntry, CanonLedger, CanonScope
 from dndc.gm.context import CampaignContext, GMPromptBuilder, PartyMember, Turn
 from dndc.gm.templates import render_template
-from dndc.memory.canon_store import CanonStore
+from dndc.memory.canon_store import CanonStore, normalise
 from dndc.memory.grounding import MIN_CONTENT_LEN, WORD, stem
-from dndc.memory.sweep import CanonSweep
+from dndc.memory.sweep import SIMILAR_ENOUGH, CanonSweep, similarity
 from dndc.models.base import GMBackend, GMBackendError, GMRequest, Message, Role
 
 #: The judge answers in the `[[TAG:]]` form everything else in this project uses — the
@@ -344,6 +344,77 @@ def measure(
     return report
 
 
+@dataclass
+class StabilityReport:
+    """How much of a committed baseline a fresh sweep of the same log finds again.
+
+    A measurement of the *model*, not of us. It is expected to move — the whole reason
+    the baseline is a file rather than a seed — and reporting it as its own number is
+    what stops that movement from contaminating the survival check (Fable, 2026-08-15).
+    """
+
+    baseline: int = 0
+    recovered: int = 0
+    #: Baseline facts found again word for word, and found again in different words.
+    identical: int = 0
+    equivalent: int = 0
+    #: Baseline facts this run did not find, and facts this run found that are not in it.
+    lost: list[str] = field(default_factory=list)
+    gained: list[str] = field(default_factory=list)
+
+    @property
+    def stability(self) -> float:
+        """Share of the baseline recovered again, counting a reworded match."""
+        found = self.identical + self.equivalent
+        return found / self.baseline if self.baseline else 0.0
+
+    def summary(self) -> str:
+        return (
+            f"{self.baseline} in the baseline · {self.recovered} recovered now · "
+            f"{self.identical} identical, {self.equivalent} reworded, "
+            f"{len(self.lost)} missed, {len(self.gained)} new "
+            f"({self.stability:.0%} stable)"
+        )
+
+
+def compare(
+    baseline: Sequence[CanonEntry],
+    recovered: Sequence[CanonEntry],
+    threshold: float = SIMILAR_ENOUGH,
+) -> StabilityReport:
+    """Diff a fresh recovery against a committed baseline.
+
+    Two readings, both reported, because they answer different questions. *Identical* is
+    whether the model said the same words; *equivalent* is whether it found the same
+    fact. A sweep that recovers everything in fresh phrasing is stable in the way that
+    matters and unstable in the way a string comparison can see, and collapsing those
+    into one number would hide which happened.
+    """
+    report = StabilityReport(baseline=len(baseline), recovered=len(recovered))
+    remaining = list(recovered)
+
+    for entry in baseline:
+        exact = next(
+            (o for o in remaining if normalise(o.text) == normalise(entry.text)), None
+        )
+        if exact is not None:
+            remaining.remove(exact)
+            report.identical += 1
+            continue
+
+        close = max(
+            remaining, key=lambda o: similarity(entry.text, o.text), default=None
+        )
+        if close is not None and similarity(entry.text, close.text) >= threshold:
+            remaining.remove(close)
+            report.equivalent += 1
+            continue
+        report.lost.append(entry.text)
+
+    report.gained = [entry.text for entry in remaining]
+    return report
+
+
 def store_for_replay(log=None) -> CanonStore:
     """A fresh in-memory ledger. An analysis run never touches a campaign's file."""
     return CanonStore(CanonLedger(), log=log)
@@ -385,6 +456,8 @@ __all__ = [
     "Contradiction",
     "ContradictionScan",
     "DriftReport",
+    "StabilityReport",
+    "compare",
     "measure",
     "recover",
     "store_for_replay",

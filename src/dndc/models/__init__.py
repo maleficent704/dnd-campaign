@@ -90,7 +90,7 @@ BATCH_SEAT = "utility_batch"
 
 
 def build_interactive_backend(
-    config: Config, temperature: float | None = None
+    config: Config, temperature: float | None = None, seed: int | None = None
 ) -> OllamaBackend:
     """The utility seat the table waits on — the P2.3 sweep, and anything after it.
 
@@ -101,11 +101,11 @@ def build_interactive_backend(
     `temperature` is for the caller to set when the job is extraction rather than prose;
     the model and endpoint still come from config, as everything must (OD-5).
     """
-    return _ollama(config.seats.utility_interactive, temperature)
+    return _ollama(config.seats.utility_interactive, temperature, seed)
 
 
 def build_batch_backend(
-    config: Config, temperature: float | None = None
+    config: Config, temperature: float | None = None, seed: int | None = None
 ) -> OllamaBackend:
     """The utility seat nobody waits on — the P2.5 chronicle, its fold, later compression.
 
@@ -114,10 +114,10 @@ def build_batch_backend(
     right and their relationship wrong — is one no grounding check can catch. The fix is
     a better writer, not a better guard.
     """
-    return _ollama(config.seats.utility_batch, temperature)
+    return _ollama(config.seats.utility_batch, temperature, seed)
 
 
-def _ollama(seat, temperature: float | None) -> OllamaBackend:
+def _ollama(seat, temperature: float | None, seed: int | None = None) -> OllamaBackend:
     return OllamaBackend(
-        model=seat.model, endpoint=seat.endpoint, temperature=temperature
+        model=seat.model, endpoint=seat.endpoint, temperature=temperature, seed=seed
     )
