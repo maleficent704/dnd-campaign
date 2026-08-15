@@ -20,6 +20,13 @@ from rich.prompt import Prompt
 from rich.table import Table
 
 from dndc import __version__
+from dndc.analysis import (
+    DRIFT_TEMPERATURE,
+    ContradictionScan,
+    measure,
+    replay,
+    store_for_replay,
+)
 from dndc.config import Billing, load_config, load_env_file, save_billing_default
 from dndc.game.campaign import (
     CHARACTERS_DIRNAME,
@@ -920,6 +927,69 @@ def _canon_store(args: argparse.Namespace, campaign, log: SessionLog) -> CanonSt
     return CanonStore.for_campaign(campaign_dir(slug), log=log)
 
 
+def _cmd_drift(console: Console, args: argparse.Namespace) -> int:
+    """The P2.6 drift instrument, over logs rather than over a campaign.
+
+    Read-only in every direction: no campaign file is touched, no session log is written,
+    and the ledger it builds lives for the length of the command. What comes out is the
+    report.
+    """
+    cfg = load_config()
+    interactive = build_interactive_backend(cfg, temperature=SWEEP_TEMPERATURE)
+    scan = None
+    if not args.no_scan:
+        scan = ContradictionScan(build_batch_backend(cfg, temperature=DRIFT_TEMPERATURE))
+        console.print(
+            f"[dim]contradiction scan on {cfg.seats.utility_batch.model} — "
+            f"this is slow by design[/dim]"
+        )
+
+    reports = []
+    try:
+        for path in args.logs:
+            session = replay(path)
+            store = store_for_replay()
+            sweep = CanonSweep(
+                interactive, store, chunk_turns=1, party=list(session.party)
+            )
+            console.print(
+                f"\n[bold]{Path(path).name}[/bold] [dim]{session.campaign or '—'} · "
+                f"{len(session.turns)} turns[/dim]"
+            )
+            report = measure(session, sweep, scan)
+            reports.append(report)
+
+            if not report.ran:
+                console.print(f"[yellow]incomplete[/yellow] — {report.error}")
+            console.print(f"  {report.summary()}")
+            if report.missing:
+                # The pipeline losing a fact is the failure this whole phase exists to
+                # prevent, so it is never a summary line.
+                console.print(f"  [red]{len(report.missing)} fact(s) did not survive:[/red]")
+                for text in report.missing:
+                    console.print(f"    [red]- {text}[/red]")
+            for found in report.contradictions:
+                console.print(f"  [yellow]{found.render()}[/yellow]")
+            if args.facts:
+                for turn, entry in report.established:
+                    console.print(f"    [dim]t{turn + 1}: {entry.text}[/dim]")
+    finally:
+        interactive.close()
+        if scan is not None:
+            scan.backend.close()
+
+    if len(reports) > 1:
+        turns = sum(r.turns for r in reports)
+        found = sum(len(r.contradictions) for r in reports)
+        console.print(
+            f"\n[bold]across {len(reports)} sessions[/bold] — {turns} turns, "
+            f"{sum(r.recovered for r in reports)} facts, {found} contradictions "
+            f"({found / turns if turns else 0:.2f}/turn), "
+            f"{sum(len(r.missing) for r in reports)} lost"
+        )
+    return 1 if any(r.missing or not r.ran for r in reports) else 0
+
+
 def _cmd_play(console: Console, args: argparse.Namespace) -> int:
     """The hot-seat turn loop (P1.3, OD-4)."""
     cfg = load_config()
@@ -1572,6 +1642,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     play.add_argument("--max-tokens", type=int, default=1024)
 
+    drift = commands.add_parser(
+        "drift", help="measure canon drift over one or more logged sessions (P2.6)"
+    )
+    drift.add_argument("logs", nargs="+", metavar="LOG", help="session JSONL log(s)")
+    drift.add_argument(
+        "--no-scan", action="store_true",
+        help="survival check only — skip the contradiction scan on the batch seat",
+    )
+    drift.add_argument(
+        "--facts", action="store_true", help="list every fact recovered from each session"
+    )
+
     sheet = commands.add_parser("sheet", help="character sheets")
     sheet_commands = sheet.add_subparsers(dest="sheet_command")
     sheet_show = sheet_commands.add_parser("show", help="render a sheet")
@@ -1616,6 +1698,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_gm(console, args)
         if args.command == "play":
             return _cmd_play(console, args)
+        if args.command == "drift":
+            return _cmd_drift(console, args)
         if args.command == "sheet":
             if args.sheet_command == "show":
                 return _cmd_sheet_show(console, args)

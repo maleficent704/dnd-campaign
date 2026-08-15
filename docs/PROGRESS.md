@@ -15,8 +15,14 @@ blockers into this list.
 
 ### Open now
 
-**None.** (The 2026-08-14 block below is ruled; both CC-owned items — the utility seat
-split and the sweep's display grouping — were implemented 2026-08-15.)
+**One, non-blocking.** The P2.6 drift baseline is not reproducible: the sweep recovers a
+different fact set on each run at temperature 0.1, so a repeat drift measurement compares
+different facts. Survival is unaffected; a *stable Phase 7 baseline* is not. Options are a
+fixed seed or a recovered-canon fixture checked into the repo. Raised in the 2026-08-15 (b)
+entry; nothing is blocked on it.
+
+*(The 2026-08-14 block below is ruled; both CC-owned items — the utility seat split and
+the sweep's display grouping — were implemented 2026-08-15.)*
 
 *(OD-15 was ruled 2026-08-05 and implemented 2026-08-09 — see below.)*
 
@@ -282,6 +288,112 @@ split and the sweep's display grouping — were implemented 2026-08-15.)
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-08-15 (b) — P2.6: the drift test, and Phase 2 closes (Claude Code, kelly-pc)
+
+**P2.6 done. Phase 2 complete. 823 tests, suite still fully offline.** No open decisions;
+the 08-14 rulings were all implemented earlier today.
+
+D-002's rationale says that "without the ledger, established facts mutate within one
+session". That has been the premise of the whole phase and it was never a measurement.
+Now it is one.
+
+### What was built
+
+`src/dndc/analysis/` — a new package, and the first code in this repo that runs over logs
+rather than during play. Nothing in it writes to a campaign or to a session log; an
+instrument that alters what it measures is not an instrument. `dndc drift LOG...` is the
+entry point, `--no-scan` for the deterministic half alone.
+
+- **`replay.py`** — a logged session back into `Turn`s. This existed as a throwaway script
+  three separate times before it existed as a module, which is the repo saying where it
+  belonged. Narration is cleaned with exactly the three strippers `turn.py::_clean` uses;
+  if they ever disagree the analysis is measuring a text the campaign never ran on.
+- **`drift.py`** — the two halves.
+
+**Survival is deterministic and asserted through the real `GMPromptBuilder`.** Reading the
+ledger back would pass with the builder disconnected entirely, which is precisely the
+silent failure D-002 exists to prevent, so the check renders the prompt a second session
+*would send* and looks for each fact in it.
+
+**Contradiction is judged on the batch seat**, per Fable's 08-14 endorsement of the P2.2
+supersession deferral: measure the frequency before choosing a fix. Two guards, in the
+tradition of the sweep's grounding check — the judge is only asked about facts that share
+substance with the passage (the common case, a fact the passage never mentions, never
+reaches it), and every claimed contradiction must **quote the passage verbatim**, checked
+in code. A judge that cannot point at the text is not reporting a contradiction, it is
+producing one.
+
+### The measurement
+
+Both archived play fixtures, which predate P2.2 and therefore carry **zero canon tags** —
+nothing was being fed back to the GM, so this is the rate for a GM working unaided. That
+is what makes them the before-picture rather than a problem.
+
+| | turns | facts recovered | survived | lost | checks | contradictions |
+|---|---|---|---|---|---|---|
+| Salt Road | 11 | 19 | 19 | 0 | 44 | 0 |
+| Ashmill | 32 | 224 | 224 | 0 | 329 | 0 |
+| **total** | **43** | **243** | **243** | **0** | **373** | **0** |
+
+**Zero contradictions in 373 checks, and zero facts lost by the pipeline.**
+
+### I did not trust that zero, so I tested the instrument
+
+A judge that never says yes produces exactly this number. So: a positive control against
+the real 70B — three passages that plainly contradict a standing fact, four that plainly
+do not, including the four failure modes the prompt warns about.
+
+**First run: 3/3 recall, 1/4 false positives.** The judge fires, quotes correctly, and the
+one it got wrong was a character *claiming* something ("a carter tells you he crossed the
+bridge last week") — over-reporting, not under-reporting, which makes a measured zero more
+credible rather than less. I tightened that one bullet with the failing case as a worked
+example: **3/3 recall, 0/4 false positives**, and re-ran the shorter fixture to confirm the
+zero reproduces on a freshly recovered fact set. It does.
+
+### What the zero means, and what it does not
+
+It means **supersession does not need an inline path yet** — that is the evidence Fable's
+deferral was waiting for, and the answer is "not on this data".
+
+It does not mean the GM never drifts. Three honest limits: 43 turns is a small sample and
+both sessions are short; the relevance pre-filter cannot catch a contradiction phrased in
+entirely different words (dropped pairs are counted as `skipped`); and a single session is
+the easy case — the interesting drift is *across* sessions, which needs two sessions of the
+same campaign, which the archive does not yet contain.
+
+### A live-run finding that was a real bug
+
+The first `dndc drift` run returned zero facts from a three-turn session. The fixture was
+**Sam building Brother Hammond** — P1.4 reuses `gm_narration` with `scene: "character
+creation"` rather than adding an event family, and the P1.4 handoff called that field "an
+adequate discriminator for Phase 7 filtering". This is that filtering, and replay was not
+doing it. An interview about what a character should be like establishes nothing about the
+world, and a drift measurement that counted it would be measuring the wrong conversation.
+Fixed, with a second test for the subtler half: dropping the narration while keeping the
+player's line would have attached "a big gentle fighter" to whatever scene came next.
+
+### Known issues
+
+- **The sweep recovers 7 facts per turn and is not reproducible run to run** — 224, 269
+  and 19, 13, 12 facts from the same two logs across runs, at temperature 0.1. Fine for a
+  survival check (everything recovered survives either way) but it means any *repeat* drift
+  measurement compares different fact sets. If Phase 7 wants a stable baseline this needs
+  either a fixed seed or a recovered-canon fixture checked into the repo. **FOR DESIGN:**
+  non-blocking, and I would rather raise it now than have Phase 7 discover its baseline
+  moves.
+- The contradiction scan costs ~5 minutes for 32 turns on the 70B. Fine for an offline
+  instrument, and worth remembering before anyone reaches for it in a loop.
+- SRD backgrounds and class starting equipment still not ingested — **next task**, per
+  Fable's scheduling directive.
+
+### Recommended next task
+
+**The backgrounds + starting-equipment ingest**, per the 2026-08-14 scheduling directive:
+queued since 08-05, and combat is where weightless gear and skill-short sheets stop being
+cosmetic. The SRD weight lookup pairs naturally with P2.4's 0.0-weight gap. Then Phase 3.
 
 ---
 

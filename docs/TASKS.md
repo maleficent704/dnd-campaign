@@ -117,6 +117,18 @@ Task breakdown (D-008 amended 2026-08-09 for all four vocabulary changes below):
 - **P2.6** Drift test: replay the archived Ashmill and Salt Road logs, extract canon,
   assert the established world survives into a second session. Fixtures live at
   `\\TRUENAS\shared\data\dnd-campaign-logs\` (`logs/` is gitignored).
+  *(Done 2026-08-15. `src/dndc/analysis/` — `replay.py` rebuilds a session from its log,
+  `drift.py` measures it, `dndc drift LOG...` runs it. Two halves: survival is
+  deterministic and asserted through the real prompt builder; contradiction is judged on
+  the batch seat, only for facts the passage touches, and every claim must quote the
+  passage verbatim. The archived logs carry no canon tags at all — they predate P2.2 — so
+  the world is recovered by the sweep, which is what makes them the before-picture.
+  **243 facts recovered over 43 turns, 243 survived, 0 lost; 0 contradictions in 373
+  checks.** Judge validated by positive control: 3/3 recall, 0/4 false positives.)*
+
+**Phase 2 complete 2026-08-15.** The memory layers exist and are measured. Next per
+Fable's 2026-08-14 scheduling directive: the **backgrounds + starting-equipment ingest**,
+before Phase 3.
 
 ## Phase 3 — Combat
 
