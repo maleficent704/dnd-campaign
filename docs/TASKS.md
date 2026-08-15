@@ -126,9 +126,28 @@ Task breakdown (D-008 amended 2026-08-09 for all four vocabulary changes below):
   **243 facts recovered over 43 turns, 243 survived, 0 lost; 0 contradictions in 373
   checks.** Judge validated by positive control: 3/3 recall, 0/4 false positives.)*
 
-**Phase 2 complete 2026-08-15.** The memory layers exist and are measured. Next per
-Fable's 2026-08-14 scheduling directive: the **backgrounds + starting-equipment ingest**,
-before Phase 3.
+**Phase 2 complete 2026-08-15.** The memory layers exist and are measured.
+
+## Between phases — the backgrounds + starting-equipment ingest
+
+Scheduled by Fable 2026-08-14, ahead of Phase 3: combat is where weightless gear and
+skill-short sheets stop being cosmetic.
+
+*(Done 2026-08-16. Backgrounds are an SRD type now — ingested, validated, and granted by
+`build_character` (skills, tools, starting kit), with a class pick that duplicates a
+granted skill refused back to the GM. Starting equipment resolves through the repository,
+so items carry the SRD's names and weights instead of raw indices at 0 lb. P2.4's
+0.0-weight gap closed the same way: `apply_gain` takes an optional catalogue, and the
+store backs it with the repository. **The SRD contains exactly one background — Acolyte**;
+the rest are PHB and outside D-007's licence, so the mechanism is complete and the dataset
+is one row. Whether to author original backgrounds as campaign data is a design question,
+tagged `FOR DESIGN:` in the handoff.)*
+
+**Still outstanding from the 2026-08-15 ruling:** the drift-baseline fixtures ("the
+fixture, not the seed"). Fable scoped it as able to ride with this task; it did not, to
+keep one commit reviewable. It is the next task.
+
+## Phase 3 — Combat
 
 ## Phase 3 — Combat
 

@@ -22,10 +22,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from dndc.schema.sheet import Ability, AbilityScores
+from dndc.schema.sheet import Ability, AbilityScores, Skill
 from dndc.schema.srd import (
     AbilityBonusOptions,
     AreaOfEffect,
+    Background,
+    BackgroundEquipment,
     ChoiceOptions,
     ArmorProfile,
     CharacterClass,
@@ -64,7 +66,24 @@ RAW_FILES = {
     "equipment": "5e-SRD-Equipment.json",
     "conditions": "5e-SRD-Conditions.json",
     "proficiencies": "5e-SRD-Proficiencies.json",
+    "backgrounds": "5e-SRD-Backgrounds.json",
 }
+
+#: Every collection written to `normalized/` and read back from it. One list, because it
+#: was two: adding `backgrounds` to the writer and not the reader produced a dataset that
+#: ingested cleanly and loaded empty. Same failure shape as the `/switch` rule that was
+#: written twice and could disagree with itself.
+COLLECTIONS = (
+    "species",
+    "subspecies",
+    "classes",
+    "spells",
+    "monsters",
+    "equipment",
+    "backgrounds",
+    "conditions",
+    "proficiency_types",
+)
 
 _FEET_RE = re.compile(r"(\d+)")
 #: Upstream placeholder for the caster's spellcasting ability modifier ("1d8 + MOD").
@@ -560,6 +579,58 @@ def normalize_conditions(raw: list[dict]) -> dict[str, Condition]:
     )
 
 
+#: SRD proficiency indexes carry their kind as a prefix: `skill-insight`, `musical-
+#: instrument-lute`. Same convention `rules/build.py` reads, spelled once per module
+#: because the two normalize in opposite directions.
+_SKILL_PREFIX = "skill-"
+
+
+def normalize_backgrounds(raw: list[dict]) -> dict[str, Background]:
+    """Backgrounds and what they grant.
+
+    The SRD has exactly one — Acolyte. That is not a bug in this function: the rest of
+    the familiar list is PHB content, outside the CC-BY licence (D-007), and must not be
+    added here. Original backgrounds, if the table ever wants them, are campaign data.
+    """
+    normalized = {}
+    for r in raw:
+        skills = []
+        tools = []
+        for proficiency in r.get("starting_proficiencies", []) or []:
+            index = proficiency.get("index", "")
+            if index.startswith(_SKILL_PREFIX):
+                try:
+                    skills.append(Skill(index[len(_SKILL_PREFIX):].replace("-", "_")))
+                except ValueError:
+                    # A skill the sheet does not model. Dropping it silently would be a
+                    # character quietly short a proficiency, so it is an ingest issue.
+                    continue
+            elif index:
+                tools.append(proficiency.get("name", index))
+
+        equipment = tuple(
+            BackgroundEquipment(
+                index=item["equipment"]["index"],
+                name=item["equipment"]["name"],
+                quantity=max(1, int(item.get("quantity", 1) or 1)),
+            )
+            for item in (r.get("starting_equipment") or [])
+            if item.get("equipment")
+        )
+        feature = r.get("feature") or {}
+        normalized[r["index"]] = Background(
+            index=r["index"],
+            name=r["name"],
+            skills=tuple(skills),
+            tools=tuple(tools),
+            languages_choose=int((r.get("language_options") or {}).get("choose", 0) or 0),
+            equipment=equipment,
+            feature=feature.get("name", ""),
+            feature_description=_texts(feature.get("desc")),
+        )
+    return dict(sorted(normalized.items()))
+
+
 # --- top level -------------------------------------------------------------
 
 
@@ -599,6 +670,7 @@ def normalize(raw: dict[str, list[dict]], scope: IngestScope | None = None) -> S
         monsters=normalize_monsters(raw["monsters"], scope),
         equipment=normalize_equipment(raw["equipment"]),
         conditions=normalize_conditions(raw["conditions"]),
+        backgrounds=normalize_backgrounds(raw.get("backgrounds") or []),
         proficiency_types=normalize_proficiency_types(raw.get("proficiencies") or []),
     )
 
@@ -624,8 +696,7 @@ def ingest(
 
     output_root.mkdir(parents=True, exist_ok=True)
     payload = data.model_dump(mode="json")
-    for collection in ("species", "subspecies", "classes", "spells", "monsters",
-                       "equipment", "conditions", "proficiency_types"):
+    for collection in COLLECTIONS:
         target = output_root / f"{collection}.json"
         target.write_text(
             json.dumps(payload[collection], indent=2, sort_keys=True) + "\n",

@@ -17,10 +17,15 @@ against a transcript by hand later.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Callable, Sequence
 
 from dndc.schema.events import InventoryDirection
 from dndc.schema.sheet import InventoryItem
+
+#: What an item is called and what it weighs, or `None` for something the ruleset has
+#: never heard of. Passed in rather than looked up, so this module stays a pure function
+#: over a list — the caller owns the SRD, as everything that touches it must.
+Catalogue = Callable[[str], "tuple[str, float] | None"]
 
 
 @dataclass(frozen=True)
@@ -45,25 +50,49 @@ def apply_change(
     item: str,
     direction: InventoryDirection,
     quantity: int = 1,
+    catalogue: Catalogue | None = None,
 ) -> InventoryOutcome:
     if direction is InventoryDirection.GAIN:
-        return apply_gain(inventory, item, quantity)
+        return apply_gain(inventory, item, quantity, catalogue)
     return apply_lose(inventory, item, quantity)
 
 
 def apply_gain(
-    inventory: Sequence[InventoryItem], item: str, quantity: int = 1
+    inventory: Sequence[InventoryItem],
+    item: str,
+    quantity: int = 1,
+    catalogue: Catalogue | None = None,
 ) -> InventoryOutcome:
-    """Add to an existing stack, or start one. A gain can always be honoured."""
+    """Add to an existing stack, or start one. A gain can always be honoured.
+
+    `catalogue` is where the weight comes from. Without one a new item weighs nothing —
+    which was the whole of P2.4's known gap, and made `carried_weight` a number that
+    looked authoritative and was not. Still nothing when the ruleset has no entry: the GM
+    may hand someone a keepsake, and a fabricated weight would be worse than an absent
+    one (Fable scheduled this with the ingest, 2026-08-14).
+    """
     quantity = max(int(quantity), 1)
     name = item.strip()
     items = list(inventory)
 
     index = _find(items, name)
     if index is None:
-        # Weight is unknown here on purpose: this module has no SRD repository and
-        # inventing a plausible one would put a fabricated number into carried weight.
-        items.append(InventoryItem(name=name, quantity=quantity))
+        known = catalogue(name) if catalogue is not None else None
+        if known is not None:
+            # The ruleset's spelling wins, so "a rope" and "Rope, hempen (50 feet)" do
+            # not become two piles the moment one of them is picked up again.
+            name, weight = known
+            index = _find(items, name)
+            if index is not None:
+                held = items[index]
+                items[index] = held.model_copy(update={"quantity": held.quantity + quantity})
+                return InventoryOutcome(
+                    inventory=tuple(items), item=held.name, quantity=quantity,
+                    changed=quantity, applied=True,
+                )
+        else:
+            weight = 0.0
+        items.append(InventoryItem(name=name, quantity=quantity, weight=weight))
         return InventoryOutcome(
             inventory=tuple(items), item=name, quantity=quantity, changed=quantity, applied=True
         )

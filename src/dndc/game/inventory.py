@@ -29,15 +29,29 @@ from dndc.logging import SessionLog
 from dndc.rules.inventory import InventoryOutcome, apply_change
 from dndc.schema.events import InventoryChange, InventoryDirection
 from dndc.schema.sheet import CharacterSheet
+from dndc.srd.repository import SRDRepository
 
 
 class InventoryStore:
     """The party's sheets, their files, and the log."""
 
-    def __init__(self, log: SessionLog | None = None) -> None:
+    def __init__(
+        self, log: SessionLog | None = None, repo: SRDRepository | None = None
+    ) -> None:
         self.log = log
+        #: Where a gained item's weight and canonical spelling come from. Optional
+        #: because the store is used in tests and scratch sessions with no dataset; the
+        #: cost of going without is a weightless item, which is what P2.4 shipped with.
+        self.repo = repo
         self._sheets: dict[str, CharacterSheet] = {}
         self._paths: dict[str, Path] = {}
+
+    def catalogue(self, name: str) -> tuple[str, float] | None:
+        """The ruleset's answer for an item, or None for something it never heard of."""
+        if self.repo is None:
+            return None
+        item = self.repo.equipment(name)
+        return (item.name, item.weight) if item is not None else None
 
     @classmethod
     def for_sheets(
@@ -97,7 +111,9 @@ class InventoryStore:
         turn: int | None = None,
     ) -> InventoryOutcome:
         """Perform a confirmed change, save the sheet, log what happened."""
-        outcome = apply_change(sheet.inventory, tag.item, tag.direction, tag.quantity)
+        outcome = apply_change(
+            sheet.inventory, tag.item, tag.direction, tag.quantity, self.catalogue
+        )
         # Assigned rather than rebuilt: the CLI, the turn engine and this store all hold
         # the same sheet object, and a copy here would leave two of them looking at the
         # inventory the party had a moment ago.

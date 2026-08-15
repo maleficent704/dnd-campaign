@@ -13,7 +13,7 @@ import json
 import pytest
 
 from dndc.rules import dice
-from dndc.schema.sheet import Ability
+from dndc.schema.sheet import Ability, Skill
 from dndc.schema.srd import IngestScope, Size, SRDData
 from dndc.srd.ingest import (
     DEFAULT_RAW_ROOT,
@@ -327,6 +327,28 @@ RAW_PROFICIENCIES = [
 ]
 
 
+RAW_BACKGROUNDS = [
+    {
+        "index": "acolyte",
+        "name": "Acolyte",
+        "starting_proficiencies": [
+            {"index": "skill-insight", "name": "Skill: Insight"},
+            {"index": "skill-religion", "name": "Skill: Religion"},
+            {"index": "musical-instrument-lute", "name": "Lute"},
+        ],
+        "language_options": {"choose": 2, "type": "languages"},
+        "starting_equipment": [
+            # Indices that exist in RAW_EQUIPMENT: a background's kit is validated
+            # against the equipment table, and a dangling reference is a character
+            # quietly starting a possession short.
+            {"equipment": {"index": "longsword", "name": "Longsword"}, "quantity": 1},
+            {"equipment": {"index": "plate-armor", "name": "Plate Armor"}, "quantity": 2},
+        ],
+        "feature": {"name": "Shelter of the Faithful", "desc": ["You are looked after."]},
+    }
+]
+
+
 def raw_bundle(**overrides) -> dict[str, list[dict]]:
     bundle = {
         "races": RAW_SPECIES,
@@ -339,6 +361,7 @@ def raw_bundle(**overrides) -> dict[str, list[dict]]:
         "conditions": RAW_CONDITIONS,
         "features": RAW_FEATURES,
         "proficiencies": RAW_PROFICIENCIES,
+        "backgrounds": RAW_BACKGROUNDS,
     }
     bundle.update(overrides)
     return bundle
@@ -885,3 +908,70 @@ def test_the_new_choice_data_survives_the_disk_round_trip(tmp_path):
     assert restored.proficiency_types["thieves-tools"] == "Other"
     assert restored.classes["rogue"].levels[1].expertise_choices == 2
     assert restored.species["half-elf"].ability_bonus_options.choose == 2
+
+
+# --- backgrounds -----------------------------------------------------------
+
+
+def test_a_background_grants_its_skills():
+    """The gap from the 2026-08-05 playtest: `background` was a string on the sheet that
+    granted nothing at all."""
+    acolyte = normalize(raw_bundle()).backgrounds["acolyte"]
+    assert acolyte.skills == (Skill.INSIGHT, Skill.RELIGION)
+
+
+def test_a_background_keeps_tool_proficiencies_apart_from_skills():
+    """The sheet levels them separately — a rogue's expertise can land on thieves'
+    tools, so they cannot be one list."""
+    acolyte = normalize(raw_bundle()).backgrounds["acolyte"]
+    assert acolyte.tools == ("Lute",)
+
+
+def test_a_background_carries_its_starting_kit_with_quantities():
+    acolyte = normalize(raw_bundle()).backgrounds["acolyte"]
+    assert [(e.index, e.quantity) for e in acolyte.equipment] == [
+        ("longsword", 1),
+        ("plate-armor", 2),
+    ]
+
+
+def test_a_background_records_its_feature_and_language_count():
+    acolyte = normalize(raw_bundle()).backgrounds["acolyte"]
+    assert acolyte.feature == "Shelter of the Faithful"
+    assert acolyte.languages_choose == 2
+
+
+def test_the_srd_really_does_contain_exactly_one_background():
+    """Not a bug in the normalizer. Soldier, Sage, Criminal and the rest are PHB content,
+    outside the CC-BY licence this project runs on (D-007), and must never be added by
+    ingest. This test is here so a future session does not "fix" the count."""
+    from dndc.srd.ingest import load_raw
+
+    assert len(load_raw()["backgrounds"]) == 1
+
+
+def test_every_written_collection_is_also_read_back():
+    """These were two hand-maintained lists. Adding `backgrounds` to the writer and not
+    the reader produced a dataset that ingested cleanly and loaded empty."""
+    from dndc.srd.ingest import COLLECTIONS
+
+    data = normalize(raw_bundle())
+    for collection in COLLECTIONS:
+        assert hasattr(data, collection), collection
+
+
+def test_a_background_kit_referring_to_unknown_equipment_is_an_issue():
+    """A dangling reference is a character quietly starting a possession short."""
+    bundle = raw_bundle(
+        backgrounds=[
+            {
+                "index": "acolyte",
+                "name": "Acolyte",
+                "starting_equipment": [
+                    {"equipment": {"index": "not-a-thing", "name": "Nothing"}, "quantity": 1}
+                ],
+            }
+        ]
+    )
+    issues = validate_dataset(normalize(bundle))
+    assert any("not-a-thing" in str(issue) for issue in issues)

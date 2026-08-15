@@ -19,7 +19,7 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from dndc.schema.sheet import Ability, AbilityScores
+from dndc.schema.sheet import Ability, AbilityScores, Skill
 
 MAX_SPELL_LEVEL = 9
 
@@ -286,6 +286,41 @@ class Equipment(_SRDModel):
     armor: ArmorProfile | None = None
 
 
+# --- backgrounds -----------------------------------------------------------
+
+
+class BackgroundEquipment(_SRDModel):
+    """One line of a background's starting kit."""
+
+    index: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    quantity: int = Field(default=1, ge=1)
+
+
+class Background(_SRDModel):
+    """A background and what it grants (SRD 5.1).
+
+    **The SRD contains exactly one of these — Acolyte.** Soldier, Sage, Criminal and the
+    rest are PHB content and outside the CC-BY licence this project runs on (D-007), so
+    they are not here and must not be added by ingest. The type exists anyway because the
+    *mechanism* is what was missing: a background grants two skill proficiencies and a
+    starting kit, and until now `CharacterSheet.background` was a string that granted
+    nothing at all.
+    """
+
+    index: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    #: Exactly two in the SRD, and the reason this type exists.
+    skills: tuple[Skill, ...] = ()
+    #: Free-text tool/instrument proficiencies; kept separate from skills because the
+    #: sheet levels them separately (a rogue's expertise can land on thieves' tools).
+    tools: tuple[str, ...] = ()
+    languages_choose: int = Field(default=0, ge=0)
+    equipment: tuple[BackgroundEquipment, ...] = ()
+    feature: str = ""
+    feature_description: tuple[str, ...] = ()
+
+
 # --- conditions ------------------------------------------------------------
 
 
@@ -319,6 +354,7 @@ class SRDData(_SRDModel):
     spells: dict[str, Spell] = Field(default_factory=dict)
     monsters: dict[str, Monster] = Field(default_factory=dict)
     equipment: dict[str, Equipment] = Field(default_factory=dict)
+    backgrounds: dict[str, Background] = Field(default_factory=dict)
     conditions: dict[str, Condition] = Field(default_factory=dict)
     #: Proficiency index -> SRD category ("Armor", "Weapons", "Skills", "Other", ...).
     #: Lets a class's proficiency list be sorted onto a sheet by what things *are*,
@@ -334,6 +370,7 @@ class SRDData(_SRDModel):
             "spells": len(self.spells),
             "monsters": len(self.monsters),
             "equipment": len(self.equipment),
+            "backgrounds": len(self.backgrounds),
             "conditions": len(self.conditions),
         }
 

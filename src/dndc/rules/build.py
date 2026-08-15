@@ -197,7 +197,8 @@ def build_character(concept: Concept, repo: SRDRepository) -> CharacterSheet:
     except AllocationError as exc:
         raise BuildError(str(exc)) from exc
 
-    skills = _validate_skills(concept, character_class)
+    background = repo.background(concept.background) if concept.background else None
+    skills = _validate_skills(concept, character_class, background)
     expertise = _validate_expertise(concept, character_class, skills)
     languages = _validate_languages(concept, species)
     types = repo.data.proficiency_types
@@ -221,7 +222,10 @@ def build_character(concept: Concept, repo: SRDRepository) -> CharacterSheet:
                     if skill.value in expertise
                     else Proficiency.PROFICIENT
                 )
-                for skill in skills
+                # Background skills are *granted*, not chosen, so they join the class's
+                # picks rather than competing with them. Ordered class-first so a sheet
+                # reads the way the choices were made.
+                for skill in (*skills, *_background_skills(background))
             },
             armor=_class_proficiencies(character_class, _ARMOR, types),
             weapons=_class_proficiencies(character_class, _WEAPONS, types),
@@ -231,7 +235,10 @@ def build_character(concept: Concept, repo: SRDRepository) -> CharacterSheet:
                     if _normalize(name) in expertise
                     else Proficiency.PROFICIENT
                 )
-                for name in _class_proficiencies(character_class, _TOOLS, types)
+                for name in (
+                    *_class_proficiencies(character_class, _TOOLS, types),
+                    *(background.tools if background else ()),
+                )
             },
             languages=[_titled(language) for language in (*species.languages, *languages)],
         ),
@@ -239,7 +246,7 @@ def build_character(concept: Concept, repo: SRDRepository) -> CharacterSheet:
         armor_class=_armor_class(scores, armor, shield),
         speed=species.speed,
         hit_dice=f"1d{character_class.hit_die}",
-        inventory=_inventory(concept, armor, shield),
+        inventory=_inventory(concept, armor, shield, background, repo),
         spell_slots=_spell_slots(character_class),
         spells_known=_validate_spells(concept, character_class, repo),
         backstory=concept.backstory or None,
@@ -326,6 +333,20 @@ def grant_issues(sheet: CharacterSheet, repo: SRDRepository) -> list[str]:
         missing = [name for name in expected if _normalize(name) not in have]
         if missing:
             issues.append(f"missing {field} proficiencies: {', '.join(sorted(missing))}")
+
+    # A background the SRD knows grants skills outright. One the SRD has never heard of
+    # grants nothing and is not an issue — the table invents most of them, and flagging
+    # every character for having a background would train the reader to ignore this list.
+    background = repo.background(sheet.background) if sheet.background else None
+    if background is not None:
+        absent = [
+            skill.value for skill in background.skills if skill not in sheet.proficiencies.skills
+        ]
+        if absent:
+            issues.append(
+                f"{background.name} grants {', '.join(sorted(absent))}; sheet does not have "
+                f"{'them' if len(absent) > 1 else 'it'}"
+            )
     return issues
 
 
@@ -432,11 +453,24 @@ def _normalize(value: str) -> str:
     return re.sub(r"[\s\-]+", "_", folded)
 
 
-def _validate_skills(concept: Concept, character_class) -> tuple[Skill, ...]:
+def _validate_skills(concept: Concept, character_class, background=None) -> tuple[Skill, ...]:
     allowed, choose = class_skill_options(character_class)
     chosen = tuple(dict.fromkeys(concept.skills))  # de-duplicate, keep order
     if len(chosen) != len(concept.skills):
         raise BuildError("the same skill was chosen twice")
+
+    # A background grants its skills outright, so a class pick that duplicates one is a
+    # wasted choice and the character ends up a proficiency short. 5e's answer is to pick
+    # something else, so the engine says so — to the GM, which is where engine objections
+    # go (D-005), not to the player.
+    granted = set(_background_skills(background))
+    clash = [skill.value for skill in chosen if skill in granted]
+    if clash:
+        spare = sorted(skill.value for skill in allowed if skill not in granted)
+        raise BuildError(
+            f"{background.name} already grants {', '.join(clash)} — "
+            f"choose {len(clash)} other skill(s) from: {', '.join(spare)}"
+        )
 
     illegal = [skill.value for skill in chosen if skill not in allowed]
     if illegal:
@@ -483,14 +517,42 @@ def _armor_class(scores: AbilityScores, armor, shield) -> int:
     return total + (_SHIELD_AC if shield is not None else 0)
 
 
-def _inventory(concept: Concept, armor, shield) -> list[InventoryItem]:
+def _background_skills(background) -> tuple[Skill, ...]:
+    return background.skills if background is not None else ()
+
+
+def _inventory(concept: Concept, armor, shield, background, repo: SRDRepository):
+    """Everything the character starts carrying, with the weights the SRD gives them.
+
+    Weight used to be zero for everything but armor, which made `carried_weight` a number
+    that looked authoritative and was not — and P2.4 inherited the same hole for items
+    picked up in play. The repository has the figures; nothing here needs to invent one.
+    """
     items = []
     if armor is not None:
         items.append(InventoryItem(name=armor.name, weight=armor.weight, equipped=True))
     if shield is not None:
         items.append(InventoryItem(name=shield.name, weight=shield.weight, equipped=True))
-    items.extend(InventoryItem(name=name) for name in concept.equipment)
+
+    for name in concept.equipment:
+        items.append(_carried(name, repo))
+    for granted in (background.equipment if background is not None else ()):
+        items.append(_carried(granted.index, repo, quantity=granted.quantity, fallback=granted.name))
     return items
+
+
+def _carried(key: str, repo: SRDRepository, quantity: int = 1, fallback: str = "") -> InventoryItem:
+    """One inventory line, resolved against the SRD where the SRD knows it.
+
+    An unknown name is kept rather than rejected: the GM may hand a character a keepsake
+    that is not equipment, and losing it because the SRD has no entry would be the sheet
+    contradicting the fiction — the failure P2.4 was built to end. It simply weighs
+    nothing, which is honest, because nobody knows what it weighs.
+    """
+    item = repo.equipment(key)
+    if item is None:
+        return InventoryItem(name=fallback or key, quantity=quantity)
+    return InventoryItem(name=item.name, quantity=quantity, weight=item.weight)
 
 
 def _spell_slots(character_class) -> dict[int, SpellSlotLevel]:

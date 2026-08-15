@@ -125,6 +125,17 @@ def validate_dataset(data: SRDData) -> list[ValidationIssue]:
                     ValidationIssue("spells", index, f"unknown class {class_index!r}")
                 )
 
+    # A background's kit is referred to by equipment index, and a reference that does not
+    # resolve is a character quietly starting a possession short.
+    for index, background in data.backgrounds.items():
+        for granted in background.equipment:
+            if granted.index not in data.equipment:
+                issues.append(
+                    ValidationIssue(
+                        "backgrounds", index, f"unknown equipment {granted.index!r}"
+                    )
+                )
+
     issues.extend(_dice_issues(data))
 
     for index, monster in data.monsters.items():

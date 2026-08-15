@@ -455,3 +455,78 @@ def test_the_validator_reports_an_unknown_species(repo):
     sheet = build_character(concept(), repo)
     (issue,) = grant_issues(sheet.model_copy(update={"species": "Aarakocra"}), repo)
     assert "no SRD species" in issue
+
+
+# --- backgrounds and starting kit (ingest task, 2026-08-16) ----------------
+
+
+def test_a_background_grants_its_skills_on_top_of_the_class_picks(repo):
+    """The 2026-08-05 finding: `background` was a string that granted nothing."""
+    sheet = build_character(
+        concept(character_class="Fighter", skills=(Skill.ATHLETICS, Skill.PERCEPTION),
+                background="Acolyte"),
+        repo,
+    )
+    assert sheet.proficiencies.skills[Skill.INSIGHT] is Proficiency.PROFICIENT
+    assert sheet.proficiencies.skills[Skill.RELIGION] is Proficiency.PROFICIENT
+    assert sheet.proficiencies.skills[Skill.ATHLETICS] is Proficiency.PROFICIENT
+
+
+def test_a_class_pick_that_duplicates_a_background_grant_is_refused(repo):
+    """5e's answer is to choose something else, so the engine says so — to the GM, which
+    is where engine objections go (D-005), not to the player."""
+    with pytest.raises(BuildError) as caught:
+        build_character(
+            concept(character_class="Fighter", skills=(Skill.INSIGHT, Skill.ATHLETICS),
+                    background="Acolyte"),
+            repo,
+        )
+    assert "Acolyte already grants insight" in str(caught.value)
+
+
+def test_a_background_the_srd_never_heard_of_is_still_flavour(repo):
+    """The SRD has one background. Every character the table has made so far has an
+    invented one, and refusing to build them would be the ruleset overruling the fiction
+    about something with no mechanical stake."""
+    sheet = build_character(concept(background="Urchin"), repo)
+    assert sheet.background == "Urchin"
+
+
+def test_a_background_brings_its_starting_kit(repo):
+    sheet = build_character(concept(background="Acolyte"), repo)
+    carried = {item.name: item.quantity for item in sheet.inventory}
+    assert carried.get("Clothes, common") == 1
+    assert carried.get("Pouch") == 1
+
+
+def test_starting_equipment_carries_the_weight_the_srd_gives_it(repo):
+    """`carried_weight` was a number that looked authoritative and was not — everything
+    but armor weighed zero."""
+    sheet = build_character(concept(equipment=("rope-hempen-50-feet",)), repo)
+    rope = next(item for item in sheet.inventory if "rope" in item.name.lower())
+    assert rope.weight > 0
+
+
+def test_an_item_the_srd_does_not_know_is_kept_and_weighs_nothing(repo):
+    """A keepsake is not equipment. Losing it because the ruleset has no entry would be
+    the sheet contradicting the fiction — the failure P2.4 exists to end."""
+    sheet = build_character(concept(equipment=("grandmother's locket",)), repo)
+    locket = next(item for item in sheet.inventory if "locket" in item.name)
+    assert locket.weight == 0.0
+
+
+def test_a_sheet_missing_its_background_skills_is_flagged(repo):
+    """The hand-edited case — and every character built before backgrounds granted
+    anything at all."""
+    sheet = build_character(concept(background="Urchin"), repo)
+    sheet.background = "Acolyte"
+
+    issues = grant_issues(sheet, repo)
+    assert any("Acolyte grants insight, religion" in issue for issue in issues)
+
+
+def test_an_invented_background_is_not_an_issue(repo):
+    """The table invents most of them. Flagging every character for having a background
+    would train the reader to ignore this list."""
+    sheet = build_character(concept(background="Urchin"), repo)
+    assert grant_issues(sheet, repo) == []

@@ -554,3 +554,69 @@ def test_inventory_for_an_unknown_name_does_not_guess():
     store = InventoryStore()
     store.add(sheet())
     assert "no character matching" in _play("/inventory Halda", store)
+
+
+# --- weights from the ruleset (ingest task, 2026-08-16) --------------------
+
+
+def catalogue(name: str):
+    """A stand-in for the SRD lookup — the real one is `InventoryStore.catalogue`."""
+    known = {"rope": ("Rope, hempen (50 feet)", 10.0), "torch": ("Torch", 1.0)}
+    return known.get(name.strip().casefold())
+
+
+def test_a_gained_item_gets_the_weight_the_ruleset_gives_it():
+    """P2.4's known gap: everything picked up in play weighed nothing, so carried weight
+    was a number that looked authoritative and was not."""
+    outcome = apply_gain([], "rope", 1, catalogue)
+    assert outcome.inventory[0].weight == 10.0
+
+
+def test_the_rulesets_spelling_wins_so_one_thing_is_one_pile():
+    """Otherwise "a rope" this turn and "Rope, hempen (50 feet)" next turn are two
+    stacks, which is the merge failure `_find` exists to prevent."""
+    first = apply_gain([], "rope", 1, catalogue)
+    second = apply_gain(first.inventory, "rope", 2, catalogue)
+
+    assert len(second.inventory) == 1
+    assert second.inventory[0].name == "Rope, hempen (50 feet)"
+    assert second.inventory[0].quantity == 3
+
+
+def test_an_item_already_carried_under_its_ruleset_name_is_matched():
+    held = [item("Rope, hempen (50 feet)", 1)]
+    outcome = apply_gain(held, "rope", 1, catalogue)
+    assert len(outcome.inventory) == 1 and outcome.inventory[0].quantity == 2
+
+
+def test_something_the_ruleset_never_heard_of_still_lands_and_weighs_nothing():
+    """A keepsake is not equipment. Refusing it would be the sheet contradicting the
+    fiction, and inventing a weight would be worse than admitting to none."""
+    outcome = apply_gain([], "grandmother's locket", 1, catalogue)
+    assert outcome.inventory[0].name == "grandmother's locket"
+    assert outcome.inventory[0].weight == 0.0
+    assert outcome.applied
+
+
+def test_without_a_catalogue_nothing_changes_from_before():
+    outcome = apply_gain([], "rope")
+    assert outcome.inventory[0].name == "rope" and outcome.inventory[0].weight == 0.0
+
+
+def test_the_store_looks_weights_up_through_the_real_repository():
+    from dndc.srd.repository import SRDRepository
+
+    store = InventoryStore(repo=SRDRepository.load())
+    subject = sheet()
+    store.apply(tag("torch", GAIN, 2), subject)
+
+    torch = subject.inventory[0]
+    assert torch.name == "Torch" and torch.weight == 1.0 and torch.quantity == 2
+
+
+def test_a_store_with_no_dataset_still_works():
+    """A scratch session with no ingested SRD plays; items just weigh nothing."""
+    store = InventoryStore()
+    subject = sheet()
+    store.apply(tag("torch"), subject)
+    assert subject.inventory[0].weight == 0.0

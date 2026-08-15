@@ -15,11 +15,15 @@ blockers into this list.
 
 ### Open now
 
-**One, non-blocking.** The P2.6 drift baseline is not reproducible: the sweep recovers a
-different fact set on each run at temperature 0.1, so a repeat drift measurement compares
-different facts. Survival is unaffected; a *stable Phase 7 baseline* is not. Options are a
-fixed seed or a recovered-canon fixture checked into the repo. Raised in the 2026-08-15 (b)
-entry; nothing is blocked on it.
+**One, non-blocking.** *(2026-08-16)* **The SRD has exactly one background — Acolyte.** The
+granting mechanism is built and correct; the dataset is one row, because the rest are PHB
+and outside D-007. Do we (1) leave backgrounds as flavour, (2) author original ones as
+campaign data beside `canon.yaml`, or (3) let co-creation propose one and file it on
+confirmation? Nothing is blocked — an unknown background stays flavour under all three.
+Content decision, not engineering.
+
+*(Drift-baseline reproducibility ruled 2026-08-15 — implementation is the next task, not
+yet done.)*
 
 *(The 2026-08-14 block below is ruled; both CC-owned items — the utility seat split and
 the sweep's display grouping — were implemented 2026-08-15.)*
@@ -34,6 +38,39 @@ the sweep's display grouping — were implemented 2026-08-15.)*
   exists.
 - **A Fable ruling takes effect only once recorded in the repo.**
 - **One session, one commit. No code edits under a live play session.**
+
+### Ruled 2026-08-15 (Fable, after the seat-split + P2.6 handoffs — Phase 2 complete)
+
+- **Drift baseline: the fixture, not the seed.** Check recovered-canon fixtures for
+  both archived sessions into the repo, stamped with generation metadata (model,
+  temperature, date, source-log hash); the drift baseline runs against those
+  artifacts. Rationale: seed reproducibility is hostage to model version,
+  quantization, and Ollama internals — it breaks silently on the first upgrade —
+  while a version-controlled fixture cannot move (the SRD-pin instinct). This also
+  splits two tangled measurements: fixture→prompt is *survival* (now
+  deterministic); re-sweeping a log and diffing against the fixture is *recovery
+  stability*, itself a Phase 7 number. A seed on analysis-context sweeps is CC's
+  discretion as a tightener, never a substitute. May ride with the ingest task.
+- **P2.6 endorsed throughout.** The read-only analysis principle ("an instrument
+  that alters what it measures is not an instrument") is adopted as standing
+  doctrine for `analysis/`. The positive-control discipline — refusing to trust a
+  zero until the judge caught 3/3 planted contradictions at 0/4 false positives,
+  with the verbatim-quote requirement enforced in code — is exactly how a
+  measured zero earns belief. The creation-scene replay filter fix approved (an
+  interview about a character establishes nothing about the world).
+- **Supersession stays deferred, now with evidence.** Zero contradictions in 373
+  checks on 43 unaided turns says no inline path is needed on this data. Revisit
+  only when cross-session fixtures of the same campaign exist — which the first
+  real multi-session campaign will produce naturally.
+- **Seat-split session endorsed:** fail-loudly-instead-of-migrate is the right
+  posture (a silent migration that defeats the ruling it implements is worse than
+  an error); seats named in `cost.seat`/`session_meta` is what makes the split
+  measurable; the Brakewater before/after is the ruling validated live. Grouping's
+  conservative tuning stands — do not loosen without new evidence, and the honest
+  "did not fire tonight" is the right way to report it. Sweep *volume* (16
+  proposals from one exchange) stays an open observation: the gate + grouping
+  absorb it for now; the trigger to act is the table finding end-of-session
+  confirmation fatiguing, not a number in a log.
 
 ### Ruled 2026-08-14 (Fable, after the P2.3–P2.5 handoffs)
 
@@ -288,6 +325,93 @@ the sweep's display grouping — were implemented 2026-08-15.)*
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-08-16 — backgrounds, starting equipment, and the weight gap (Claude Code, kelly-pc)
+
+**The scheduled ingest task is done. 845 tests, suite still fully offline.** Fable's
+2026-08-15 drift-fixture ruling is implemented **not at all** — see the scope note at the
+end; it is the next task.
+
+Three gaps closed, all of them things that had been true since 08-05 and had stopped being
+cosmetic now that Phase 3 is combat.
+
+### Backgrounds grant something
+
+`background` was a string on the sheet. It is now an SRD type: ingested, referentially
+validated, exposed on the repository, and granted by `build_character` — skills, tool
+proficiencies, and a starting kit. `grant_issues` checks it too, for hand-edited sheets and
+for every character built before this existed.
+
+A class pick that duplicates a granted skill is **refused back to the GM**, not silently
+merged. 5e's answer to the clash is to choose something else, and merging would leave the
+character quietly a proficiency short. The objection goes to the GM rather than the player,
+per D-005.
+
+**FOR DESIGN: the SRD contains exactly one background — Acolyte.** Soldier, Sage, Criminal
+and the rest are PHB, outside D-007's CC-BY licence, and must never be ingested. So the
+mechanism is complete and the dataset has one row: Corin Vale is an "Urchin" and always
+will be, mechanically inert. Three options, and this is a content decision rather than an
+engineering one:
+
+1. **Leave it.** Backgrounds stay flavour except for Acolyte. Costs nothing, and the
+   sheet is honest about granting nothing.
+2. **Author original backgrounds as campaign data** — a `backgrounds.yaml` beside
+   `canon.yaml`, same schema, table-authored. Legitimate under D-007 (original content is
+   the whole premise) and it makes the mechanism worth having.
+3. **Let co-creation propose one** and file it as campaign data on confirmation, the way
+   canon and inventory already work.
+
+I have built none of them. An unknown background resolves to `None` and stays flavour,
+which is the correct behaviour under all three, so nothing is blocked either way. I put a
+test in the repo asserting the count really is one, so a future session does not "fix" it
+by reaching for the PHB.
+
+### Weights are real now
+
+Starting equipment used to be raw SRD indices at 0 lb — a sheet read `rope-hempen-50-feet`
+weighing nothing. It now resolves through the repository, so items carry the ruleset's
+spelling and weight. A cleric who put a live build through this comes out at **69 lb**
+instead of the armour's 55.
+
+Same fix reaches **P2.4's known gap**, which Fable explicitly paired with this task:
+`apply_gain` takes an optional `catalogue` callable, and `InventoryStore` backs it with the
+repository. So an item picked up in play now weighs what it weighs, and the ruleset's
+spelling wins — "a rope" and "Rope, hempen (50 feet)" stop being two piles.
+
+`rules/inventory.py` stays a pure function over a list; the catalogue is passed in, never
+imported. Something the ruleset has never heard of still lands on the sheet and weighs
+nothing: a keepsake is not equipment, refusing it would be the sheet contradicting the
+fiction, and a fabricated weight would be worse than an absent one.
+
+### Known issues
+
+- **52 of 237 SRD equipment entries have no weight upstream, including every equipment
+  pack.** An Explorer's Pack is the commonest starting item there is and the SRD gives it
+  no figure (it lists contents instead). So `carried_weight` is now much better than
+  zero-for-everything and still under-reports. Deriving a pack's weight from its prose
+  contents is inventing a number the SRD declined to give, so I have not.
+- The creation prompt does not know backgrounds grant anything, so the GM will not
+  propose Acolyte for the mechanical reason. Only worth fixing alongside a decision on
+  the `FOR DESIGN:` above.
+
+### Scope note: what I did not do
+
+Fable's 2026-08-15 ruling ("the drift baseline: the fixture, not the seed") says it **may**
+ride with this task. It did not. This commit already spans the SRD schema, ingest,
+validator, repository, character build, the rules core, the inventory store and the CLI;
+adding a second, unrelated instrument change would have made it unreviewable and blurred
+two things that want separate scrutiny. Permission is not obligation, and one session one
+commit is the standing rule. Flagging it rather than leaving it to be noticed.
+
+### Recommended next task
+
+**The drift-baseline fixtures**, per the 2026-08-15 ruling: recovered-canon artifacts for
+both archived sessions checked into the repo with generation metadata (model, temperature,
+date, source-log hash), the baseline running against those, and the two measurements split
+— fixture→prompt is survival (deterministic), re-sweep-and-diff is recovery stability.
+Then Phase 3.
 
 ---
 

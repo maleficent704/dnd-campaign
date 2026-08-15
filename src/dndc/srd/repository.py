@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 
 from dndc.schema.srd import (
+    Background,
     CharacterClass,
     Condition,
     Equipment,
@@ -20,7 +21,7 @@ from dndc.schema.srd import (
     Spell,
     SRDData,
 )
-from dndc.srd.ingest import DEFAULT_NORMALIZED_ROOT, SRDIngestError
+from dndc.srd.ingest import COLLECTIONS, DEFAULT_NORMALIZED_ROOT, SRDIngestError
 
 
 def load_dataset(root: Path = DEFAULT_NORMALIZED_ROOT) -> SRDData:
@@ -33,8 +34,7 @@ def load_dataset(root: Path = DEFAULT_NORMALIZED_ROOT) -> SRDData:
         )
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     payload = {"scope": manifest.get("scope", {})}
-    for collection in ("species", "subspecies", "classes", "spells", "monsters",
-                       "equipment", "conditions", "proficiency_types"):
+    for collection in COLLECTIONS:
         path = root / f"{collection}.json"
         payload[collection] = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     return SRDData.model_validate(payload)
@@ -51,6 +51,7 @@ class SRDRepository:
             "spells": _name_index(data.spells),
             "monsters": _name_index(data.monsters),
             "equipment": _name_index(data.equipment),
+            "backgrounds": _name_index(data.backgrounds),
             "conditions": _name_index(data.conditions),
         }
 
@@ -79,6 +80,11 @@ class SRDRepository:
 
     def equipment(self, key: str) -> Equipment | None:
         return self._get("equipment", key)
+
+    def background(self, key: str) -> Background | None:
+        """The SRD has one (Acolyte). Anything else the table invents is flavour, and
+        resolving to None is the correct answer for it — not an error."""
+        return self._get("backgrounds", key)
 
     def condition(self, key: str) -> Condition | None:
         return self._get("conditions", key)

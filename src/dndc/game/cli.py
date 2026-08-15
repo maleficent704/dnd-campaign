@@ -1025,7 +1025,14 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
         canon=_canon_store(args, campaign, log),
     )
 
-    items = InventoryStore(log=log)
+    # The dataset is what gives a picked-up item its weight (P2.4's known gap, closed
+    # with the ingest task). A session without an ingested SRD still plays; items just
+    # weigh nothing, which is what they did before.
+    try:
+        repo = SRDRepository.load()
+    except SRDIngestError:
+        repo = None
+    items = InventoryStore(log=log, repo=repo)
     for key, sheet in loaded_sheets.items():
         items.add(sheet, path=loaded.paths.get(key))
 
