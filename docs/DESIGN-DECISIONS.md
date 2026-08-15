@@ -220,9 +220,12 @@ cannot say who wrote it cannot be weighed.)*
 specified here, and `inventory_change` gains `applied` — "the table said yes" and "the
 sheet changed" are different facts, and the gap between them is the desync Finding 5
 was about.)*
-*(Amended 2026-08-20 by CC for P3.3: combat. `combat_start`, `combat_turn`,
+*(Amended 2026-08-15 by CC for P3.3: combat. `combat_start`, `combat_turn`,
 `hit_point_change` and `combat_end`; attacks, damage rolls, death saves and initiative
 stay `rules_resolution`, whose `kind` field named them in the original ruling.)*
+*(Amended 2026-08-15 by CC for P3.7: the `[[TARGET:]]` tag, and `combat_turn` gains
+`target` / `target_source` so a logged fight says whether the GM chose, defaulted, or had
+its choice overtaken by events.)*
 
 **Amended 2026-08-09 (Phase 2, doc-first per this decision's own rule).**
 
@@ -295,7 +298,7 @@ ruling left the wire format to CC and required it be written down before it is b
    because the narration was ahead of the sheet is the worse failure); `applied: false`
    is the flag that says the two did not match.
 
-**Amended 2026-08-20 (P3.3, doc-first per this decision's own rule).** Combat. Written
+**Amended 2026-08-15 (P3.3, doc-first per this decision's own rule).** Combat. Written
 *after* P3.1 and P3.2 rather than alongside them, deliberately: a vocabulary invented
 before a fight has ever run describes the code instead of the game.
 
@@ -345,6 +348,34 @@ for something only combat needs is the wrong trade. Death saves also carry their
 tally there (`successes`, `failures`, `revived`, `stabilised`, `died`) — the roll is one
 fact and how close to dead it left someone is another, and a reader should not have to
 count backwards through the log for it.
+
+**Amended 2026-08-15 (P3.7, doc-first).** Monster tactics become the GM's, per the
+2026-08-15 (c) ruling: target selection is categorical judgment, and replay is preserved
+the way DCs already are — by logging the judgment and reading it back rather than
+re-asking.
+
+13. **The tag the GM writes**, on its own line, in any narration during a fight:
+
+    ```
+    [[TARGET: <monster> -> <target>]]
+    ```
+
+    A *declaration of intent for a turn that has not happened yet*, which is what makes it
+    cost nothing: the GM already gets one call per turn to narrate, and it has just been
+    shown the state, so it is better placed to say who the wolf goes for next than it
+    would be in a call of its own. Names are matched with the same tiered matcher
+    `/switch` uses; an unmatched name is not a guess.
+
+14. **`combat_turn` gains `target` and `target_source`** (`declared` | `policy` |
+    `stale`). `declared` is the GM's choice honoured; `policy` is the deterministic
+    fallback because nothing was declared; `stale` is a declaration that named someone
+    already down or absent, so the fallback ran instead. **The fallback is always logged
+    as a fallback** — a fight must never stall on a missing tag, and Phase 7 must never
+    have to guess whether a choice was made or defaulted.
+
+    That third value is the one worth having. A declaration written a turn ahead can be
+    overtaken by events, and "the GM chose badly" and "the GM's choice expired" are
+    different findings.
 
 **Deliberately not added: `condition_change`.** Conditions exist in the combat core and
 almost nothing consults them yet (P3.4 owns that). A family nothing emits is vocabulary

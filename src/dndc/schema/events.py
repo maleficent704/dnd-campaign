@@ -298,7 +298,7 @@ class CombatOutcome(str, Enum):
 
 
 class DamageEffect(str, Enum):
-    """How the target's body answered the damage type (D-008, amended 2026-08-20)."""
+    """How the target's body answered the damage type (D-008, amended 2026-08-15)."""
 
     NORMAL = "normal"
     RESISTANT = "resistant"
@@ -337,8 +337,25 @@ class CombatStart(_Event):
     round: int = Field(default=1, ge=1)
 
 
+class TargetSource(str, Enum):
+    """Who picked what this combatant attacked (D-008, amended 2026-08-15 for P3.7).
+
+    The fallback is always recorded *as* a fallback: a fight must never stall on a missing
+    tag, and Phase 7 must never have to guess whether a choice was made or defaulted.
+    """
+
+    #: The GM declared it with `[[TARGET: ...]]` and the engine honoured it.
+    DECLARED = "declared"
+    #: Nothing was declared, so the deterministic policy chose.
+    POLICY = "policy"
+    #: A declaration named someone already down or not in the fight. Declarations are
+    #: written a turn ahead, so events can overtake them — and "the GM chose badly" and
+    #: "the GM's choice expired" are different findings.
+    STALE = "stale"
+
+
 class CombatTurn(_Event):
-    """Whose turn it is, and in which round.
+    """Whose turn it is, in which round, and who they went for.
 
     Derivable in principle from the order and the rows between; derivable-in-principle is
     where analysis goes wrong, and one row per turn makes "which round was this narration
@@ -349,6 +366,10 @@ class CombatTurn(_Event):
     encounter_id: str
     round: int = Field(ge=1)
     combatant: str
+    #: Who this combatant attacked, and who decided. `None` for a turn that attacked
+    #: nobody — a death save, or a monster with nothing left standing to hit.
+    target: str | None = None
+    target_source: TargetSource | None = None
 
 
 class HitPointChange(_Event):

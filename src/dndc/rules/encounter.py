@@ -9,7 +9,7 @@ ours.
 So it is ours, and it was **measured rather than asserted**. The difficulty bands below are
 not a table copied from anywhere and not numbers picked because they looked right: they are
 the numbers that produced the intended survival rates when run through the combat engine a
-few thousand times (`simulate`, and the figures recorded in the 2026-08-22 handoff). That
+few thousand times (`simulate`, and the figures recorded in the 2026-08-15 handoff). That
 is only possible because P3.1–P3.4 made a fight deterministic, free, and model-free — a
 budget you can test is worth more than a budget you can cite.
 

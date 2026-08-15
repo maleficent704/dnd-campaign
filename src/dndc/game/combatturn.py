@@ -16,12 +16,13 @@ target's own maximum, because six damage is a scratch to a barbarian and nearly 
 a level-1 wizard. This is OD-12 at full strength: the model cannot restate a number it was
 never given, and the CLI renders the real ones from state beside the prose.
 
-**Monster tactics are deterministic.** A model choosing targets would make a fight
-unreplayable, and replay-from-a-seed is the property the whole combat core was built for
-(P3.1). The rule is stated in `choose_target` and it is dull on purpose. Whether it
-*should* be a GM judgment is a live design question — see the handoff — but a fight that
-cannot be replayed is not evidence of anything, so the burden of proof is on making it a
-model call, not on keeping it out.
+**Monster tactics are the GM's** (Fable, 2026-08-15 (c)). It declares who a monster goes
+for with `[[TARGET: ...]]` in the narration call it already makes, and the engine honours
+the declaration. Replay survives because the judgment is *logged* and read back, exactly
+as a GM-set DC already is — which is the argument that unblocked this. The deterministic
+policy in `choose_target` remains as the fallback, and every fallback is logged as one:
+a fight must never stall on a missing tag, and Phase 7 must never have to guess whether a
+choice was made or defaulted.
 
 **A multiattack the stat block did not resolve is never quietly one attack.** P3.2 left 41
 of 68 unresolved because their sentences offer choices or conditions. Where the sentence
@@ -37,14 +38,16 @@ from dataclasses import dataclass, field
 from typing import Callable, Sequence
 
 from dndc.game.combatlog import CombatRecorder
+from dndc.game.party import resolve_member
 from dndc.gm.context import CampaignContext, GMPromptBuilder
+from dndc.gm.targettag import find_target_declarations, strip_target_declarations
 from dndc.gm.templates import render_template
 from dndc.models.base import GMBackend, GMRequest, GMResponse, Message, Role, new_call_id
 from dndc.rules.checks import AttackResult, resolve_attack
 from dndc.rules.combat import Combatant, DamageOutcome, Encounter, Side
 from dndc.rules.severity import damage_severity
 from dndc.rules.statblock import Attack, StatBlock
-from dndc.schema.events import CallStatus, Cost, GMNarration
+from dndc.schema.events import CallStatus, Cost, GMNarration, TargetSource
 
 #: A turn with no attack still costs a model call if it narrates, so a turn that did
 #: nothing narrates nothing. Silence is cheaper and more honest than "the wolf hesitates".
@@ -69,6 +72,8 @@ class AttackPlan:
     approximated: bool = False
     #: The stat block's own words, when they could not be turned into a plan.
     note: str = ""
+    #: Who chose the target. `None` on a plan the caller assembled itself — a player's.
+    target_source: TargetSource | None = None
 
 
 @dataclass
@@ -83,6 +88,9 @@ class TurnOutcome:
     severities: list[str] = field(default_factory=list)
     approximated: bool = False
     note: str = ""
+    #: Who this turn attacked, and who decided (D-008, amended 2026-08-15 for P3.7).
+    target: str | None = None
+    target_source: TargetSource | None = None
     responses: list[GMResponse] = field(default_factory=list)
     refused: bool = False
 
@@ -169,6 +177,10 @@ class CombatEngine:
         self.max_tokens = max_tokens
         self.billing = billing
         self.prices = prices or {}
+        #: Declarations the GM has made for turns that have not happened yet, keyed by
+        #: combatant id. Consumed when the turn arrives — a declaration is for one turn,
+        #: not a standing order, because a standing order would go stale silently.
+        self.declared: dict[str, str] = {}
 
     # --- turns --------------------------------------------------------------
 
@@ -178,12 +190,14 @@ class CombatEngine:
         """Resolve the active combatant's turn, log it, and have the GM narrate it."""
         actor = self.encounter.active
         outcome = TurnOutcome(actor=actor.id)
-        self.recorder.turn(self.encounter)
 
         if plan is None:
             plan = self._plan_for(actor)
         outcome.approximated = plan.approximated
         outcome.note = plan.note
+        outcome.target_source = plan.target_source
+        if plan.attacks:
+            outcome.target = plan.attacks[0].target_id
 
         for planned in plan.attacks:
             target = self.encounter.get(planned.target_id)
@@ -192,6 +206,9 @@ class CombatEngine:
                 break
             self._swing(actor, target, planned.attack, outcome)
 
+        self.recorder.turn(
+            self.encounter, target=outcome.target, source=outcome.target_source
+        )
         if outcome.acted and self.backend is not None:
             self._narrate(actor, outcome, on_text)
         return outcome
@@ -226,10 +243,47 @@ class CombatEngine:
 
     def _plan_for(self, actor: Combatant) -> AttackPlan:
         block = self.blocks.get(actor.id)
-        target = choose_target(self.encounter, actor)
+        target, source = self.resolve_target(actor)
         if block is None or target is None:
             return AttackPlan(note="" if target else "no standing enemy")
-        return plan_attacks(block, target.id)
+        plan = plan_attacks(block, target.id)
+        plan.target_source = source
+        return plan
+
+    def resolve_target(self, actor: Combatant) -> tuple[Combatant | None, TargetSource]:
+        """Who this combatant attacks, and who decided.
+
+        The GM's declaration wins when it still makes sense. It may not: declarations are
+        written a turn ahead, so the named target can be down or gone by the time the turn
+        arrives, and that is reported as `stale` rather than quietly replaced — "the GM
+        chose badly" and "the GM's choice expired" are different findings.
+        """
+        declared = self.declared.pop(actor.id, None)
+        if declared:
+            candidates = [
+                c for c in self.encounter.combatants.values()
+                if c.side is not actor.side and not c.down
+            ]
+            matches = resolve_member(declared, candidates)
+            if len(matches) == 1:
+                return matches[0], TargetSource.DECLARED
+            return choose_target(self.encounter, actor), TargetSource.STALE
+        return choose_target(self.encounter, actor), TargetSource.POLICY
+
+    def record_declarations(self, text: str) -> int:
+        """Take the GM's `[[TARGET: ...]]` tags out of a reply and hold them.
+
+        Matched against the combatants actually in the fight, so a tag naming somebody who
+        is not here is dropped now rather than becoming a stale declaration later.
+        """
+        kept = 0
+        for declaration in find_target_declarations(text):
+            actors = resolve_member(declaration.actor, list(self.encounter.combatants.values()))
+            if len(actors) != 1:
+                continue
+            self.declared[actors[0].id] = declaration.target
+            kept += 1
+        return kept
 
     def _swing(
         self, actor: Combatant, target: Combatant, attack: Attack, outcome: TurnOutcome
@@ -291,7 +345,13 @@ class CombatEngine:
 
         outcome.responses.append(response)
         outcome.refused = response.refused
-        outcome.narration = "" if response.refused else response.text.strip()
+        # Declarations are lifted before the text is cleaned for the screen: the tag is
+        # machine instruction, and a player should never see the GM planning out loud.
+        if not response.refused:
+            self.record_declarations(response.text)
+        outcome.narration = (
+            "" if response.refused else strip_target_declarations(response.text).strip()
+        )
         self._emit(
             GMNarration,
             text=response.text,

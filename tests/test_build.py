@@ -457,7 +457,7 @@ def test_the_validator_reports_an_unknown_species(repo):
     assert "no SRD species" in issue
 
 
-# --- backgrounds and starting kit (ingest task, 2026-08-16) ----------------
+# --- backgrounds and starting kit (ingest task, 2026-08-15) ----------------
 
 
 def test_a_background_grants_its_skills_on_top_of_the_class_picks(repo):

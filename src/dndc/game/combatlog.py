@@ -4,7 +4,7 @@
 fight reproducible from a seed. This is the other half: the thing that watches an
 `Encounter` and writes the D-008 rows for it.
 
-The vocabulary was amended on 2026-08-20 and this module is how that amendment was
+The vocabulary was amended on 2026-08-15 and this module is how that amendment was
 checked. A vocabulary nothing has ever emitted is a guess about the game; a test here
 plays a fight and reads its own log back, which is the difference between a schema that
 compiles and one that describes what happened.
@@ -34,6 +34,7 @@ from dndc.rules.combat import (
 )
 from dndc.schema.events import (
     CombatantRecord,
+    TargetSource,
     CombatEnd,
     CombatOutcome,
     CombatSide,
@@ -76,9 +77,24 @@ class CombatRecorder:
             round=encounter.round,
         )
 
-    def turn(self, encounter: Encounter) -> int | None:
+    def turn(
+        self,
+        encounter: Encounter,
+        target: str | None = None,
+        source: TargetSource | None = None,
+    ) -> int | None:
+        """Whose turn, in which round, and who they went for.
+
+        `source` says whether the GM declared the target, the deterministic policy chose,
+        or a declaration had gone stale — always recorded, so nobody later has to guess
+        whether a choice was made or defaulted (D-008, amended 2026-08-15).
+        """
         return self._emit(
-            CombatTurn, round=encounter.round, combatant=encounter.active.id
+            CombatTurn,
+            round=encounter.round,
+            combatant=encounter.active.id,
+            target=target,
+            target_source=source,
         )
 
     def ended(self, encounter: Encounter) -> int | None:
@@ -195,7 +211,7 @@ class CombatRecorder:
     def _emit_resolution(self, **fields) -> int | None:
         """`rules_resolution` is shared with every check in the game and takes no
         `encounter_id`; which fight a roll belongs to rides in `detail` instead, where
-        the per-kind extras go (D-008, amended 2026-08-20)."""
+        the per-kind extras go (D-008, amended 2026-08-15)."""
         if self.log is None:
             return None
         detail = {"encounter": self.encounter_id, **fields.pop("detail", {})}

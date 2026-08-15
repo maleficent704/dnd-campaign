@@ -117,7 +117,7 @@ Task breakdown (D-008 amended 2026-08-09 for all four vocabulary changes below):
 - **P2.6** Drift test: replay the archived Ashmill and Salt Road logs, extract canon,
   assert the established world survives into a second session. Fixtures live at
   `\\TRUENAS\shared\data\dnd-campaign-logs\` (`logs/` is gitignored).
-  *(Done 2026-08-15. `src/dndc/analysis/` — `replay.py` rebuilds a session from its log,
+  *(Done 2026-08-14. `src/dndc/analysis/` — `replay.py` rebuilds a session from its log,
   `drift.py` measures it, `dndc drift LOG...` runs it. Two halves: survival is
   deterministic and asserted through the real prompt builder; contradiction is judged on
   the batch seat, only for facts the passage touches, and every claim must quote the
@@ -126,14 +126,14 @@ Task breakdown (D-008 amended 2026-08-09 for all four vocabulary changes below):
   **243 facts recovered over 43 turns, 243 survived, 0 lost; 0 contradictions in 373
   checks.** Judge validated by positive control: 3/3 recall, 0/4 false positives.)*
 
-**Phase 2 complete 2026-08-15.** The memory layers exist and are measured.
+**Phase 2 complete 2026-08-14.** The memory layers exist and are measured.
 
 ## Between phases — the backgrounds + starting-equipment ingest
 
 Scheduled by Fable 2026-08-14, ahead of Phase 3: combat is where weightless gear and
 skill-short sheets stop being cosmetic.
 
-*(Done 2026-08-16. Backgrounds are an SRD type now — ingested, validated, and granted by
+*(Done 2026-08-15. Backgrounds are an SRD type now — ingested, validated, and granted by
 `build_character` (skills, tools, starting kit), with a class pick that duplicates a
 granted skill refused back to the GM. Starting equipment resolves through the repository,
 so items carry the SRD's names and weights instead of raw indices at 0 lb. P2.4's
@@ -145,7 +145,7 @@ tagged `FOR DESIGN:` in the handoff.)*
 
 ## Between phases — the drift baseline ("the fixture, not the seed")
 
-Ruled by Fable 2026-08-15, implemented 2026-08-17.
+Ruled by Fable 2026-08-14, implemented 2026-08-15.
 
 *(Recovered canon is now a committed artifact: `data/drift/*.baseline.yaml`, one per
 archived session, carrying the facts plus provenance — model, temperature, seed, date,
@@ -178,7 +178,7 @@ Task breakdown:
   movement), damage application with resistance-vulnerability-immunity, unconsciousness,
   death saves, massive damage. Pure functions and a state machine; **no model, no
   logging** — so the test suite is the whole verification.
-  *(Done 2026-08-18. `src/dndc/rules/combat.py`. Combatants are frozen and every change
+  *(Done 2026-08-15. `src/dndc/rules/combat.py`. Combatants are frozen and every change
   returns a new one, so a fight is a sequence of states rather than a mutated object;
   `Encounter` is the one mutable thing and `replace_combatant` is its single choke point.
   Initiative ties break on dexterity → side → name, never on a re-roll, because a fight
@@ -187,7 +187,7 @@ Task breakdown:
   turn is where the save happens. 53 tests including a whole-fight replay.)*
 - **P3.2** Monster instantiation from SRD stat blocks: a `Monster` becomes combatants with
   rolled or average HP, its actions become usable attacks, multiattack understood.
-  *(Done 2026-08-19. `src/dndc/rules/statblock.py` — `from_monster` and `from_sheet`,
+  *(Done 2026-08-15. `src/dndc/rules/statblock.py` — `from_monster` and `from_sheet`,
   still pure. The SRD is prose in two places and both refuse to guess: **27 of 68
   multiattacks resolve, 41 stay unresolved** carrying their text, because one offering a
   choice would make the engine pick the monster's tactics; and the four
@@ -200,7 +200,7 @@ Task breakdown:
   designed before P3.1/P3.2 exist: guessing what a fight emits before one runs is how a
   vocabulary ends up describing the code instead of the game. An attack is probably a
   `rules_resolution`; round boundaries, initiative order and HP changes are probably not.
-  *(Done 2026-08-20. D-008 amended first, items 9–12: `combat_start`, `combat_turn`,
+  *(Done 2026-08-15. D-008 amended first, items 9–12: `combat_start`, `combat_turn`,
   `hit_point_change`, `combat_end`. **Attacks, damage rolls, death saves and initiative
   added no family** — `rules_resolution.kind` named them in the original 2026-07-27
   ruling, so combat reuses the vocabulary rather than growing it, and which fight a roll
@@ -209,7 +209,7 @@ Task breakdown:
   was checked — a real fight is played, logged, and read back without re-simulating.)*
 - **P3.4** The combat turn loop: engine resolves, GM narrates per round, players act
   through the CLI. Where D-001's boundary takes its real load.
-  *(Done 2026-08-21. `game/combatturn.py` + `gm/prompts/combat.md`, driven by a demo
+  *(Done 2026-08-15. `game/combatturn.py` + `gm/prompts/combat.md`, driven by a demo
   runner `dndc combat --monster wolf*2`. Resolve → log → narrate, in that order, so a
   narration cannot change an outcome and a lost GM mid-fight still leaves a correct combat
   log. The GM receives **severity words only** (OD-12), measured against the target's own
@@ -218,7 +218,7 @@ Task breakdown:
   multiattack uses its stated count and **says it approximated**; never silently one.
   Live-verified.)*
 - **P3.5** Encounter builder on a CR/XP budget, drawing on the ingested monsters.
-  *(Done 2026-08-22. `rules/encounter.py`, driven by `dndc combat --difficulty deadly`.
+  *(Done 2026-08-15. `rules/encounter.py`, driven by `dndc combat --difficulty deadly`.
   **The SRD has no encounter tables** — XP thresholds by level and the group multiplier are
   DMG, outside D-007 — so the budget is ours, and it was **measured against the combat
   engine** rather than asserted: the simulator runs thousands of mechanics-only fights and
@@ -228,13 +228,23 @@ Task breakdown:
   provisional for two; the numbers and the simulator's limits are in the handoff.)*
 - **P3.6** Rich combat CLI view: initiative order, HP bars, conditions, whose turn it is —
   the authoritative numeric display (OD-11).
-  *(Done 2026-08-23. `render_encounter` / `hp_bar` / `choose` / `player_turn` in
+  *(Done 2026-08-15. `render_encounter` / `hp_bar` / `choose` / `player_turn` in
   `game/cli.py`. Players pick weapon and target; `--auto` keeps a fight scriptable. Real
   weapons come off the sheet — `weapons_for` derives ability from the weapon's own
   properties, proficiency from what the character is trained in, damage from the SRD
   entry — which is what makes inventory being state (P2.4) pay off. Live-verified.)*
 
-**Phase 3 complete 2026-08-23.** Combat exists end to end: a deterministic core, SRD stat
+- **P3.7** Monster tactics become the GM's, per the 2026-08-15 (c) ruling: a `[[TARGET:]]`
+  declaration in the narration call it already makes, engine resolves it, deterministic
+  policy as the logged fallback.
+  *(Done 2026-08-15 (j). `gm/targettag.py` + `combatturn.resolve_target`. D-008 amended
+  first: the wire format, and `combat_turn` gains `target` / `target_source`
+  (`declared` | `policy` | `stale`). Declared a turn ahead, so it costs no extra call —
+  and a declaration overtaken by events is reported `stale` rather than silently replaced,
+  because "the GM chose badly" and "the GM's choice expired" are different findings.
+  Live-verified: the GM had a wounded wolf turn on whoever hurt it.)*
+
+**Phase 3 complete 2026-08-15.** Combat exists end to end: a deterministic core, SRD stat
 blocks, a logged event vocabulary, a turn loop with the GM narrating outcomes it never
 computed, an encounter budget measured against the engine, and a view that owns the
 numbers.

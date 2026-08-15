@@ -25,3 +25,25 @@ dying, not dead — do not kill them, and do not describe a death the engine did
 End on the fight, not on a menu. In combat the players know what their options are and
 turn-by-turn prompting slows the table down; close on what the scene looks like now, or on
 what is coming at them next.
+
+## Who the monsters go for
+
+That is your call, not the engine's. When you can see what a creature will do next, say so
+on its own line, in exactly this form:
+
+```
+[[TARGET: <monster> -> <who it attacks>]]
+```
+
+For example: `[[TARGET: Wolf 2 -> Brother Hammond]]`. Use the names as they appear in the
+fight. The tag is stripped before the players see your reply, so it never spoils anything.
+
+**Declare it a turn ahead** — you are describing what a creature is about to do, and the
+engine will act on it when that creature's turn comes. If you say nothing, the engine
+picks the most wounded enemy, which is safe and dull; the tag is how a fight stops feeling
+mechanical. Monsters are not all the same: a wolf pack cuts out whoever is bleeding, a
+captain goes for whoever is winning, a cornered coward swings at whoever is nearest the
+door, and something mindless hits whatever touched it last.
+
+Only declare what a creature would plausibly know and choose. You are not obliged to
+declare every monster every turn.

@@ -44,7 +44,7 @@ def test_the_d008_family_names_are_exactly_as_specified():
     """Pinned so the vocabulary cannot grow in code before it grows in D-008.
 
     `inventory_change` and `chronicle_write` were added by the 2026-08-09 amendment, the
-    four combat families by the 2026-08-20 one; this test failing is the intended cost of
+    four combat families by the 2026-08-15 one; this test failing is the intended cost of
     adding a family, not an obstacle to it.
     """
     assert {t.value for t in EventType} == {

@@ -556,7 +556,7 @@ def test_inventory_for_an_unknown_name_does_not_guess():
     assert "no character matching" in _play("/inventory Halda", store)
 
 
-# --- weights from the ruleset (ingest task, 2026-08-16) --------------------
+# --- weights from the ruleset (ingest task, 2026-08-15) --------------------
 
 
 def catalogue(name: str):

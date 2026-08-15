@@ -12,8 +12,10 @@ from typing import Protocol, Sequence, TypeVar
 
 
 class Named(Protocol):
+    """Anything with a name. `player` is optional — a monster does not have one, and the
+    matcher searches whatever identifying fields the object actually carries."""
+
     name: str
-    player: str
 
 
 T = TypeVar("T", bound=Named)
@@ -30,7 +32,8 @@ def resolve_member(query: str, party: Sequence[T]) -> list[T]:
 
     Player names match too. "Sam's turn" is as natural a thing to say as the character's
     name, and character names are tried first, so a collision resolves toward the
-    character.
+    character. Candidates without a `player` at all — combatants in a fight, where the
+    P3.7 target tag uses this same matcher — simply skip that field.
 
     Returns every candidate: none means unknown, more than one means genuinely ambiguous
     and the caller should say so rather than pick.
@@ -40,7 +43,7 @@ def resolve_member(query: str, party: Sequence[T]) -> list[T]:
         return []
 
     def whole(member: T, field: str) -> str:
-        return getattr(member, field).casefold()
+        return str(getattr(member, field, "") or "").casefold()
 
     def words(member: T, field: str) -> tuple[str, ...]:
         return tuple(whole(member, field).split())

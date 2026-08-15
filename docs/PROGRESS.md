@@ -15,9 +15,10 @@ blockers into this list.
 
 ### Open now
 
-**None.** (Monster tactics and backgrounds both ruled 2026-08-21 — see below.)
+**None.** (Monster tactics and backgrounds both ruled 2026-08-15 (c) — tactics
+implemented 2026-08-15 (j); **backgrounds still to build**, and it is the next task.)
 
-*(Drift-baseline reproducibility ruled 2026-08-15 — implemented 2026-08-17.)*
+*(Drift-baseline reproducibility ruled 2026-08-15 — implemented 2026-08-15 (c).)*
 
 *(The 2026-08-14 block below is ruled; both CC-owned items — the utility seat split and
 the sweep's display grouping — were implemented 2026-08-15.)*
@@ -33,7 +34,17 @@ the sweep's display grouping — were implemented 2026-08-15.)*
 - **A Fable ruling takes effect only once recorded in the repo.**
 - **One session, one commit. No code edits under a live play session.**
 
-### Ruled 2026-08-21 (Fable, mid-Phase-3, on the two open questions)
+### Ruled 2026-08-15 (c) (Fable, mid-Phase-3, on the two open questions)
+
+**Date correction (Fable, 2026-08-15):** the two questions above arrived carrying
+future dates (08-16, 08-17, 08-21) — today is 2026-08-15, and the pattern (one day
+incremented per session) suggests dates were inferred rather than read from the
+clock. This block was briefly headed 08-21 by the same propagation; corrected. CC:
+at next session, (1) verify against `git log` commit timestamps and correct the
+affected entry dates in this file (suffix same-day sessions (b), (c)… as the 08-15
+P2.6 entry already did), and (2) note the root-cause fix now in CLAUDE.md — entry
+dates come from the system clock, never from inference. Confabulated provenance in
+the drift instrument's own log is a finding worth the two-line fix.
 
 - **Monster tactics: the GM chooses, via tag, in the narration call it already
   makes — deterministic policy becomes the logged fallback.** Target selection is
@@ -350,7 +361,103 @@ the sweep's display grouping — were implemented 2026-08-15.)*
 
 ---
 
-## 2026-08-23 — P3.6: the combat view, and Phase 3 closes (Claude Code, kelly-pc)
+## 2026-08-15 (j) — the date correction, and monster tactics become the GM's (Claude Code, kelly-pc)
+
+**Fable's date correction applied, and the tactics ruling implemented. 1059 tests, suite
+still fully offline.** The backgrounds ruling is **not** implemented — it is the next task.
+
+### The dates were confabulated, and Fable was right
+
+Nine entries claimed dates that never happened. Checked against `git log` rather than
+argued about:
+
+| entry | claimed | commit | actual |
+|---|---|---|---|
+| seat split | 08-15 | `1547112` | **08-14 23:33** → 08-14 (b) |
+| P2.6 | 08-15 (b) | `cff1019` | 08-15 01:52 → **08-15** |
+| ingest | 08-16 | `aff8c20` | 08-15 02:13 → **08-15 (b)** |
+| drift baseline | 08-17 | `4095af0` | 08-15 02:37 → **08-15 (c)** |
+| P3.1–P3.6 | 08-18…08-23 | `9fc3425`…`9e21b50` | all 08-15 → **(d)…(i)** |
+
+Every affected date is corrected — headings, in-entry references, TASKS.md completion
+notes, the D-008 amendment for P3.3, and the code comments citing it. Root cause was
+exactly as diagnosed: the clock stopped advancing in my context and I kept incrementing
+from the last one I had seen, which is inference wearing a date's clothes. CLAUDE.md now
+says entry dates come from the system clock; I read it with `date` this session, which is
+how I know today is 08-15 and this entry is (j).
+
+Worth saying plainly: **the drift instrument's own log had confabulated provenance in it.**
+That is the failure mode this project exists to study, committed by the thing studying it.
+The correction is cheap; noticing it was Fable's.
+
+**A related catch while fixing it:** my own correction script double-applied — the
+sentinel guarding a rewritten date sat *after* the match, so `2026-08-15` still matched as
+a prefix of `2026-08-15\0` and got shifted a second time. Caught by reading the output
+rather than trusting the script, which is the same lesson one layer down.
+
+### Monster tactics: the GM chooses, the engine logs it
+
+Per the 2026-08-15 (c) ruling. D-008 amended first.
+
+`[[TARGET: <monster> -> <target>]]`, declared **a turn ahead** in the narration call that
+already happens — which is what makes it cost nothing, and the GM is better placed to say
+who the wolf goes for next having just been shown the state. `combat_turn` gains `target`
+and `target_source`.
+
+The third value of `target_source` is the one worth having. A declaration written ahead
+can be overtaken — the named target may be down by the time the turn arrives — so:
+
+- **`declared`** — the GM chose and the engine honoured it;
+- **`policy`** — nothing declared, deterministic fallback, *logged as a fallback*;
+- **`stale`** — a declaration that expired, fallback ran.
+
+"The GM chose badly" and "the GM's choice expired" are different findings, and a fight
+must never stall on a missing tag. A declaration is consumed on use rather than standing,
+because a standing order would go stale silently — which is the exact failure this design
+exists to make visible.
+
+**One small generalisation fell out:** `resolve_member` (shared by `/switch`,
+`/inventory`, the inventory store and now this) assumed every candidate has a `player`
+field. Monsters do not. It now searches whatever identifying fields an object actually
+carries.
+
+### Live run
+
+`dndc combat --monster wolf*2 --billing api --seed 5`. The log reads:
+
+```
+r1 wolf-2  -> brother-hammond  [declared]
+r1 wolf-1  -> corin-vale       [policy]
+```
+
+The GM had the wolf Hammond had just hurt turn on Hammond — which is precisely the monster
+personality the ruling was for, and something the most-wounded policy would never produce.
+The tags never appeared in the narration. Billing was set to `api` for the run and
+restored to `subscription` afterwards.
+
+### Known issues
+
+- **The backgrounds ruling is unimplemented** — co-creation proposes an original
+  background, engine validates the shape, table confirms, filed as campaign data. It is
+  the next task and nothing here touches it.
+- Declarations are per-turn and only for monsters; a player's target is still their own
+  choice at the prompt, which is right.
+- The GM has no way to declare anything *other* than a target — no "the wolf disengages",
+  no "the captain shouts an order". Movement and non-attack actions are unmodelled in the
+  turn loop, so there is nothing for such a tag to mean yet.
+
+### Recommended next task
+
+**The backgrounds ruling (option 3)**: co-creation proposes an original background, the
+engine validates its shape deterministically (exactly two skills from the standard list,
+≤1 tool or language, **never** numeric bonuses), the proposal must not duplicate the class
+skill picks (the P1.4 double-granting trap), the table confirms, and confirmed backgrounds
+persist beside `canon.yaml` for reuse. Acolyte stays as the one SRD row. Kelly holds
+content veto.
+
+---
+
+## 2026-08-15 (i) — P3.6: the combat view, and Phase 3 closes (Claude Code, kelly-pc)
 
 **P3.6 done. Phase 3 complete. 1042 tests, suite still fully offline.** No new rulings;
 both open questions are still Fable's and untouched.
@@ -435,7 +542,7 @@ the whole canon-scope design (P2.1's `gm_only` and `npc_belief`) has been waitin
 
 ---
 
-## 2026-08-22 — P3.5: an encounter budget we had to invent, so we measured it (Claude Code, kelly-pc)
+## 2026-08-15 (h) — P3.5: an encounter budget we had to invent, so we measured it (Claude Code, kelly-pc)
 
 **P3.5 done. 1015 tests, suite still fully offline.** No new rulings; both open questions
 (monster tactics, backgrounds) are still Fable's and untouched.
@@ -519,7 +626,7 @@ sheet, which is the first step toward the damage-type gap above.
 
 ---
 
-## 2026-08-21 — P3.4: the combat turn loop (Claude Code, kelly-pc)
+## 2026-08-15 (g) — P3.4: the combat turn loop (Claude Code, kelly-pc)
 
 **P3.4 done. 993 tests, suite still fully offline.** No new rulings; the Acolyte question
 from 08-16 is still open and untouched.
@@ -620,7 +727,7 @@ chooses their own action and the authoritative numbers get their proper display 
 
 ---
 
-## 2026-08-20 — P3.3: the combat event vocabulary (Claude Code, kelly-pc)
+## 2026-08-15 (f) — P3.3: the combat event vocabulary (Claude Code, kelly-pc)
 
 **P3.3 done. 968 tests, suite still fully offline.** No new rulings; the Acolyte question
 from 08-16 is still open and untouched.
@@ -709,7 +816,7 @@ back to one attack is the quiet wrong answer.
 
 ---
 
-## 2026-08-19 — P3.2: stat blocks become combatants (Claude Code, kelly-pc)
+## 2026-08-15 (e) — P3.2: stat blocks become combatants (Claude Code, kelly-pc)
 
 **P3.2 done. 951 tests, suite still fully offline.** No new rulings; the Acolyte question
 from 08-16 is still open and untouched.
@@ -775,7 +882,7 @@ hit-point changes, a monster dying). Amend D-008 first, then write code.
 
 ---
 
-## 2026-08-18 — Phase 3 opens: the deterministic combat core (Claude Code, kelly-pc)
+## 2026-08-15 (d) — Phase 3 opens: the deterministic combat core (Claude Code, kelly-pc)
 
 **Phase 3 broken into tasks, and P3.1 done. 916 tests, suite still fully offline.** The
 background question from 08-16 is still open and untouched.
@@ -863,7 +970,7 @@ design a vocabulary against.
 
 ---
 
-## 2026-08-17 — the drift baseline: the fixture, not the seed (Claude Code, kelly-pc)
+## 2026-08-15 (c) — the drift baseline: the fixture, not the seed (Claude Code, kelly-pc)
 
 **Fable's 2026-08-15 ruling implemented. 866 tests, suite still fully offline.** The
 background question from 08-16 is still open and untouched — it is a content decision and
@@ -950,7 +1057,7 @@ has seen.
 
 ---
 
-## 2026-08-16 — backgrounds, starting equipment, and the weight gap (Claude Code, kelly-pc)
+## 2026-08-15 (b) — backgrounds, starting equipment, and the weight gap (Claude Code, kelly-pc)
 
 **The scheduled ingest task is done. 845 tests, suite still fully offline.** Fable's
 2026-08-15 drift-fixture ruling is implemented **not at all** — see the scope note at the
@@ -1037,7 +1144,7 @@ Then Phase 3.
 
 ---
 
-## 2026-08-15 (b) — P2.6: the drift test, and Phase 2 closes (Claude Code, kelly-pc)
+## 2026-08-15 — P2.6: the drift test, and Phase 2 closes (Claude Code, kelly-pc)
 
 **P2.6 done. Phase 2 complete. 823 tests, suite still fully offline.** No open decisions;
 the 08-14 rulings were all implemented earlier today.
@@ -1143,7 +1250,7 @@ cosmetic. The SRD weight lookup pairs naturally with P2.4's 0.0-weight gap. Then
 
 ---
 
-## 2026-08-15 — Fable's 08-14 rulings applied: the seat split and proposal grouping (Claude Code, kelly-pc)
+## 2026-08-14 (b) — Fable's 08-14 rulings applied: the seat split and proposal grouping (Claude Code, kelly-pc)
 
 **Both CC-owned rulings implemented. 790 tests, suite still fully offline.** No TASKS.md
 work this session: per the pickup protocol, newly ruled items outrank phase order, and two

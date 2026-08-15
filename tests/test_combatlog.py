@@ -1,6 +1,6 @@
 """P3.3 — the combat event vocabulary, and a fight that writes itself down.
 
-D-008 was amended on 2026-08-20, *after* P3.1 and P3.2 existed rather than alongside
+D-008 was amended on 2026-08-15, *after* P3.1 and P3.2 existed rather than alongside
 them, so the vocabulary would describe a fight rather than a guess at one. These tests
 are how that claim is checked: a real encounter is played, logged, read back, and asked
 the questions Phase 7 will ask of it.
