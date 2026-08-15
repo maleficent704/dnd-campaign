@@ -100,6 +100,8 @@ from dndc.models import (
 )
 from dndc.rules.build import BuildError, grant_issues
 from dndc.rules.combat import Encounter
+from dndc.rules.encounter import Difficulty, EncounterError
+from dndc.rules.encounter import build as build_encounter
 from dndc.rules.statblock import Attack, from_monster, from_sheet
 from dndc.rules.dice import Advantage, DiceError, roll, roll_d20
 from dndc.schema.campaign import slugify
@@ -966,6 +968,35 @@ def _cmd_combat(console: Console, args: argparse.Namespace) -> int:
     repo = SRDRepository.load()
 
     monsters = []
+    if args.difficulty and not args.monster:
+        # The budget is ours, not the DMG's — the SRD has no encounter tables — and it was
+        # measured against the combat engine rather than asserted. See rules/encounter.py.
+        loaded_party = _gm_campaign_context(console, args)
+        if loaded_party is None:
+            return 1
+        levels = [sheet.level for sheet in loaded_party.sheets.values()] or [1]
+        try:
+            plan = build_encounter(
+                list(repo.data.monsters.values()),
+                levels,
+                Difficulty(args.difficulty),
+                rng=random.Random(args.seed),
+                max_challenge=args.max_cr,
+            )
+        except EncounterError as exc:
+            console.print(f"[red]error:[/red] {exc}")
+            return 1
+        console.print(f"[dim]encounter: {plan.render()}[/dim]")
+        for index, record in enumerate(plan.monsters):
+            monsters.append(
+                from_monster(
+                    record,
+                    combatant_id=f"{record.index}-{index + 1}",
+                    name=f"{record.name} {index + 1}",
+                    rng=random.Random(args.seed + index) if args.roll_hp else None,
+                )
+            )
+
     for spec in args.monster:
         name, _, count = spec.partition("*")
         record = repo.monster(name.strip())
@@ -981,6 +1012,10 @@ def _cmd_combat(console: Console, args: argparse.Namespace) -> int:
                     rng=random.Random(args.seed + index) if args.roll_hp else None,
                 )
             )
+
+    if not monsters:
+        console.print("[yellow]no monsters[/yellow] — pass --monster NAME or --difficulty")
+        return 1
 
     loaded = _gm_campaign_context(console, args)
     if loaded is None:
@@ -1921,6 +1956,13 @@ def build_parser() -> argparse.ArgumentParser:
     combat.add_argument(
         "--monster", action="append", default=[], metavar="NAME[*N]",
         help="an SRD monster, optionally times a count: --monster wolf*2",
+    )
+    combat.add_argument(
+        "--difficulty", choices=[d.value for d in Difficulty],
+        help="build the encounter to a budget instead of naming monsters (P3.5)",
+    )
+    combat.add_argument(
+        "--max-cr", type=float, default=None, help="ceiling on monster challenge rating"
     )
     combat.add_argument("--campaign", metavar="SLUG")
     combat.add_argument("--character", action="append", metavar="PATH")

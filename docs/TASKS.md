@@ -218,6 +218,14 @@ Task breakdown:
   multiattack uses its stated count and **says it approximated**; never silently one.
   Live-verified.)*
 - **P3.5** Encounter builder on a CR/XP budget, drawing on the ingested monsters.
+  *(Done 2026-08-22. `rules/encounter.py`, driven by `dndc combat --difficulty deadly`.
+  **The SRD has no encounter tables** — XP thresholds by level and the group multiplier are
+  DMG, outside D-007 — so the budget is ours, and it was **measured against the combat
+  engine** rather than asserted: the simulator runs thousands of mechanics-only fights and
+  reports win, down and death rates. That caught two real errors — filling greedily from
+  the biggest monster prices encounters *backwards*, and a swarm needs a much steeper
+  group multiplier than XP suggests. Bands are monotonic for four-character parties and
+  provisional for two; the numbers and the simulator's limits are in the handoff.)*
 - **P3.6** Rich combat CLI view: initiative order, HP bars, conditions, whose turn it is —
   the authoritative numeric display (OD-11).
 

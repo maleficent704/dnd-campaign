@@ -336,6 +336,90 @@ the sweep's display grouping — were implemented 2026-08-15.)*
 
 ---
 
+## 2026-08-22 — P3.5: an encounter budget we had to invent, so we measured it (Claude Code, kelly-pc)
+
+**P3.5 done. 1015 tests, suite still fully offline.** No new rulings; both open questions
+(monster tactics, backgrounds) are still Fable's and untouched.
+
+### The SRD has no encounter-building tables
+
+Checked before designing, and it is the same shape as the Acolyte finding: the XP
+thresholds by character level and the multiplier for a group are **DMG content, outside
+D-007's CC-BY licence**. The ingested set has neither. What the SRD does give is every
+monster's `xp` and `challenge_rating`.
+
+So the budget had to be ours. The choice was between inventing coefficients and calling
+them a budget, or **measuring them** — and this project happens to have a deterministic,
+free, model-free fight engine sitting right there. A budget you can test is worth more
+than a budget you can cite.
+
+`simulate` runs thousands of mechanics-only fights and reports win rate, "someone went
+down" rate, death rate and median rounds. "Deadly" now means *the party actually loses
+this often*, not a label.
+
+### It found two real errors, which is the point
+
+**Filling greedily from the biggest affordable monster prices encounters backwards.** One
+large monster against four characters gets one turn to their four and loses; my first pass
+had `hard` (Hell Hound + weasel, 12% someone down) come out *easier* than `medium` (giant
+constrictor, 28%). Action economy dominates at these levels, and a builder that ignores it
+is not approximately right, it is inverted. The builder now chooses **how many before
+which**, near the party's size.
+
+**A swarm needs a far steeper group multiplier than XP suggests.** Six dretch — 150 XP —
+beat four level-1 characters 93% of the time, while two giant eagles at 400 XP lost more
+often than they won. A flat sum, or the gentle 2.0× I started with, prices a swarm as a
+pushover.
+
+### What the bands actually measure (200 fights per cell)
+
+| party | easy | medium | hard | deadly |
+|---|---|---|---|---|
+| 4× lvl1 | 100% win, 0% down | 100%, 16% | 100%, 52% | **48%**, 94% down, 46% died |
+| 4× lvl3 | 100%, 5% | 99%, 69% | 97%, 76% | **48%**, 98%, 48% died |
+| 4× lvl5 | 100%, 6% | 96%, 72% | 70%, 94% | **9%**, 100%, 74% died |
+| 2× lvl1 | 98%, 16% | 100%, 4% | 45%, 76% | 62%, 67% |
+
+Monotonic and sensible for four-character parties. **Two honest problems**, both reported
+rather than tuned away:
+
+- **The two-character row is not monotonic** — `hard` came out harder than `deadly`. Small
+  parties plus coarse monster granularity means the builder cannot hit the budget finely.
+  This is the row that matters most here, because Kelly and Sam are a two-person table.
+- **`deadly` is over-lethal at level 5** (9% win). The band multiplier wants lowering, and
+  I would rather say so than quietly fit it.
+
+### The simulator's limits, which bound every number above
+
+The simulated party swings a plain weapon for slashing damage, with no healing, no spells,
+no positioning and no tactics; the monsters attack the most wounded. That is much cruder
+than a real party, so these bands describe *that* model. The clearest demonstration came
+free: `4× Ochre Jelly` scored 0% wins — ochre jellies are **immune to slashing**, and a
+party that only deals slashing cannot hurt them at all. No XP budget can price that, and
+no amount of coefficient-fitting would have found it.
+
+Chasing the bands further would have been fitting numbers to a bad model. The builder and
+the simulator are solid; the coefficients are provisional and now have data behind them.
+
+### Known issues
+
+- Bands provisional, per the table above. The simulator is checked in, so refining them is
+  a measurement rather than a guess.
+- A group is one monster repeated — a pack, which is what the count is for. Mixed groups
+  are the caller's to assemble from several plans.
+- Damage-type coverage is unmodelled on both sides, which is what the ochre jelly case
+  exposes. A party's real damage types live on sheets and weapons; wiring that in is P3.6
+  territory at the earliest.
+
+### Recommended next task
+
+**P3.6 — the rich combat CLI view**, and the last task in Phase 3: initiative order, HP
+bars, conditions, whose turn it is, and a player finally *choosing their own action*
+instead of the demo runner's generic weapon. That is also where real weapons come off the
+sheet, which is the first step toward the damage-type gap above.
+
+---
+
 ## 2026-08-21 — P3.4: the combat turn loop (Claude Code, kelly-pc)
 
 **P3.4 done. 993 tests, suite still fully offline.** No new rulings; the Acolyte question
