@@ -15,21 +15,7 @@ blockers into this list.
 
 ### Open now
 
-**Two, both non-blocking.**
-
-*(2026-08-21)* **Who chooses monster tactics in combat?** Deterministic today (most wounded
-standing enemy) because a model choosing makes a fight unreplayable, and replay-from-seed
-is what the combat core was built for. But target selection is judgment, and D-001 puts
-judgment with the GM. Middle ground if wanted: the GM chooses and the choice is *logged*,
-so a replay reads it back instead of re-asking. One extra call per monster turn. A
-how-should-it-feel question; nothing is blocked.
-
-*(2026-08-16)* **The SRD has exactly one background — Acolyte.** The
-granting mechanism is built and correct; the dataset is one row, because the rest are PHB
-and outside D-007. Do we (1) leave backgrounds as flavour, (2) author original ones as
-campaign data beside `canon.yaml`, or (3) let co-creation propose one and file it on
-confirmation? Nothing is blocked — an unknown background stays flavour under all three.
-Content decision, not engineering.
+**None.** (Monster tactics and backgrounds both ruled 2026-08-21 — see below.)
 
 *(Drift-baseline reproducibility ruled 2026-08-15 — implemented 2026-08-17.)*
 
@@ -46,6 +32,34 @@ the sweep's display grouping — were implemented 2026-08-15.)*
   exists.
 - **A Fable ruling takes effect only once recorded in the repo.**
 - **One session, one commit. No code edits under a live play session.**
+
+### Ruled 2026-08-21 (Fable, mid-Phase-3, on the two open questions)
+
+- **Monster tactics: the GM chooses, via tag, in the narration call it already
+  makes — deterministic policy becomes the logged fallback.** Target selection is
+  *categorical* judgment ("who does the goblin attack" needs no numbers), squarely
+  the GM's side of D-001 under OD-12's own test. Replayability was solved by the
+  DC precedent: replay reads logged judgments instead of re-asking — a logged
+  target choice is no different from a logged DC. Shape: a declaration tag in the
+  existing per-monster-turn narration call (sixth use of the convention; the `[[`
+  filter already hides it; zero extra calls), engine resolves the declared action
+  deterministically, and a missing/unparseable declaration falls back to the
+  most-wounded policy **with the fallback logged**, so fights never stall and
+  Phase 7 sees exactly what happened. Feel: deterministic-only targeting is
+  exploitable and flattens monster personality — cowards, packs, and captains
+  fighting differently is GM craft this project exists to host. Wire format and
+  event fields are CC's, doc-first per D-008; logged tactical choices are a new
+  Phase 7 fairness/aggression instrument for free.
+- **Backgrounds: option 3 — co-creation proposes an original background, engine
+  validates the shape, table confirms, filed as campaign data.** Most D-007-native
+  answer: the background *mechanism* (name, two skills, small extra, flavour) is
+  uncopyrightable mechanics; the generated names/text are original and
+  campaign-native — Corin gets her own grifter history, not the PHB's list.
+  Constraints: shape enforced deterministically (exactly two skills from the
+  standard list, ≤1 tool or language, **never** numeric bonuses), proposals must
+  not duplicate class skill picks (the P1.4 double-granting trap), confirmed
+  backgrounds persist beside `canon.yaml` for reuse, Acolyte remains as the one
+  SRD row. Kelly holds content veto; ruling assumes her yes.
 
 ### Ruled 2026-08-15 (Fable, after the seat-split + P2.6 handoffs — Phase 2 complete)
 
@@ -333,6 +347,91 @@ the sweep's display grouping — were implemented 2026-08-15.)*
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-08-23 — P3.6: the combat view, and Phase 3 closes (Claude Code, kelly-pc)
+
+**P3.6 done. Phase 3 complete. 1042 tests, suite still fully offline.** No new rulings;
+both open questions are still Fable's and untouched.
+
+### The view owns the numbers
+
+`render_encounter`, `hp_bar`, `choose`, `player_turn`. Initiative order, hit-point bars,
+conditions, whose turn it is — rendered from state, never from anything a model said.
+That is the other half of OD-11: the GM's silence about numbers is only safe because this
+exists, so the display has its own tests rather than being eyeballed.
+
+One rule the bar breaks on purpose: **a living combatant never shows an empty bar.** One
+of forty rounds to zero twelfths, and an empty bar beside a living character is the
+display contradicting the number printed next to it. Anything above zero keeps at least
+one block.
+
+### Weapons come off the sheet, which is P2.4 paying off
+
+`weapons_for` derives every number rather than choosing it: the ability from the weapon's
+own properties (ranged uses Dexterity, finesse takes the better of the two, everything
+else Strength), proficiency from what the sheet says the character is trained in, damage
+from the SRD entry. Against the real party that gives Corin a Rapier at +5 for 1d8+3
+piercing and Hammond a Warhammer at +5 for 1d8+3 bludgeoning, which is correct 5e and was
+previously a hardcoded "weapon, +5, 1d8+3, slashing" in the demo runner.
+
+A weapon the character is *not* trained in still swings — they simply do not add the
+bonus, which is the rule rather than an error. Someone carrying nothing gets an unarmed
+strike.
+
+### Three bugs, two of them mine and one worth remembering
+
+**The active marker never moved and every render showed end-of-round state.** The CLI was
+rendering from `run_round`, which returns a *finished list* — so all the turns were over
+before the first line was drawn. My own docstring on that function says the CLI should
+drive `take_turn` itself; I had not followed it. Now it does, and the view updates once
+per round with the state that was actually true.
+
+**Rich ate the conditions.** `[prone]` is markup to rich, so a condition sitting correctly
+on a combatant vanished silently from the display. Parentheses now. Worth remembering
+because it fails *quietly* — nothing errored, the information just was not there.
+
+**My live run reverted Kelly's billing preference.** `--billing api` counts as choosing,
+and D-004's sticky default duly saved it — overwriting the `subscription` she had set. I
+used `api` deliberately so the cost figure below is a legitimate campaign claim under
+OD-16, then restored the config to `subscription`. Flagging it because the same thing will
+happen to anyone who passes the flag once: **the sticky default is stickier than it
+looks.**
+
+### The live run
+
+`dndc combat --campaign the-salt-road --difficulty hard --billing api --seed 11`. The
+builder produced 2× Swarm of Ravens (140/160 XP), the party swung their real weapons, and
+the narration tracked the severity bands faithfully: "wounded" came out as hurt but far
+from finished; "dropped" as *"she simply goes down, swallowed in the churning mass of
+wings, and doesn't get up."* No number appeared in any of it. **5 GM calls, $0.043** —
+an `api` run, so that figure is quotable.
+
+### Phase 3 is complete
+
+A deterministic combat core; SRD stat blocks turned into combatants; an event vocabulary
+that reused what already existed rather than growing; a turn loop where the fight is
+decided and logged before the GM sees it; an encounter budget measured against the engine
+rather than asserted; and a view that owns the numbers.
+
+### Known issues
+
+- Conditions are displayed but still barely act — `prone`, `grappled` and `restrained`
+  change attack rolls and movement and nothing consults them. That is a rules gap, not a
+  view gap, and it is the most obvious thing left in combat.
+- A player's turn is one attack at one target: no movement, no spells, no dodge or dash,
+  no bonus actions. The action economy exists in the engine and the interface only offers
+  the attack.
+- Multiattack for player characters (Extra Attack at level 5) is unmodelled.
+- The two open questions stand: monster tactics, and backgrounds.
+
+### Recommended next task
+
+**Phase 4 — the NPC agent tier (D-003)**: NPC schema with voice card and knowledge scope,
+per-turn prompt rebuild by the GM director, the gatekeeper pass, and stance-scoped
+supersession ported from the mystery. It is the last major architectural tier and the one
+the whole canon-scope design (P2.1's `gm_only` and `npc_belief`) has been waiting for.
 
 ---
 

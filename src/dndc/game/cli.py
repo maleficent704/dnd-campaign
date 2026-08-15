@@ -99,10 +99,17 @@ from dndc.models import (
     load_prices,
 )
 from dndc.rules.build import BuildError, grant_issues
+from dndc.rules.combat import Condition as CombatCondition
 from dndc.rules.combat import Encounter
 from dndc.rules.encounter import Difficulty, EncounterError
 from dndc.rules.encounter import build as build_encounter
-from dndc.rules.statblock import Attack, from_monster, from_sheet
+from dndc.rules.statblock import (
+    Attack,
+    from_monster,
+    from_sheet,
+    unarmed_for,
+    weapons_for,
+)
 from dndc.rules.dice import Advantage, DiceError, roll, roll_d20
 from dndc.schema.campaign import slugify
 from dndc.schema.events import Cost, DiceRoll, GMNarration, RulesResolution, SeatInfo, SessionMeta
@@ -957,6 +964,143 @@ def _canon_store(args: argparse.Namespace, campaign, log: SessionLog) -> CanonSt
     return CanonStore.for_campaign(campaign_dir(slug), log=log)
 
 
+#: Width of the hit-point bar. Small enough to sit in a list, wide enough that a quarter
+#: of a bar is visibly a quarter.
+HP_BAR_WIDTH = 12
+
+#: Conditions worth a player's attention on the initiative list. `dead` and `unconscious`
+#: are already said by the hit-point column, so repeating them is noise.
+_SHOWN_CONDITIONS = {
+    CombatCondition.STABLE,
+    CombatCondition.PRONE,
+    CombatCondition.GRAPPLED,
+    CombatCondition.RESTRAINED,
+    CombatCondition.INCAPACITATED,
+}
+
+
+def hp_bar(current: int, maximum: int, width: int = HP_BAR_WIDTH) -> str:
+    """A bar that never lies about being empty.
+
+    A combatant on 1 of 40 rounds to zero eighths of a bar, and an empty bar beside a
+    living character is the display contradicting the numbers next to it. So anything
+    above zero keeps at least one block — the one rounding this is allowed to do, because
+    "still up" is the fact the bar exists to convey.
+    """
+    if maximum <= 0:
+        return " " * width
+    filled = int(round(width * max(0, current) / maximum))
+    if current > 0:
+        filled = max(1, filled)
+    return "#" * filled + "-" * (width - filled)
+
+
+def _health_colour(current: int, maximum: int) -> str:
+    if current <= 0:
+        return "red"
+    fraction = current / maximum if maximum else 0
+    if fraction <= 0.25:
+        return "red"
+    if fraction <= 0.5:
+        return "yellow"
+    return "green"
+
+
+def _conditions_of(combatant) -> str:
+    shown = sorted(c.value for c in combatant.conditions if c in _SHOWN_CONDITIONS)
+    # Parentheses, not brackets: rich reads `[prone]` as a style tag and silently eats it,
+    # so the condition vanished from the display while sitting on the combatant.
+    return f" ({', '.join(shown)})" if shown else ""
+
+
+def render_encounter(console: Console, encounter: Encounter) -> None:
+    """The initiative order, and the authoritative numbers (OD-11).
+
+    This is the one place a hit-point total is allowed to appear, and it renders from
+    state rather than from anything a model said — which is what makes the GM's silence
+    about numbers safe rather than a gap.
+    """
+    console.print()
+    for combatant in encounter.in_order():
+        marker = ">" if combatant.id == encounter.active.id else " "
+        if combatant.dead:
+            state, bar, colour = "dead", " " * HP_BAR_WIDTH, "red"
+        elif combatant.down:
+            saves = combatant.death_saves
+            state = f"down {saves.successes}/{saves.failures}" if combatant.is_player else "down"
+            bar, colour = hp_bar(0, combatant.max_hp), "red"
+        else:
+            state = f"{combatant.current_hp}/{combatant.max_hp}"
+            bar = hp_bar(combatant.current_hp, combatant.max_hp)
+            colour = _health_colour(combatant.current_hp, combatant.max_hp)
+
+        side = "cyan" if combatant.is_player else "white"
+        console.print(
+            f" {marker} [{side}]{combatant.name:<18}[/{side}] "
+            f"[{colour}]{bar}[/{colour}] {state:>9}{_conditions_of(combatant)}"
+        )
+
+
+def choose(console: Console, prompt: str, options: Sequence[str], attempts: int = 3) -> int | None:
+    """Ask for one of a numbered list. `None` means nobody answered.
+
+    Returns an index rather than a value so the caller keeps its own types; and re-asks
+    rather than guessing, for the same reason the sweep's confirmation does — an
+    unreadable answer and a deliberate refusal must not look the same.
+    """
+    for index, option in enumerate(options, start=1):
+        console.print(f"   [bold]{index}.[/bold] {option}")
+    for attempt in range(attempts):
+        try:
+            answer = Prompt.ask(f"  [dim]{prompt}[/dim]", default="1")
+        except (EOFError, KeyboardInterrupt):
+            return None
+        digits = re.findall(r"\d+", answer)
+        if digits and 1 <= int(digits[0]) <= len(options):
+            return int(digits[0]) - 1
+        if attempt < attempts - 1:
+            console.print(f"[yellow]pick 1-{len(options)}[/yellow]")
+    return None
+
+
+def player_turn(
+    console: Console, encounter: Encounter, actor, attacks: Sequence[Attack]
+) -> AttackPlan | None:
+    """Ask a player what their character does. `None` means they pass or nobody answered."""
+    targets = [
+        c for c in encounter.in_order()
+        if c.side is not actor.side and not c.down
+    ]
+    if not targets or not attacks:
+        return None
+
+    console.print(f"\n[bold cyan]{actor.name}[/bold cyan] — your turn")
+    weapon_index = choose(
+        console,
+        "attack with?",
+        [
+            f"{a.name} (+{a.attack_bonus}, {a.damage_expression} {a.damage_type or ''})".strip()
+            for a in attacks
+        ],
+    )
+    if weapon_index is None:
+        return None
+
+    if len(targets) == 1:
+        target = targets[0]
+    else:
+        target_index = choose(
+            console,
+            "at whom?",
+            [f"{t.name} ({t.current_hp}/{t.max_hp})" for t in targets],
+        )
+        if target_index is None:
+            return None
+        target = targets[target_index]
+
+    return AttackPlan(attacks=[PlannedAttack(attacks[weapon_index], target.id)])
+
+
 def _cmd_combat(console: Console, args: argparse.Namespace) -> int:
     """Run a fight (P3.4). A demo runner, not the play surface — P3.6 owns that.
 
@@ -1029,6 +1173,13 @@ def _cmd_combat(console: Console, args: argparse.Namespace) -> int:
     backend = None if args.no_narration else build_gm_backend(cfg, billing)
     log = start_session_log(cfg, campaign=loaded.campaign.name, seed=args.seed, billing=billing)
 
+    # Real weapons, off the sheet — the reason inventory is state (P2.4) and not flavour.
+    arsenal = {
+        from_sheet(sheet).id: (weapons_for(sheet, repo) or (unarmed_for(sheet),))
+        for sheet in loaded.sheets.values()
+    }
+    ask = not args.auto and sys.stdin.isatty()
+
     encounter = Encounter.start(random.Random(args.seed), [*party, *(m.combatant for m in monsters)])
     recorder = CombatRecorder(args.encounter_id, log)
     recorder.started(encounter, seed=args.seed)
@@ -1044,13 +1195,24 @@ def _cmd_combat(console: Console, args: argparse.Namespace) -> int:
     )
 
     console.print(f"[bold]combat[/bold] — seed {args.seed}, log -> {log.path}")
-    _render_initiative(console, encounter)
+    render_encounter(console, encounter)
 
     try:
+        # Turns are driven here rather than through `run_round`, which returns a finished
+        # list: rendering from that showed every turn's aftermath as the state at the end
+        # of the round, with the active marker parked on whoever went first.
+        plan_for = _player_plan(console, encounter, arsenal, ask)
         while not encounter.over and encounter.round <= args.max_rounds:
-            console.print(f"\n[bold]round {encounter.round}[/bold]")
-            for outcome in run_round(engine, plan_for=_player_plan(encounter)):
-                _render_turn(console, encounter, outcome)
+            round_number = encounter.round
+            console.print(f"\n[bold]round {round_number}[/bold]")
+            render_encounter(console, encounter)
+            while encounter.round == round_number and not encounter.over:
+                actor = encounter.active
+                if actor.dying:
+                    _render_turn(console, encounter, engine.death_save())
+                elif actor.acts:
+                    _render_turn(console, encounter, engine.take_turn(plan_for(actor)))
+                engine.advance()
     finally:
         if backend is not None:
             backend.close()
@@ -1061,39 +1223,30 @@ def _cmd_combat(console: Console, args: argparse.Namespace) -> int:
         f"\n[bold]{'draw' if winner is None else winner.value + ' win'}[/bold] "
         f"after {encounter.round} round(s)"
     )
-    _render_initiative(console, encounter)
+    render_encounter(console, encounter)
     console.print(f"[dim]logged -> {log.path}[/dim]")
     return 0
 
 
-def _player_plan(encounter: Encounter):
-    """A plain weapon swing at the engine's chosen target.
+def _player_plan(console: Console, encounter: Encounter, arsenal: dict, ask: bool):
+    """What each player character does on their turn.
 
-    Deliberately dumb: P3.4 is the loop and the boundary, and asking a player what they
-    want to do is the interface work P3.6 owns.
+    Asked, when there is somebody to ask. `--auto` swings the first weapon at the engine's
+    chosen target, which is what makes a fight scriptable for a test or a simulation.
     """
     def plan(actor):
-        target = choose_target(encounter, actor)
-        if not actor.is_player or target is None:
+        if not actor.is_player:
             return None
-        return AttackPlan(
-            attacks=[PlannedAttack(
-                Attack(name="weapon", attack_bonus=5, damage_expression="1d8+3",
-                       damage_type="slashing"),
-                target.id,
-            )]
-        )
+        attacks = arsenal.get(actor.id, ())
+        if not attacks:
+            return None
+        if ask:
+            return player_turn(console, encounter, actor, attacks)
+        target = choose_target(encounter, actor)
+        if target is None:
+            return None
+        return AttackPlan(attacks=[PlannedAttack(attacks[0], target.id)])
     return plan
-
-
-def _render_initiative(console: Console, encounter: Encounter) -> None:
-    """The authoritative numbers, rendered from state (OD-11) — never from the prose."""
-    console.print()
-    for combatant in encounter.in_order():
-        marker = "*" if combatant.id == encounter.active.id else " "
-        state = "down" if combatant.down else f"{combatant.current_hp}/{combatant.max_hp}"
-        colour = "red" if combatant.down else ("cyan" if combatant.is_player else "white")
-        console.print(f"  {marker} [{colour}]{combatant.name:<18}[/{colour}] {state}")
 
 
 def _render_turn(console: Console, encounter: Encounter, outcome) -> None:
@@ -1980,6 +2133,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     combat.add_argument("--billing", choices=[b.value for b in Billing])
     combat.add_argument("--no-prompt", action="store_true")
+    combat.add_argument(
+        "--auto", action="store_true",
+        help="do not ask players for actions — swing the first weapon at the engine's target",
+    )
 
     drift = commands.add_parser("drift", help="canon drift instruments (P2.6)")
     drift_commands = drift.add_subparsers(dest="drift_command")

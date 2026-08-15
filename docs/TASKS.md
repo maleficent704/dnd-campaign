@@ -228,6 +228,16 @@ Task breakdown:
   provisional for two; the numbers and the simulator's limits are in the handoff.)*
 - **P3.6** Rich combat CLI view: initiative order, HP bars, conditions, whose turn it is —
   the authoritative numeric display (OD-11).
+  *(Done 2026-08-23. `render_encounter` / `hp_bar` / `choose` / `player_turn` in
+  `game/cli.py`. Players pick weapon and target; `--auto` keeps a fight scriptable. Real
+  weapons come off the sheet — `weapons_for` derives ability from the weapon's own
+  properties, proficiency from what the character is trained in, damage from the SRD
+  entry — which is what makes inventory being state (P2.4) pay off. Live-verified.)*
+
+**Phase 3 complete 2026-08-23.** Combat exists end to end: a deterministic core, SRD stat
+blocks, a logged event vocabulary, a turn loop with the GM narrating outcomes it never
+computed, an encounter budget measured against the engine, and a view that owns the
+numbers.
 
 ## Phase 4 — NPC agent tier (D-003)
 

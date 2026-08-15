@@ -34,6 +34,7 @@ from dndc.rules.combat import Combatant, Condition, Side
 from dndc.rules.dice import roll
 from dndc.schema.sheet import Ability, CharacterSheet
 from dndc.schema.srd import Monster, MonsterAction
+from dndc.srd.repository import SRDRepository
 
 #: `2d8`, `7d10` — a monster's hit dice, whose size also fixes the constitution bonus
 #: (one per die). The SRD stores the dice without that bonus and the total with it.
@@ -213,6 +214,91 @@ def from_sheet(
     )
 
 
+#: What a character swings when they have nothing. 5e: 1 + Strength modifier, floored at
+#: 1 because a punch that heals people is not a rule.
+UNARMED = Attack(name="unarmed strike", attack_bonus=0, damage_expression="1")
+
+
+def weapons_for(sheet: CharacterSheet, repo: SRDRepository) -> tuple[Attack, ...]:
+    """The attacks a character can actually make, off their own sheet.
+
+    Every number here is derived rather than chosen: the ability from the weapon's own
+    properties, proficiency from what the sheet says they are trained in, damage from the
+    SRD entry. A character who picks up a rapier gets a rapier's numbers, which is the
+    whole reason inventory is state (P2.4) rather than flavour.
+
+    Anything in the pack that is not a weapon is skipped, and a character carrying no
+    weapon at all still gets `unarmed_for` from the caller — an empty attack list would
+    make them unable to act, which no rule says.
+    """
+    found = []
+    for item in sheet.inventory:
+        record = repo.equipment(item.name)
+        if record is None or record.weapon is None:
+            continue
+        found.append(_weapon_attack(sheet, record))
+    return tuple(found)
+
+
+def unarmed_for(sheet: CharacterSheet) -> Attack:
+    """Everyone is always armed with themselves."""
+    strength = ability_modifier(sheet.abilities.score(Ability.STR))
+    return Attack(
+        name="unarmed strike",
+        attack_bonus=strength + sheet.proficiency_bonus,
+        damage_expression=f"1{_signed(strength)}" if strength else "1",
+        damage_type="bludgeoning",
+    )
+
+
+def _weapon_attack(sheet: CharacterSheet, record) -> Attack:
+    profile = record.weapon
+    strength = ability_modifier(sheet.abilities.score(Ability.STR))
+    dexterity = ability_modifier(sheet.abilities.score(Ability.DEX))
+
+    # 5e: ranged weapons use Dexterity, finesse weapons use whichever is better, and
+    # everything else uses Strength. Read off the weapon's own properties rather than
+    # guessed from its name.
+    properties = {p.casefold() for p in profile.properties}
+    if (profile.weapon_range or "").casefold() == "ranged":
+        modifier = dexterity
+    elif "finesse" in properties:
+        modifier = max(strength, dexterity)
+    else:
+        modifier = strength
+
+    bonus = modifier + (sheet.proficiency_bonus if _proficient(sheet, record) else 0)
+    dice = profile.damage_dice or "1"
+    return Attack(
+        name=record.name,
+        attack_bonus=bonus,
+        damage_expression=f"{dice}{_signed(modifier)}" if modifier else dice,
+        damage_type=profile.damage_type,
+    )
+
+
+def _proficient(sheet: CharacterSheet, record) -> bool:
+    """Is this character trained in this weapon?
+
+    Sheets list proficiencies both as categories ("Martial Weapons") and as specific
+    plurals ("Rapiers"), because that is how the SRD grants them. Both are matched, and a
+    character who is not proficient still swings — they just do not add the bonus, which
+    is the rule rather than an error.
+    """
+    granted = {_fold(name) for name in sheet.proficiencies.weapons}
+    category = _fold(f"{record.weapon.category} weapons")
+    name = _fold(record.name)
+    return category in granted or name in granted or f"{name}s" in granted
+
+
+def _fold(text: str) -> str:
+    return " ".join(text.casefold().split())
+
+
+def _signed(value: int) -> str:
+    return f"+{value}" if value >= 0 else str(value)
+
+
 # --- the prose bits ----------------------------------------------------------
 
 
@@ -352,6 +438,8 @@ def _condition_immunities(monster: Monster) -> frozenset[Condition]:
 
 __all__ = [
     "Attack",
+    "unarmed_for",
+    "weapons_for",
     "Multiattack",
     "StatBlock",
     "average_hit_points",
