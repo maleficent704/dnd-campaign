@@ -104,6 +104,10 @@ class Combatant:
     #: combatants *is* the Dexterity modifier.
     dexterity: int | None = None
     conditions: frozenset[Condition] = frozenset()
+    #: Conditions this combatant cannot be given. Distinct from `conditions` — the set it
+    #: *has* — and they must never be confused: a creature immune to being knocked prone
+    #: is not lying down.
+    condition_immunities: frozenset[Condition] = frozenset()
     death_saves: DeathSaves = DeathSaves()
     temporary_hp: int = 0
     #: Player characters fall unconscious at 0 and roll death saves. Monsters drop.
@@ -158,7 +162,17 @@ class Combatant:
     def with_conditions(
         self, add: Iterable[Condition] = (), remove: Iterable[Condition] = ()
     ) -> Combatant:
-        conditions = (self.conditions | frozenset(add)) - frozenset(remove)
+        """Add and remove conditions, honouring immunity.
+
+        Immunity is enforced here rather than in callers because there will be many
+        callers — a spell, a trap, a monster ability — and the one that forgets is the one
+        that matters. `unconscious` and `dead` are exempt: they are what the engine does
+        when hit points run out, not conditions inflicted on a creature, and a monster
+        immune to being knocked out still dies.
+        """
+        forced = frozenset({Condition.UNCONSCIOUS, Condition.DEAD, Condition.STABLE})
+        allowed = frozenset(add) - (self.condition_immunities - forced)
+        conditions = (self.conditions | allowed) - frozenset(remove)
         return replace(self, conditions=conditions)
 
 

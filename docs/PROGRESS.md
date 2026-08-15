@@ -327,6 +327,72 @@ the sweep's display grouping — were implemented 2026-08-15.)*
 
 ---
 
+## 2026-08-19 — P3.2: stat blocks become combatants (Claude Code, kelly-pc)
+
+**P3.2 done. 951 tests, suite still fully offline.** No new rulings; the Acolyte question
+from 08-16 is still open and untouched.
+
+`src/dndc/rules/statblock.py` — `from_monster` and `from_sheet`. Still pure: data in, data
+out, no repository, no disk, no model. 245 SRD monsters and any character sheet can now
+walk into the P3.1 fight engine.
+
+### The SRD is prose in two places, and both refuse to guess
+
+This is the whole shape of the task. The easy version of P3.2 is an afternoon; the version
+that does not put wrong numbers in front of players took the day.
+
+**Multiattack is a sentence.** I measured before designing: of 68 monsters with one, 14 are
+the trivial "makes two slam attacks", 21 are colon-lists ("two attacks: one with its beard
+and one with its glaive"), 18 offer alternatives ("*Or* the captain makes two ranged
+attacks"), 15 carry conditionals. The parser takes the first two shapes and refuses the
+rest — **27 resolved, 41 unresolved**, the unresolved ones carrying their text and, where
+the sentence says so, their count. An alternative is not a parsing problem, it is the
+engine being asked to choose the monster's tactics, which is the GM's call.
+
+The colon-list is deliberately **all-or-nothing**: if any named part fails to match a real
+action, the whole thing stays unresolved. A partly-resolved multiattack is a monster with
+the wrong number of attacks, which is worse than one the caller knows to ask about. I
+eyeballed all 27 resolved ones and they are correct.
+
+**Damage modifiers are sometimes qualified.** Four distinct strings read like "bludgeoning,
+piercing, and slashing from nonmagical weapons" — 92 monsters carry one. Whether it applies
+depends on the weapon swinging, which a stat block cannot say. Applying them blindly would
+roughly **double a monster's effective hit points** against an ordinary party, so they are
+recorded in `qualified` and left unapplied. There is a dataset-wide test asserting no
+monster ever gains blanket physical resistance by accident.
+
+### A bug I caught in my own code before it ran
+
+`_condition_immunities` was writing a monster's immunities into `Combatant.conditions` —
+the set of conditions it *has*. A monster immune to being knocked prone would have been
+marked as lying on the floor. `Combatant` gained a `condition_immunities` field, and
+`with_conditions` now honours it at the one place conditions change, with `unconscious`,
+`dead` and `stable` exempt: those are what the engine does when hit points run out, not
+conditions inflicted on a creature, and a monster immune to being knocked out still dies.
+
+### Known issues
+
+- **41 multiattacks are unresolved and nothing consumes that yet.** P3.4 has to decide
+  what a turn does with `resolved=False` — most likely show the text and let the table
+  say. Falling back to one attack would be the quiet wrong answer.
+- **`qualified` is recorded and unread.** Applying it needs to know whether an attack is
+  magical, which needs weapons to carry that property — not modelled, and not needed until
+  something in the party has a magic weapon.
+- Legendary actions, reactions, and recharge (`usage`) are ingested and ignored. None of
+  them matter below CR 5, which is the ingest scope.
+- Saving-throw actions build an `Attack` with a DC, but nothing resolves one yet — the
+  engine has `resolve_save`, and wiring it is P3.4's.
+
+### Recommended next task
+
+**P3.3 — the combat event vocabulary, doc-first per D-008.** It is next precisely because
+P3.1 and P3.2 now exist: there is a real fight to describe rather than a guess at one. The
+question it has to answer is which parts of a fight are `rules_resolution` (an attack
+roll, plainly) and which need their own families (round boundaries, initiative order,
+hit-point changes, a monster dying). Amend D-008 first, then write code.
+
+---
+
 ## 2026-08-18 — Phase 3 opens: the deterministic combat core (Claude Code, kelly-pc)
 
 **Phase 3 broken into tasks, and P3.1 done. 916 tests, suite still fully offline.** The

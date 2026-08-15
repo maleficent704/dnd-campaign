@@ -187,6 +187,15 @@ Task breakdown:
   turn is where the save happens. 53 tests including a whole-fight replay.)*
 - **P3.2** Monster instantiation from SRD stat blocks: a `Monster` becomes combatants with
   rolled or average HP, its actions become usable attacks, multiattack understood.
+  *(Done 2026-08-19. `src/dndc/rules/statblock.py` — `from_monster` and `from_sheet`,
+  still pure. The SRD is prose in two places and both refuse to guess: **27 of 68
+  multiattacks resolve, 41 stay unresolved** carrying their text, because one offering a
+  choice would make the engine pick the monster's tactics; and the four
+  "…from nonmagical weapons" damage modifiers are recorded but **not applied**, since
+  granting them blindly roughly doubles a monster's effective HP. Whole-dataset invariants
+  are tested across all 245. Combatants gained `condition_immunities` — an earlier draft
+  wrote them into `conditions`, which marks a monster immune to being knocked prone as
+  lying on the floor.)*
 - **P3.3** Combat event vocabulary — **doc-first per D-008**, and deliberately not
   designed before P3.1/P3.2 exist: guessing what a fight emits before one runs is how a
   vocabulary ends up describing the code instead of the game. An attack is probably a
