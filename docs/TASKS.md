@@ -209,6 +209,14 @@ Task breakdown:
   was checked — a real fight is played, logged, and read back without re-simulating.)*
 - **P3.4** The combat turn loop: engine resolves, GM narrates per round, players act
   through the CLI. Where D-001's boundary takes its real load.
+  *(Done 2026-08-21. `game/combatturn.py` + `gm/prompts/combat.md`, driven by a demo
+  runner `dndc combat --monster wolf*2`. Resolve → log → narrate, in that order, so a
+  narration cannot change an outcome and a lost GM mid-fight still leaves a correct combat
+  log. The GM receives **severity words only** (OD-12), measured against the target's own
+  maximum. Monster tactics are deterministic — a model choosing targets would make a fight
+  unreplayable, which is a live design question flagged in the handoff. An unresolved
+  multiattack uses its stated count and **says it approximated**; never silently one.
+  Live-verified.)*
 - **P3.5** Encounter builder on a CR/XP budget, drawing on the ingested monsters.
 - **P3.6** Rich combat CLI view: initiative order, HP bars, conditions, whose turn it is —
   the authoritative numeric display (OD-11).

@@ -55,6 +55,14 @@ from dndc.game.creation import (
     load_campaign_sheets,
     summarize,
 )
+from dndc.game.combatlog import CombatRecorder
+from dndc.game.combatturn import (
+    AttackPlan,
+    CombatEngine,
+    PlannedAttack,
+    choose_target,
+    run_round,
+)
 from dndc.game.inventory import InventoryStore, describe_change, proposals_for
 from dndc.game.party import resolve_member
 from dndc.game.turn import TurnEngine
@@ -91,6 +99,8 @@ from dndc.models import (
     load_prices,
 )
 from dndc.rules.build import BuildError, grant_issues
+from dndc.rules.combat import Encounter
+from dndc.rules.statblock import Attack, from_monster, from_sheet
 from dndc.rules.dice import Advantage, DiceError, roll, roll_d20
 from dndc.schema.campaign import slugify
 from dndc.schema.events import Cost, DiceRoll, GMNarration, RulesResolution, SeatInfo, SessionMeta
@@ -945,6 +955,122 @@ def _canon_store(args: argparse.Namespace, campaign, log: SessionLog) -> CanonSt
     return CanonStore.for_campaign(campaign_dir(slug), log=log)
 
 
+def _cmd_combat(console: Console, args: argparse.Namespace) -> int:
+    """Run a fight (P3.4). A demo runner, not the play surface — P3.6 owns that.
+
+    The party attacks with a plain weapon and the engine runs the monsters, so what this
+    exercises is the loop and the boundary rather than tactics. Its job is to make the GM
+    narration live-runnable, which the live-run rule requires of anything model-facing.
+    """
+    cfg = load_config()
+    repo = SRDRepository.load()
+
+    monsters = []
+    for spec in args.monster:
+        name, _, count = spec.partition("*")
+        record = repo.monster(name.strip())
+        if record is None:
+            console.print(f"[red]error:[/red] no SRD monster called {name.strip()!r}")
+            return 1
+        for index in range(max(1, int(count or 1))):
+            monsters.append(
+                from_monster(
+                    record,
+                    combatant_id=f"{record.index}-{index + 1}",
+                    name=f"{record.name} {index + 1}",
+                    rng=random.Random(args.seed + index) if args.roll_hp else None,
+                )
+            )
+
+    loaded = _gm_campaign_context(console, args)
+    if loaded is None:
+        return 1
+    party = [from_sheet(sheet) for sheet in loaded.sheets.values()]
+    if not party:
+        console.print("[yellow]no characters[/yellow] — pass --campaign SLUG or --character PATH")
+        return 1
+
+    billing = resolve_billing(cfg, console, requested=args.billing, ask=not args.no_prompt)
+    backend = None if args.no_narration else build_gm_backend(cfg, billing)
+    log = start_session_log(cfg, campaign=loaded.campaign.name, seed=args.seed, billing=billing)
+
+    encounter = Encounter.start(random.Random(args.seed), [*party, *(m.combatant for m in monsters)])
+    recorder = CombatRecorder(args.encounter_id, log)
+    recorder.started(encounter, seed=args.seed)
+    engine = CombatEngine(
+        encounter,
+        backend=backend,
+        recorder=recorder,
+        blocks={m.combatant.id: m for m in monsters},
+        rng=random.Random(args.seed),
+        campaign=loaded.campaign,
+        billing=billing.value,
+        prices=load_prices(cfg.pricing),
+    )
+
+    console.print(f"[bold]combat[/bold] — seed {args.seed}, log -> {log.path}")
+    _render_initiative(console, encounter)
+
+    try:
+        while not encounter.over and encounter.round <= args.max_rounds:
+            console.print(f"\n[bold]round {encounter.round}[/bold]")
+            for outcome in run_round(engine, plan_for=_player_plan(encounter)):
+                _render_turn(console, encounter, outcome)
+    finally:
+        if backend is not None:
+            backend.close()
+
+    recorder.ended(encounter)
+    winner = encounter.winner
+    console.print(
+        f"\n[bold]{'draw' if winner is None else winner.value + ' win'}[/bold] "
+        f"after {encounter.round} round(s)"
+    )
+    _render_initiative(console, encounter)
+    console.print(f"[dim]logged -> {log.path}[/dim]")
+    return 0
+
+
+def _player_plan(encounter: Encounter):
+    """A plain weapon swing at the engine's chosen target.
+
+    Deliberately dumb: P3.4 is the loop and the boundary, and asking a player what they
+    want to do is the interface work P3.6 owns.
+    """
+    def plan(actor):
+        target = choose_target(encounter, actor)
+        if not actor.is_player or target is None:
+            return None
+        return AttackPlan(
+            attacks=[PlannedAttack(
+                Attack(name="weapon", attack_bonus=5, damage_expression="1d8+3",
+                       damage_type="slashing"),
+                target.id,
+            )]
+        )
+    return plan
+
+
+def _render_initiative(console: Console, encounter: Encounter) -> None:
+    """The authoritative numbers, rendered from state (OD-11) — never from the prose."""
+    console.print()
+    for combatant in encounter.in_order():
+        marker = "*" if combatant.id == encounter.active.id else " "
+        state = "down" if combatant.down else f"{combatant.current_hp}/{combatant.max_hp}"
+        colour = "red" if combatant.down else ("cyan" if combatant.is_player else "white")
+        console.print(f"  {marker} [{colour}]{combatant.name:<18}[/{colour}] {state}")
+
+
+def _render_turn(console: Console, encounter: Encounter, outcome) -> None:
+    if outcome.approximated and outcome.note:
+        # Never silently one attack: the stat block's own words, so the table can judge.
+        console.print(f"  [yellow]multiattack not resolved[/yellow] [dim]{outcome.note}[/dim]")
+    for line in outcome.severities:
+        console.print(f"  [dim]{line}[/dim]")
+    if outcome.narration:
+        console.print(f"\n{outcome.narration}\n", markup=False, highlight=False)
+
+
 def _cmd_drift_check(console: Console, args: argparse.Namespace) -> int:
     """The survival baseline — deterministic, offline, no model and no logs.
 
@@ -1789,6 +1915,30 @@ def build_parser() -> argparse.ArgumentParser:
     )
     play.add_argument("--max-tokens", type=int, default=1024)
 
+    combat = commands.add_parser(
+        "combat", help="run a fight against SRD monsters (P3.4 demo runner)"
+    )
+    combat.add_argument(
+        "--monster", action="append", default=[], metavar="NAME[*N]",
+        help="an SRD monster, optionally times a count: --monster wolf*2",
+    )
+    combat.add_argument("--campaign", metavar="SLUG")
+    combat.add_argument("--character", action="append", metavar="PATH")
+    combat.add_argument("--campaign-name", default=None)
+    combat.add_argument("--scene", default="")
+    combat.add_argument("--canon", default=None)
+    combat.add_argument("--encounter-id", default="encounter-1")
+    combat.add_argument("--seed", type=int, default=1)
+    combat.add_argument("--max-rounds", type=int, default=12)
+    combat.add_argument(
+        "--roll-hp", action="store_true", help="roll monster hit points instead of average"
+    )
+    combat.add_argument(
+        "--no-narration", action="store_true", help="mechanics only — no GM calls"
+    )
+    combat.add_argument("--billing", choices=[b.value for b in Billing])
+    combat.add_argument("--no-prompt", action="store_true")
+
     drift = commands.add_parser("drift", help="canon drift instruments (P2.6)")
     drift_commands = drift.add_subparsers(dest="drift_command")
 
@@ -1877,6 +2027,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_gm(console, args)
         if args.command == "play":
             return _cmd_play(console, args)
+        if args.command == "combat":
+            return _cmd_combat(console, args)
         if args.command == "drift":
             if args.drift_command == "check":
                 return _cmd_drift_check(console, args)

@@ -15,7 +15,16 @@ blockers into this list.
 
 ### Open now
 
-**One, non-blocking.** *(2026-08-16)* **The SRD has exactly one background — Acolyte.** The
+**Two, both non-blocking.**
+
+*(2026-08-21)* **Who chooses monster tactics in combat?** Deterministic today (most wounded
+standing enemy) because a model choosing makes a fight unreplayable, and replay-from-seed
+is what the combat core was built for. But target selection is judgment, and D-001 puts
+judgment with the GM. Middle ground if wanted: the GM chooses and the choice is *logged*,
+so a replay reads it back instead of re-asking. One extra call per monster turn. A
+how-should-it-feel question; nothing is blocked.
+
+*(2026-08-16)* **The SRD has exactly one background — Acolyte.** The
 granting mechanism is built and correct; the dataset is one row, because the rest are PHB
 and outside D-007. Do we (1) leave backgrounds as flavour, (2) author original ones as
 campaign data beside `canon.yaml`, or (3) let co-creation propose one and file it on
@@ -324,6 +333,107 @@ the sweep's display grouping — were implemented 2026-08-15.)*
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-08-21 — P3.4: the combat turn loop (Claude Code, kelly-pc)
+
+**P3.4 done. 993 tests, suite still fully offline.** No new rulings; the Acolyte question
+from 08-16 is still open and untouched.
+
+`game/combatturn.py`, `gm/prompts/combat.md`, and a demo runner (`dndc combat --monster
+wolf*2`) so the thing is live-runnable — which the live-run rule requires of anything
+model-facing.
+
+### Resolve, log, narrate — in that order
+
+The fight is fully decided and written down before a model sees any of it. Two things fall
+out of that ordering, and both are tested: a narration **cannot** change an outcome, and a
+session that loses its GM mid-fight still has a complete and correct combat log. The
+pending/terminal discipline from OD-9 holds here too — a failed narration still writes its
+terminal row.
+
+**The GM is handed severity words and no integers**, measured against the target's own
+maximum, because six damage is a scratch to a barbarian and nearly lethal to a level-1
+wizard. This is OD-12 at full strength: the model cannot restate a value it was never
+given. There is a test asserting no digit appears in anything the engine says about the
+fight.
+
+### FOR DESIGN: who chooses monster tactics?
+
+**Deterministic, for now** — the most wounded standing enemy, ties by initiative order.
+Stated in `choose_target` and dull on purpose.
+
+The argument for keeping it out of the model is strong and I want it on the record: **a
+model choosing targets makes a fight unreplayable**, and replay-from-a-seed is the property
+the whole combat core was built for. A logged fight that cannot be re-run is not evidence
+of anything.
+
+The argument against is also real: target selection is *judgment*, not arithmetic, and
+D-001 puts judgment with the GM. A wolf pack that always focuses the most wounded plays
+like a machine — which it is.
+
+Middle ground if Fable wants tactics to be a GM call: **let the GM choose and log the
+choice**, so a replay reads the decision from the log rather than re-asking the model. That
+keeps reproducibility and buys back the judgment, at one extra call per monster turn. I
+have not built it — this is a "how should the game feel" question, not an engineering one,
+and nothing is blocked either way.
+
+### Two bugs the live run found
+
+Both are the kind only a real run surfaces.
+
+**A dead monster was being described to the GM as "unconscious and dying".**
+`damage_severity` says that for anything at zero, which is right for a character and wrong
+for a monster — monsters do not make death saves. The GM would have narrated a wolf on the
+floor as still breathing. Fixed where the knowledge lives, in the turn engine, so
+`rules/severity.py` stays general.
+
+**Death saves happened silently.** A dying character gets a turn precisely so the save
+happens, and the turn was producing no output at all. Now it says so in words — "holds
+on", "slips further", "stops breathing" — with no tally, because the numbers belong to
+the interface.
+
+And one hang, which was my own test's fault and the massive-damage rule working correctly:
+99 damage to a 24 HP character is instant death, not dying, so `advance()` never stopped on
+them and the test's `while` spun. It did reveal a real hazard, though — `run_round` waited
+on the round counter to tick, and `advance()` deliberately stays put when nobody can act.
+That loop is now bounded by the size of the order.
+
+### The live run
+
+`dndc combat --campaign the-salt-road --monster wolf --seed 21`, real GM seat, ~$0.03 for
+four narrated turns. It reads like the game: misses stay misses, and the kill was narrated
+as a kill ("dead before it hits the frost-hard ground") rather than as a swoon. Log checked
+— one `combat_start` with the roster and seed, four `combat_turn`, one `hit_point_change`
+(`11→0, killed=True`), one `combat_end` (`party`, 2 rounds, both survivors), four `cost`
+rows.
+
+Mechanics-only runs are free (`--no-narration`), and two level-1 characters against two
+wolves is reliably lethal, which is correct 5e and worth knowing before a real table
+meets one.
+
+### Known issues
+
+- **Narration is per turn, so three consecutive misses get three paragraphs.** A human GM
+  would batch them. Fixable by narrating per round instead, at the cost of the GM losing
+  the ordering; worth revisiting in P3.6 when there is a view to judge it against.
+- The demo runner gives every player character a generic "weapon" at +5 for 1d8+3, so the
+  GM invents what they are swinging ("Corin's dagger", "Hammond drives his sword"). Real
+  weapons come from the sheet — that is P3.6's, along with asking a player what they want
+  to do.
+- Conditions still barely act: `prone`, `grappled` and `restrained` change attack rolls and
+  movement and nothing consults them yet.
+- Saving-throw actions (a breath weapon) build an `Attack` with a DC and the turn loop has
+  no path for them — every monster below CR 5 that matters uses attack rolls, so this has
+  not bitten, and it will above CR 5.
+
+### Recommended next task
+
+**P3.5 — the encounter builder** on a CR/XP budget, drawing on the 245 ingested monsters.
+It is the smaller of the two remaining and it makes P3.6 worth building, since a view
+wants something to show. Then **P3.6**, the rich combat CLI view — where a player finally
+chooses their own action and the authoritative numbers get their proper display (OD-11).
 
 ---
 
