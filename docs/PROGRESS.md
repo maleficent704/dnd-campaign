@@ -327,6 +327,94 @@ the sweep's display grouping — were implemented 2026-08-15.)*
 
 ---
 
+## 2026-08-18 — Phase 3 opens: the deterministic combat core (Claude Code, kelly-pc)
+
+**Phase 3 broken into tasks, and P3.1 done. 916 tests, suite still fully offline.** The
+background question from 08-16 is still open and untouched.
+
+### Phase 3 has a task breakdown now
+
+It didn't. Every other phase does, and "combat" as one unit is several sessions. P3.1
+core → P3.2 monsters from stat blocks → **P3.3 the event vocabulary, doc-first** → P3.4
+the turn loop → P3.5 encounter builder → P3.6 the CLI view.
+
+P3.3 is deliberately *third*. Guessing what a fight emits before one has ever run is how
+a vocabulary ends up describing the code instead of the game, and D-008's own rule is
+doc-first, not doc-blind. An attack is probably a `rules_resolution`; round boundaries,
+initiative order and hit-point changes are probably not. I would rather answer that after
+P3.2 exists than commit to it now.
+
+### P3.1 — every number in a fight
+
+`src/dndc/rules/combat.py`. This is the phase D-001 was written for, and the property
+worth stating first: **nothing in the module can reach a model.** No logging, no disk, no
+network. So there is no live run to do — the test suite is the entire verification, which
+is the first time that has been true since Phase 0.
+
+Two decisions where the easier answer was wrong:
+
+**Combatants are frozen; every change returns a new one.** A fight is a sequence of
+states, not an object being mutated, and holding two at once is what lets a caller show
+before-and-after without bookkeeping. It also means a half-applied turn cannot exist.
+`Encounter` is the one mutable thing, because threading the bookkeeping through every
+caller would put it in every caller.
+
+**Initiative ties break deterministically** — dexterity, then side, then name, never a
+re-roll. 5e hands ties to the DM, which is right at a table and useless in an instrument:
+the same seed and the same combatants must produce the same order, or a replayed fight is
+not the fight that happened. There is a test that plays a whole fight twice from one seed
+and compares transcripts, and a second test asserting different seeds *do* diverge — so
+the first cannot pass by nothing being random at all.
+
+Also in, because each is a rule that is easy to get subtly wrong and quietly play without:
+resistance/vulnerability/immunity with 5e's precedence (immunity wins; resistance and
+vulnerability cancel), temporary hit points spent before real ones, massive damage killing
+outright, a hit on a dying character counting as a failed death save, and a natural 20 on
+a death save being a *recovery at 1 HP* rather than a success.
+
+**A dying character still gets their turn.** Skipping them would be the obvious
+optimisation and would quietly delete the tensest thirty seconds in 5e — the death save
+happens on their turn.
+
+### One bug the tests found
+
+A combatant dropped *during their own turn* — by a reaction, a trap, ongoing damage — kept
+the rest of their action economy. Fixed at `replace_combatant`, the single point state
+changes through, so no caller can forget it. That choke-point habit has now caught
+something in three separate modules.
+
+A sample fight, to show it plays like the game rather than merely computing:
+
+```
+order: ['Wolf', 'Bandit', 'Corin Vale', 'Hammond']
+r2 Wolf hits Corin Vale -> 0hp      (drops, starts saving)
+r2 Corin Vale death save 8          (fail)
+r3 Corin Vale death save 5          (fail)
+r4 Corin Vale death save 4          (dead)
+r5 Bandit hits Hammond -> 0hp
+winner: foes
+```
+
+### Known issues
+
+- **Conditions are declared but barely act.** `prone`, `grappled` and `restrained` are in
+  the enum and nothing consults them — they change attack rolls and movement, which is
+  P3.4's business once there is a turn loop to apply them in. `incapacitated` and
+  `unconscious` do work, because the state machine needs them.
+- **No concentration, no reactions-in-practice, no multiattack.** Reactions have a budget
+  slot and nothing spends it yet; multiattack is P3.2, where monster actions arrive.
+- The combat core does not know about `CharacterSheet` yet — a `Combatant` is built by
+  hand. Wiring sheets and SRD stat blocks into combatants is P3.2.
+
+### Recommended next task
+
+**P3.2** — monster instantiation from SRD stat blocks: a `Monster` (245 of them ingested,
+CR 0–5) becomes combatants with rolled or average hit points, its `actions` become usable
+attacks, and multiattack is understood. That is also what gives P3.3 something real to
+design a vocabulary against.
+
+---
+
 ## 2026-08-17 — the drift baseline: the fixture, not the seed (Claude Code, kelly-pc)
 
 **Fable's 2026-08-15 ruling implemented. 866 tests, suite still fully offline.** The

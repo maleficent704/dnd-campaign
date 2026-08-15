@@ -166,6 +166,37 @@ Initiative tracker, action economy, monster stat blocks from SRD, deterministic
 resolution with GM narration layered per round; encounter builder (CR budget). Rich
 combat CLI view.
 
+**The phase D-001 was written for.** Every number in a fight is the engine's: initiative,
+hits, damage, HP, death saves. The GM narrates outcomes it is handed and never computes
+one. OD-11/OD-12 apply at their strictest here — the GM receives severity bands, the
+interface renders the numbers from state.
+
+Task breakdown:
+
+- **P3.1** Deterministic combat core: combatants, initiative with reproducible
+  tie-breaking, the round/turn state machine, action economy (action / bonus / reaction /
+  movement), damage application with resistance-vulnerability-immunity, unconsciousness,
+  death saves, massive damage. Pure functions and a state machine; **no model, no
+  logging** — so the test suite is the whole verification.
+  *(Done 2026-08-18. `src/dndc/rules/combat.py`. Combatants are frozen and every change
+  returns a new one, so a fight is a sequence of states rather than a mutated object;
+  `Encounter` is the one mutable thing and `replace_combatant` is its single choke point.
+  Initiative ties break on dexterity → side → name, never on a re-roll, because a fight
+  that cannot be replayed is not evidence. Monsters drop at 0 and characters go
+  unconscious and roll death saves — a dying character still gets their turn, since that
+  turn is where the save happens. 53 tests including a whole-fight replay.)*
+- **P3.2** Monster instantiation from SRD stat blocks: a `Monster` becomes combatants with
+  rolled or average HP, its actions become usable attacks, multiattack understood.
+- **P3.3** Combat event vocabulary — **doc-first per D-008**, and deliberately not
+  designed before P3.1/P3.2 exist: guessing what a fight emits before one runs is how a
+  vocabulary ends up describing the code instead of the game. An attack is probably a
+  `rules_resolution`; round boundaries, initiative order and HP changes are probably not.
+- **P3.4** The combat turn loop: engine resolves, GM narrates per round, players act
+  through the CLI. Where D-001's boundary takes its real load.
+- **P3.5** Encounter builder on a CR/XP budget, drawing on the ingested monsters.
+- **P3.6** Rich combat CLI view: initiative order, HP bars, conditions, whose turn it is —
+  the authoritative numeric display (OD-11).
+
 ## Phase 4 — NPC agent tier (D-003)
 
 NPC schema (voice card, knowledge scope, canon-ledger view), per-turn prompt rebuild
