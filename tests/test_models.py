@@ -691,3 +691,27 @@ def test_subscription_usage_reads_the_aggregate_not_the_iteration_list():
     model_usage = SUB_PAYLOAD_MULTI_TURN["modelUsage"]["claude-haiku-4-5"]
     assert usage.input_tokens == model_usage["inputTokens"]
     assert usage.cache_write_tokens == model_usage["cacheCreationInputTokens"]
+
+
+# --- the utility seat split (Fable, 2026-08-14) ----------------------------
+
+
+def test_each_utility_job_gets_its_own_seat():
+    from dndc.config import load_config
+    from dndc.models import build_batch_backend, build_interactive_backend
+
+    cfg = load_config()
+    assert build_interactive_backend(cfg).model == cfg.seats.utility_interactive.model
+    assert build_batch_backend(cfg).model == cfg.seats.utility_batch.model
+
+
+def test_the_seat_names_are_the_ones_the_cost_rows_use():
+    """`session_meta.seats` and `cost.seat` have to agree, or a log cannot answer which
+    of the two seats ran — the question the split was made to answer."""
+    from dndc.game.cli import _seats_for_meta
+    from dndc.config import load_config
+    from dndc.memory.chronicle import BATCH_SEAT
+    from dndc.memory.sweep import INTERACTIVE_SEAT
+
+    seats = _seats_for_meta(load_config())
+    assert INTERACTIVE_SEAT in seats and BATCH_SEAT in seats

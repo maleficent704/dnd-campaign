@@ -8,17 +8,20 @@ from dndc.memory.chronicle import (
     ChronicleReport,
 )
 from dndc.memory.sweep import (
+    SIMILAR_ENOUGH,
     SWEEP_SCOPE,
     SWEEP_TEMPERATURE,
     CanonSweep,
     SweepProposal,
     SweepReport,
+    cluster,
 )
 
 __all__ = [
     "CANON_FILENAME",
     "CHRONICLE_FILENAME",
     "CHRONICLE_TEMPERATURE",
+    "SIMILAR_ENOUGH",
     "SWEEP_SCOPE",
     "SWEEP_TEMPERATURE",
     "CanonStore",
@@ -27,4 +30,5 @@ __all__ = [
     "Chronicler",
     "SweepProposal",
     "SweepReport",
+    "cluster",
 ]

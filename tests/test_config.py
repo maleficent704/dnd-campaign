@@ -24,7 +24,8 @@ def test_repo_config_validates():
     assert cfg.seats.gm.model_default
     assert cfg.seats.gm.model_threshold
     assert cfg.seats.npc.endpoint.startswith("http")
-    assert cfg.seats.utility.endpoint.startswith("http")
+    assert cfg.seats.utility_interactive.endpoint.startswith("http")
+    assert cfg.seats.utility_batch.endpoint.startswith("http")
 
 
 def test_ollama_endpoints_registry_covers_seat_endpoints():
@@ -33,7 +34,8 @@ def test_ollama_endpoints_registry_covers_seat_endpoints():
     registered = set(cfg.ollama_endpoints.values())
     assert {"toto-llm", "sam-pc"} <= set(cfg.ollama_endpoints)
     assert cfg.seats.npc.endpoint in registered
-    assert cfg.seats.utility.endpoint in registered
+    assert cfg.seats.utility_interactive.endpoint in registered
+    assert cfg.seats.utility_batch.endpoint in registered
 
 
 def test_unknown_key_is_rejected(tmp_path):
@@ -142,3 +144,38 @@ def test_the_env_path_resolves_against_the_repo_not_the_cwd():
 
     assert DEFAULT_ENV_PATH.is_absolute()
     assert DEFAULT_ENV_PATH.parent == DEFAULT_CONFIG_PATH.parent
+
+
+# --- the utility seat split (Fable, 2026-08-14) ----------------------------
+
+
+def test_the_two_utility_seats_are_distinct_models():
+    """The whole ruling: the sweep is gated and the table waits on it, the chronicle is
+    ungated and comprehension-critical. One model cannot be right for both."""
+    cfg = load_config()
+    assert cfg.seats.utility_interactive.model != cfg.seats.utility_batch.model
+
+
+def test_a_pre_split_config_fails_with_instructions(tmp_path):
+    """Never migrated by mapping `utility` onto both seats — that would put the small
+    model in the batch seat and silently undo the ruling, with the config looking
+    upgraded."""
+    bad = tmp_path / "config.yaml"
+    bad.write_text(
+        textwrap.dedent(
+            """
+            billing: {default: api}
+            seats:
+              gm: {backend: gmbackend, model_default: m, model_threshold: m}
+              npc: {backend: ollama, endpoint: "http://x", model: m}
+              utility: {backend: ollama, endpoint: "http://x", model: m}
+            gameplay: {scaffolding: high, play_mode: hotseat}
+            logging: {dir: logs/, stamp_commit_sha: true}
+            """
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValidationError) as caught:
+        load_config(bad)
+    assert "utility_interactive" in str(caught.value)
+    assert "utility_batch" in str(caught.value)

@@ -17,10 +17,19 @@ seats:
     backend: ollama
     endpoint: http://192.168.50.11:11434   # toto-llm (dual 3090)
     model: llama3.3:70b
-  utility:
+  # Two utility seats, not one (Fable, 2026-08-14). The jobs have opposite tradeoffs:
+  # the sweep is confirmation-gated and the table waits on it, so recall and 3.7s win;
+  # the chronicle is ungated and comprehension-critical, and 180s on a batch job nobody
+  # watches is free. Grounding cannot catch a relationship inversion, so the fix has to
+  # be a better writer rather than a better check.
+  utility_interactive:
     backend: ollama
     endpoint: http://192.168.50.11:11434   # move to sam-pc when installed (Phase 4+)
     model: llama3.1:8b
+  utility_batch:
+    backend: ollama
+    endpoint: http://192.168.50.11:11434   # toto-llm (dual 3090)
+    model: llama3.3:70b
 
 ollama_endpoints:         # routing table (Phase 4 router consumes this)
   toto-llm: http://192.168.50.11:11434

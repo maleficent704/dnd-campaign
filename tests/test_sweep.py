@@ -28,6 +28,7 @@ from dndc.memory.sweep import (
     MAX_PROPOSALS,
     CanonSweep,
     SweepProposal,
+    cluster,
 )
 from dndc.models.base import GMBackendError
 from dndc.models.mock import MockBackend
@@ -380,7 +381,11 @@ def test_the_sweep_call_is_logged_as_a_free_local_cost_row(tmp_path):
     subject.propose(session())
 
     cost = next(e for e in read_log(log.path) if e.type is EventType.COST)
-    assert (cost.seat, cost.model, cost.billing) == ("utility", "llama3.1:8b", "local")
+    assert (cost.seat, cost.model, cost.billing) == (
+        "utility_interactive",
+        "llama3.1:8b",
+        "local",
+    )
     assert cost.would_have_cost is False
 
 
@@ -436,3 +441,112 @@ def test_an_unreadable_answer_is_asked_again(monkeypatch):
 
     accepted, _ = choose_proposals(Console(quiet=True), [SweepProposal(text="Fact.")])
     assert len(accepted) == 1
+
+
+# --- display grouping (Fable, 2026-08-14) ----------------------------------
+
+
+#: The four barking-dog restatements from the 2026-08-13 live run, verbatim. These are
+#: what the ruling was about, so they are what the threshold is tuned against.
+DOG = [
+    "There is a dog barking in the undercroft, sounding insistent and sharp.",
+    "There is a dog barking in the undercroft, sounding sharp and insistent as if it has "
+    "noticed something or someone approaching.",
+]
+RAIL = [
+    "There is a rusty iron rail on the undercroft stair that wobbles under pressure.",
+    "The undercroft stair has a rusty iron rail that wobbles under pressure.",
+]
+
+
+def test_the_same_fact_twice_is_one_line_with_the_other_underneath():
+    """The 08-13 live run: 22 proposals for a 3-exchange session, all of them real and
+    several of them the same real thing."""
+    groups = cluster([SweepProposal(text=text) for text in RAIL])
+    assert len(groups) == 1 and len(groups[0]) == 2
+
+
+def test_grouping_survives_a_rewritten_opening():
+    groups = cluster([SweepProposal(text=text) for text in DOG])
+    assert len(groups) == 1
+
+
+def test_two_facts_about_one_subject_are_not_one_fact():
+    """Under-clustering costs a longer list; over-clustering hides a fact under an
+    indent. Given the choice, take the longer list."""
+    groups = cluster(
+        [
+            SweepProposal(text="The lamp-seller sells lanterns at the top of the stair."),
+            SweepProposal(text="The lamp-seller warned against going left at the bottom."),
+        ]
+    )
+    assert len(groups) == 2
+
+
+def test_a_short_statement_is_never_grouped():
+    """"The bridge is out" and "The bridge is fine" share their only long word and are
+    opposites. Fuzzy matching must not be able to hide that (npc-village lesson)."""
+    groups = cluster(
+        [
+            SweepProposal(text="The bridge is out."),
+            SweepProposal(text="The bridge is fine."),
+        ]
+    )
+    assert len(groups) == 2
+
+
+def test_grouping_keeps_the_order_the_sweep_proposed_in():
+    proposals = [
+        SweepProposal(text="The mill across the water burned down last winter."),
+        SweepProposal(text=RAIL[0]),
+        SweepProposal(text=RAIL[1]),
+    ]
+    groups = cluster(proposals)
+    assert [group[0].text for group in groups] == [proposals[0].text, RAIL[0]]
+
+
+def test_nothing_is_dropped_by_grouping():
+    proposals = [SweepProposal(text=text) for text in DOG + RAIL]
+    assert sum(len(group) for group in cluster(proposals)) == len(proposals)
+
+
+def test_choosing_a_group_files_one_phrasing_and_declines_the_rest(monkeypatch):
+    """"The table confirms one phrasing per cluster" — and the phrasings it did not
+    confirm are declined, logged, and visible, not silently dropped."""
+    proposals = [SweepProposal(text=text) for text in RAIL]
+    monkeypatch.setattr("dndc.game.cli.Prompt.ask", lambda *a, **k: "1")
+
+    accepted, declined = choose_proposals(Console(quiet=True), proposals)
+
+    assert [p.text for p in accepted] == [RAIL[0]]
+    assert [p.text for p in declined] == [RAIL[1]]
+
+
+def test_declining_a_group_declines_every_phrasing_in_it(monkeypatch):
+    proposals = [SweepProposal(text=text) for text in RAIL]
+    monkeypatch.setattr("dndc.game.cli.Prompt.ask", lambda *a, **k: "none")
+
+    accepted, declined = choose_proposals(Console(quiet=True), proposals)
+
+    assert accepted == []
+    assert len(declined) == 2
+
+
+def test_the_numbers_the_table_types_are_group_numbers(monkeypatch):
+    """Four proposals, two facts, so "2" means the second fact — not the second line."""
+    proposals = [SweepProposal(text=text) for text in RAIL + DOG]
+    monkeypatch.setattr("dndc.game.cli.Prompt.ask", lambda *a, **k: "2")
+
+    accepted, _ = choose_proposals(Console(quiet=True), proposals)
+    assert [p.text for p in accepted] == [DOG[0]]
+
+
+def test_the_alternates_are_shown_not_hidden(monkeypatch):
+    """Grouping decides what sits under what, not what the table gets to see."""
+    monkeypatch.setattr("dndc.game.cli.Prompt.ask", lambda *a, **k: "none")
+    recorder = Console(force_terminal=False, no_color=True, record=True, width=200)
+
+    choose_proposals(recorder, [SweepProposal(text=text) for text in RAIL])
+
+    output = " ".join(recorder.export_text().split())
+    assert "also:" in output and RAIL[1] in output

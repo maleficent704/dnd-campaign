@@ -27,8 +27,10 @@ from dndc.models.subscription import THROTTLE_WARNING, SubscriptionBackend
 
 __all__ = [
     "APIBackend",
+    "BATCH_SEAT",
     "Billing",
     "DEFAULT_MAX_TOKENS",
+    "INTERACTIVE_SEAT",
     "GMBackend",
     "GMBackendError",
     "GMRequest",
@@ -41,9 +43,10 @@ __all__ = [
     "Role",
     "SubscriptionBackend",
     "Usage",
+    "build_batch_backend",
     "build_gm_backend",
+    "build_interactive_backend",
     "build_npc_backend",
-    "build_utility_backend",
     "estimate_cost",
     "load_prices",
     "new_call_id",
@@ -79,15 +82,42 @@ def build_npc_backend(config: Config) -> OllamaBackend:
     return OllamaBackend(model=seat.model, endpoint=seat.endpoint)
 
 
-def build_utility_backend(
+#: Names for the two utility seats, used for `cost.seat` and `session_meta.seats` so a
+#: log says which of them ran. Constants rather than literals because the split is only
+#: measurable if both halves of the codebase spell it the same way.
+INTERACTIVE_SEAT = "utility_interactive"
+BATCH_SEAT = "utility_batch"
+
+
+def build_interactive_backend(
     config: Config, temperature: float | None = None
 ) -> OllamaBackend:
-    """Recaps, compression, SRD RAG — the small local seat.
+    """The utility seat the table waits on — the P2.3 sweep, and anything after it.
+
+    Small and fast on purpose (Fable, 2026-08-14): the sweep is confirmation-gated, so a
+    model that over-proposes costs a keystroke, while one that takes three minutes costs
+    the evening.
 
     `temperature` is for the caller to set when the job is extraction rather than prose;
     the model and endpoint still come from config, as everything must (OD-5).
     """
-    seat = config.seats.utility
+    return _ollama(config.seats.utility_interactive, temperature)
+
+
+def build_batch_backend(
+    config: Config, temperature: float | None = None
+) -> OllamaBackend:
+    """The utility seat nobody waits on — the P2.5 chronicle, its fold, later compression.
+
+    Bigger and slower on purpose. This output is *not* confirmation-gated and goes into
+    every later prompt, and the failure it has to avoid — a summary that gets the facts
+    right and their relationship wrong — is one no grounding check can catch. The fix is
+    a better writer, not a better guard.
+    """
+    return _ollama(config.seats.utility_batch, temperature)
+
+
+def _ollama(seat, temperature: float | None) -> OllamaBackend:
     return OllamaBackend(
         model=seat.model, endpoint=seat.endpoint, temperature=temperature
     )

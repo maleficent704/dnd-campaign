@@ -339,7 +339,7 @@ def test_the_call_is_logged_as_a_free_local_cost_row(tmp_path):
     )
 
     cost = next(e for e in read_log(log.path) if e.type is EventType.COST)
-    assert (cost.seat, cost.model, cost.billing) == ("utility", "llama3.1:8b", "local")
+    assert (cost.seat, cost.model, cost.billing) == ("utility_batch", "llama3.1:8b", "local")
     assert cost.would_have_cost is False
 
 
@@ -440,7 +440,7 @@ def test_the_cli_says_when_the_summary_invented_someone(monkeypatch, tmp_path, c
     from rich.console import Console
 
     monkeypatch.setattr(
-        "dndc.game.cli.build_utility_backend",
+        "dndc.game.cli.build_batch_backend",
         lambda cfg, temperature=None: MockBackend(
             ["The party met Maren Aldis."], repeat_last=True
         ),
@@ -457,7 +457,7 @@ def test_the_cli_prints_the_summary(monkeypatch, tmp_path, capsys):
     from rich.console import Console
 
     monkeypatch.setattr(
-        "dndc.game.cli.build_utility_backend",
+        "dndc.game.cli.build_batch_backend",
         lambda cfg, temperature=None: MockBackend([SUMMARY]),
     )
     log = SessionLog.open(tmp_path)

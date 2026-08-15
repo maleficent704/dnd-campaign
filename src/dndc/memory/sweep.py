@@ -6,8 +6,10 @@ that established four concrete things about the road tagged none of them. Inline
 extraction gets what the GM remembers to declare, which is not everything it establishes.
 
 So a second pass reads the session back afterwards and proposes what was missed. It runs
-on the utility seat — a local 8B on toto-llm — which makes it free, which is why it can
-be thorough rather than selective. Three things keep a small model from quietly corrupting
+on the interactive utility seat — a local 8B on toto-llm — which makes it free, which is
+why it can be thorough rather than selective. It is the seat the table waits on: the
+proposals are read out at the end of the evening, so seconds matter and over-proposing
+does not (Fable, 2026-08-14). Three things keep a small model from quietly corrupting
 the thing the whole project exists to measure:
 
 **It can only ever write `player_known`.** Not a rule in the prompt — a constant in the
@@ -48,7 +50,8 @@ from dndc.gm.context import Turn, render_transcript
 from dndc.gm.templates import render_template
 from dndc.logging import SessionLog
 from dndc.memory.canon_store import CanonStore, normalise
-from dndc.memory.grounding import grounded, vocabulary
+from dndc.memory.grounding import MIN_CONTENT_LEN, WORD, grounded, stem, vocabulary
+from dndc.models import INTERACTIVE_SEAT
 from dndc.models.base import GMBackend, GMBackendError, GMRequest, Message, Role
 from dndc.schema.events import CanonSource, Cost
 
@@ -72,6 +75,15 @@ MAX_FACT_CHARS = 300
 #: facts" one time and "none" the next. Not zero because a fact can be phrased several
 #: ways and greedy decoding on a small model tends to lock onto whatever it said first.
 SWEEP_TEMPERATURE = 0.1
+
+#: How much two proposals must overlap before the confirmation prompt treats them as one
+#: fact phrased twice. High on purpose — see `cluster`. Measured against the 08-13 live
+#: run: the four barking-dog restatements group, and facts that merely share a subject do
+#: not.
+SIMILAR_ENOUGH = 0.6
+
+#: Below this many content words, a statement is never clustered — see `cluster`.
+MIN_CLUSTER_WORDS = 3
 
 #: Neither `api` nor `subscription`: this call ran on hardware in the house and cost
 #: nothing either way. Recorded as its own value so campaign cost analysis (OD-16) can
@@ -303,7 +315,7 @@ class CanonSweep:
         usage = response.usage
         self.log.emit(
             Cost,
-            seat="utility",
+            seat=INTERACTIVE_SEAT,
             model=response.model,
             billing=self.billing,
             input_tokens=usage.input_tokens,
@@ -317,3 +329,59 @@ class CanonSweep:
 
 def _chunks(turns: Sequence[Turn], size: int) -> list[Sequence[Turn]]:
     return [turns[start:start + size] for start in range(0, len(turns), size)]
+
+
+def cluster(
+    proposals: Sequence[SweepProposal], threshold: float = SIMILAR_ENOUGH
+) -> list[list[SweepProposal]]:
+    """Group proposals that say the same thing in different words (Fable, 2026-08-14).
+
+    A three-exchange live session produced twenty-two proposals containing the same
+    barking dog four times, the same wobbling rail twice, and the same cold draught three
+    times. All of them were real — grounding passed — and reading them was still work.
+
+    **This is display, not truth.** Nothing is dropped and nothing is merged: every
+    proposal is still shown, still offered, and still logged whichever way the table goes.
+    The ruling was explicit that fuzzy matching must not silently suppress a fact (the
+    npc-village lesson), so the clustering only decides what sits under what on screen.
+
+    The threshold is deliberately high. Over-clustering costs the table a second glance at
+    an indented line; under-clustering costs them nothing but a longer list. Given a
+    choice between those two errors, take the longer list.
+    """
+    clusters: list[list[SweepProposal]] = []
+    keys: list[set[str]] = []
+    for proposal in proposals:
+        words = _content_words(proposal.text)
+        # A fact with almost no content words cannot be compared this way. "The bridge is
+        # out" and "The bridge is fine" share their only long word and are opposites, so
+        # a short statement always gets its own line.
+        if len(words) >= MIN_CLUSTER_WORDS:
+            for index, existing in enumerate(keys):
+                if _similarity(words, existing) >= threshold:
+                    clusters[index].append(proposal)
+                    break
+            else:
+                clusters.append([proposal])
+                keys.append(words)
+            continue
+        clusters.append([proposal])
+        keys.append(set())
+    return clusters
+
+
+def _content_words(text: str) -> set[str]:
+    """The words a restatement would keep. Short words are noise for this purpose —
+    "there is a" versus "the stair has" is phrasing, not content."""
+    return {
+        word
+        for word in (stem(match) for match in WORD.findall(text))
+        if len(word) >= MIN_CONTENT_LEN
+    }
+
+
+def _similarity(left: set[str], right: set[str]) -> float:
+    """Jaccard. Two facts that share nine of ten content words are one fact twice."""
+    if not left or not right:
+        return 0.0
+    return len(left & right) / len(left | right)

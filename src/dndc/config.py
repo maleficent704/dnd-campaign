@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config.yaml"
 DEFAULT_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
@@ -89,7 +89,30 @@ class OllamaSeat(_Strict):
 class Seats(_Strict):
     gm: GMSeat
     npc: OllamaSeat
-    utility: OllamaSeat
+    #: The jobs the table waits on — the P2.3 sweep, and anything interactive after it.
+    #: Small and fast; its output is confirmation-gated, so recall beats precision.
+    utility_interactive: OllamaSeat
+    #: The jobs nobody watches — the P2.5 chronicle and its fold, future compression.
+    #: Ungated and comprehension-critical, so quality beats latency (Fable, 2026-08-14).
+    utility_batch: OllamaSeat
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_the_single_utility_seat(cls, value: object) -> object:
+        """A pre-split config fails with instructions rather than a confusing schema error.
+
+        Deliberately not migrated by mapping `utility` onto both seats. That would put the
+        8B in the batch seat and silently undo the ruling this split exists to implement —
+        the config would look upgraded and the chronicle would still be written by the
+        model that inverted Brakewater.
+        """
+        if isinstance(value, dict) and "utility" in value:
+            raise ValueError(
+                "config.yaml has a single `utility:` seat; it was split on 2026-08-14. "
+                "Replace it with `utility_interactive:` (the sweep — llama3.1:8b) and "
+                "`utility_batch:` (the chronicle — llama3.3:70b)."
+            )
+        return value
 
 
 class GameplayConfig(_Strict):

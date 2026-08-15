@@ -1,13 +1,13 @@
 """Writing the campaign chronicle (P2.5) — D-002's compression job.
 
-At the end of a session the utility tier reads the session back and writes a paragraph:
-what happened, what changed, what was left hanging. That paragraph goes into every later
-session's prompt, which is how session nine's GM knows about session two without carrying
-session two's transcript. D-002's prompt rule — rebuilt from ledger + chronicle + window,
+At the end of a session the batch utility seat reads the session back and writes a
+paragraph: what happened, what changed, what was left hanging. That paragraph goes into
+every later session's prompt, which is how session nine's GM knows about session two
+without carrying session two's transcript. D-002's prompt rule — rebuilt from ledger + chronicle + window,
 never from a growing transcript — is only affordable because this layer exists.
 
-It runs on the same seat and in the same slot as the P2.3 sweep, immediately after it, and
-it inherits that task's posture with one deliberate difference.
+It runs in the same slot as the P2.3 sweep, immediately after it, and inherits that task's
+posture with two deliberate differences.
 
 **Inherited: the summary must come from the session.** A live run of the sweep had
 `llama3.1:8b` answer with the prompt's own worked examples, naming a person who was not in
@@ -15,6 +15,14 @@ the transcript. The same guard applies here (`memory/grounding.py`): a summary n
 someone the session never mentioned is rejected, retried once, and then skipped. **No
 chronicle entry is strictly better than a fabricated one** — the ledger still holds the
 facts, the window still holds the last turns, and the entry can be regenerated for free.
+
+**Different: a bigger model.** The sweep runs on the seat the table waits on; this runs
+on `utility_batch`, and the difference is the point (Fable, 2026-08-14). Grounding catches
+a name from nowhere, but it cannot catch a summary that has every fact right and their
+relationship wrong — a live run had the 8B write that the party crossed a river they had
+in fact been left on the wrong side of. Nothing about that sentence is ungrounded. The
+only fix for a comprehension failure is comprehension, and minutes are free on a job
+nobody is waiting for.
 
 **Different: there is no confirmation gate.** The sweep's output enters the canon ledger,
 which is the instrument this project measures drift with, so a human says yes first. A
@@ -42,6 +50,7 @@ from dndc.gm.templates import render_template
 from dndc.logging import SessionLog
 from dndc.memory.grounding import unknown_names, vocabulary
 from dndc.memory.sweep import LOCAL_BILLING
+from dndc.models import BATCH_SEAT
 from dndc.models.base import GMBackend, GMBackendError, GMRequest, Message, Role
 from dndc.schema.events import ChronicleWrite, Cost
 
@@ -308,7 +317,7 @@ class Chronicler:
         usage = response.usage
         self.log.emit(
             Cost,
-            seat="utility",
+            seat=BATCH_SEAT,
             model=response.model,
             billing=self.billing,
             input_tokens=usage.input_tokens,

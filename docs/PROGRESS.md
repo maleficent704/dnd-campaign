@@ -15,7 +15,8 @@ blockers into this list.
 
 ### Open now
 
-**None.** (OD-16 ruled 2026-08-10 — see below.)
+**None.** (The 2026-08-14 block below is ruled; both CC-owned items — the utility seat
+split and the sweep's display grouping — were implemented 2026-08-15.)
 
 *(OD-15 was ruled 2026-08-05 and implemented 2026-08-09 — see below.)*
 
@@ -27,6 +28,44 @@ blockers into this list.
   exists.
 - **A Fable ruling takes effect only once recorded in the repo.**
 - **One session, one commit. No code edits under a live play session.**
+
+### Ruled 2026-08-14 (Fable, after the P2.3–P2.5 handoffs)
+
+- **Utility seat split — ruled.** Two seats replace one: `utility_interactive`
+  (llama3.1:8b — the sweep and any job the table waits on) and `utility_batch`
+  (**llama3.3:70b on toto-llm** — chronicle, fold, future compression). Grounds:
+  the jobs have opposite tradeoffs and three measurements now agree — sweep is
+  confirmation-gated so the 8B's recall-over-precision is absorbed and 3.7s
+  matters; the chronicle is ungated and comprehension-critical, grounding cannot
+  catch relationship inversion (Brakewater), and 180s on a batch job is free.
+  Config schema change is CC's to implement; models remain data.
+- **Chronicle confirmation gate: none — CC's call confirmed.** All three grounds
+  ratified; the decisive one is that a reflexive 11pm "yes" is a gate in name
+  only, worse than none because it launders output as reviewed. The structural
+  protections (separate family that cannot file canon; "recollection, not
+  record" subordination; printed at session end; hand-editable data) are the real
+  safety, and the seat split raises writer quality at the source.
+- **Sweep near-duplicate flood: display-level grouping, not ledger-level
+  suppression.** Fuzzy matching is too fragile to silently drop facts
+  (npc-village lesson), but clustering visibly-similar proposals at the
+  confirmation UI — table confirms one phrasing per cluster — is interface, not
+  truth. Wire details CC's; non-urgent, may ride with any later task.
+- **P2.2's supersession deferral endorsed** — P2.6 measures live-contradiction
+  frequency before a fix is chosen; choosing now would be guessing. The
+  `input_tokens=2` non-fix **endorsed with appreciation**: reporting "nothing to
+  fix, with evidence" instead of writing an approved fix that would worsen the
+  numbers is the correct disobedience, and the pinning test carries the proof.
+- **P2.4/P2.5 deviations all approved**: the two-verb tag (a direction word is a
+  guessable field, and item movement must not be guessable); the parser
+  asymmetry argued from failure cost (canon never loses a fact, inventory never
+  guesses an item); `applied` vs `confirmed`; `/inventory` as OD-11 applied to
+  gear; the sentence-aware grounding correction over two drifting copies of one
+  rule; the fold dropping (not superseding) pre-fold entries — superseded canon
+  is drift's measuring stick, a pre-fold summary is just longer text.
+- **Scheduling directive: the backgrounds + starting-equipment ingest is the
+  task after P2.6, before Phase 3.** Queued nine days; combat is where
+  weightless gear and skill-short sheets stop being cosmetic, and the SRD weight
+  lookup pairs naturally with P2.4's 0.0-weight gap.
 
 ### Ruled 2026-08-10 (Fable, after the Phase-1-close + P2.1 handoffs)
 
@@ -243,6 +282,100 @@ blockers into this list.
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-08-15 — Fable's 08-14 rulings applied: the seat split and proposal grouping (Claude Code, kelly-pc)
+
+**Both CC-owned rulings implemented. 790 tests, suite still fully offline.** No TASKS.md
+work this session: per the pickup protocol, newly ruled items outrank phase order, and two
+of the 08-14 rulings were mine to build. P2.6 is still next.
+
+The other rulings needed no code — the chronicle no-gate call was confirmed, the P2.4/P2.5
+deviations approved, the P2.2 supersession deferral and the `input_tokens=2` non-fix
+endorsed, and the backgrounds + starting-equipment ingest is now scheduled after P2.6.
+
+### The utility seat split
+
+`config.yaml` now has `utility_interactive` (llama3.1:8b — the sweep) and `utility_batch`
+(llama3.3:70b — the chronicle and its fold). `build_utility_backend` became
+`build_interactive_backend` / `build_batch_backend`.
+
+**A pre-split config fails loudly with instructions rather than migrating.** Mapping the
+old `utility:` onto both seats would have been two lines and would have put the 8B in the
+batch seat — the config would read as upgraded while the chronicle stayed exactly as
+wrong. A silent migration that defeats the ruling it implements is worse than an error
+message.
+
+**Both seats are named in the log.** `cost.seat` is now `utility_interactive` or
+`utility_batch`, and `session_meta.seats` carries both. Neither is a D-008 vocabulary
+change — `Cost.seat` is free text and the seats map is free-keyed, so this is data, as
+Fable's ruling says models are. But it is the thing that makes the split measurable at
+all: a log that cannot say which seat ran cannot answer the question the split was made
+to answer.
+
+### The live run that mattered: the 70B fixes the Brakewater inversion
+
+Same session log, same prompt, same grounding — only the seat changed:
+
+> **8B (08-14):** "…arrived at Brakewater landing **after crossing the river** in the late
+> evening… Hammond **paid for his own crossing and stepped aboard**, leaving him stranded
+> on the Brakewater landing with no way back."
+>
+> **70B (today):** "…arrived at Brakewater landing **on a ferry that immediately departed,
+> leaving them stranded** for the night after the ferryman had been bribed to not make any
+> more crossings… **After a failed attempt to pay the ferryman and return to the other
+> side**, Corin and Brother Hammond were left with the oilcloth man… **they had yet to
+> learn who had paid the ferryman off**."
+
+The geometry is right, and it closes on the unresolved thread — the sentence the template
+asks for and the 8B never once produced across six sessions. **79.9s against ~6s**, which
+is the trade the ruling priced in and it is free on a job nobody waits for.
+
+End to end through the CLI on a throwaway campaign: `session_meta` carries both seats,
+the sweep logged `utility_interactive llama3.1:8b local`, the chronicle logged
+`utility_batch llama3.3:70b local`, and the summary named the actual dispute and left it
+open.
+
+### Proposal grouping — and an honest note about it
+
+`cluster()` in `sweep.py`, used only by the confirmation UI. Jaccard over content words
+(≥4 characters) at **0.6**, with statements under three content words never grouped —
+"the bridge is out" and "the bridge is fine" share their only long word and are opposites,
+which is precisely the silent suppression the npc-village lesson warns about.
+
+Display only, as ruled: every proposal is still printed, still offered, and still logged.
+Choosing a group files its first phrasing and **declines the others, logged as declines**.
+That keeps the raw proposal count honest at the cost of the sweep looking less precise
+than it is — *Phase 7 should cluster the `canon_write` rows before computing sweep
+precision, since it has the text.*
+
+**It did not visibly fire in tonight's live run**, and I would rather say so than imply
+the flood is fixed. Sixteen proposals from a one-turn session, all sixteen distinct
+enough to stay separate — including a pair about the same dog and treeline that a looser
+threshold would have merged and that are, read closely, complementary rather than
+duplicate. The tuning is pinned by tests against the verbatim 08-13 strings (the four
+barking-dog restatements, the two rail restatements), where it does group. Conservative
+was the instruction and conservative is what this is; if the flood recurs at this
+threshold, the fix is to revisit the number with new evidence, not to loosen it now.
+
+### Known issues
+
+- **The sweep's volume is unchanged** — sixteen proposals for a single exchange. Grouping
+  addresses redundancy, not volume, and the ruling scoped it to redundancy. Whether a
+  one-turn session yielding sixteen "facts" is a prompt problem rather than a display
+  problem is a real question, and P2.6 will produce the data to answer it.
+- SRD backgrounds and class starting equipment still not ingested — now formally the task
+  after P2.6, per Fable's scheduling directive.
+
+### Recommended next task
+
+**P2.6** — the drift test, closing Phase 2. Replay the archived Ashmill and Salt Road logs
+from `\\TRUENAS\shared\data\dnd-campaign-logs\`, extract canon, and assert the established
+world survives into a second session. It now also carries the measurement Fable asked for
+in endorsing the P2.2 deferral: **live-contradiction frequency**, which decides whether
+supersession needs an inline path at all. Then the backgrounds + equipment ingest, then
+Phase 3.
 
 ---
 

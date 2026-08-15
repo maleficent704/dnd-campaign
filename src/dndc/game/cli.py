@@ -58,12 +58,16 @@ from dndc.memory import (
     CanonSweep,
     Chronicler,
     SweepProposal,
+    cluster,
 )
 from dndc.models import (
+    BATCH_SEAT,
+    INTERACTIVE_SEAT,
     THROTTLE_WARNING,
     GMBackendError,
+    build_batch_backend,
     build_gm_backend,
-    build_utility_backend,
+    build_interactive_backend,
     estimate_cost,
     load_prices,
 )
@@ -91,10 +95,18 @@ def _seats_for_meta(cfg) -> dict[str, SeatInfo]:
             model=cfg.seats.npc.model,
             endpoint=cfg.seats.npc.endpoint,
         ),
-        "utility": SeatInfo(
-            backend=cfg.seats.utility.backend,
-            model=cfg.seats.utility.model,
-            endpoint=cfg.seats.utility.endpoint,
+        # Both utility seats, keyed by the same names the `cost` rows use — a log that
+        # cannot say which of them ran cannot answer the question the split was made to
+        # answer (Fable, 2026-08-14).
+        INTERACTIVE_SEAT: SeatInfo(
+            backend=cfg.seats.utility_interactive.backend,
+            model=cfg.seats.utility_interactive.model,
+            endpoint=cfg.seats.utility_interactive.endpoint,
+        ),
+        BATCH_SEAT: SeatInfo(
+            backend=cfg.seats.utility_batch.backend,
+            model=cfg.seats.utility_batch.model,
+            endpoint=cfg.seats.utility_batch.endpoint,
         ),
     }
 
@@ -168,7 +180,10 @@ def _cmd_check_config(console: Console) -> int:
     console.print(f"[bold]gm:[/bold] {cfg.seats.gm.model_default} "
                   f"(threshold: {cfg.seats.gm.model_threshold})")
     console.print(f"[bold]npc:[/bold] {cfg.seats.npc.model} @ {cfg.seats.npc.endpoint}")
-    console.print(f"[bold]utility:[/bold] {cfg.seats.utility.model} @ {cfg.seats.utility.endpoint}")
+    interactive = cfg.seats.utility_interactive
+    batch = cfg.seats.utility_batch
+    console.print(f"[bold]utility (interactive):[/bold] {interactive.model} @ {interactive.endpoint}")
+    console.print(f"[bold]utility (batch):[/bold] {batch.model} @ {batch.endpoint}")
     return 0
 
 
@@ -691,15 +706,34 @@ def ask_selection(console: Console, count: int, question: str, attempts: int = 3
 def choose_proposals(
     console: Console, proposals: Sequence[SweepProposal], attempts: int = 3
 ) -> tuple[list[SweepProposal], list[SweepProposal]]:
-    """Show the sweep's proposals and split them into kept and declined."""
-    for index, proposal in enumerate(proposals, start=1):
-        console.print(f"  [bold]{index}.[/bold] {proposal.text}")
+    """Show the sweep's proposals and split them into kept and declined.
+
+    Near-duplicates are grouped for display (Fable, 2026-08-14): one number per fact, the
+    other phrasings indented under it. Choosing a number files that phrasing and declines
+    the rest of its group — which is still a decline, still logged, and still visible on
+    screen. Nothing is suppressed; the grouping only decides what the table has to read.
+    """
+    groups = cluster(proposals)
+    for index, group in enumerate(groups, start=1):
+        console.print(f"  [bold]{index}.[/bold] {group[0].text}")
+        for alternate in group[1:]:
+            console.print(f"     [dim]also: {alternate.text}[/dim]")
 
     chosen = ask_selection(
-        console, len(proposals), "  [dim]file which?[/dim] all / none / numbers", attempts
+        console, len(groups), "  [dim]file which?[/dim] all / none / numbers", attempts
     )
-    accepted = [p for index, p in enumerate(proposals, start=1) if index in chosen]
-    declined = [p for index, p in enumerate(proposals, start=1) if index not in chosen]
+
+    accepted: list[SweepProposal] = []
+    declined: list[SweepProposal] = []
+    for index, group in enumerate(groups, start=1):
+        if index in chosen:
+            accepted.append(group[0])
+            # The alternates were not chosen, so they are declined and logged as such.
+            # That makes the sweep's raw proposal count honest at the cost of looking
+            # imprecise; Phase 7 can cluster the rows itself, and it has the text to.
+            declined.extend(group[1:])
+        else:
+            declined.extend(group)
     return accepted, declined
 
 
@@ -766,12 +800,12 @@ def _run_sweep(console: Console, cfg, campaign, store: CanonStore, log: SessionL
     if not campaign.history:
         return
 
-    backend = build_utility_backend(cfg, temperature=SWEEP_TEMPERATURE)
+    backend = build_interactive_backend(cfg, temperature=SWEEP_TEMPERATURE)
     sweep = CanonSweep(
         backend, store, log=log, party=[member.name for member in campaign.party]
     )
     console.print(
-        f"\n[dim]canon sweep — {cfg.seats.utility.model} reading back "
+        f"\n[dim]canon sweep — {cfg.seats.utility_interactive.model} reading back "
         f"{len(campaign.history)} exchange(s)...[/dim]"
     )
     try:
@@ -817,7 +851,7 @@ def _run_chronicle(
         return
 
     slug = getattr(args, "campaign", None)
-    backend = build_utility_backend(cfg, temperature=CHRONICLE_TEMPERATURE)
+    backend = build_batch_backend(cfg, temperature=CHRONICLE_TEMPERATURE)
     chronicler = (
         Chronicler.for_campaign(
             backend,
@@ -833,7 +867,12 @@ def _run_chronicle(
             party=[member.name for member in campaign.party],
         )
     )
-    console.print(f"\n[dim]chronicle — {cfg.seats.utility.model} writing the session up...[/dim]")
+    # Says "a minute or two" because it is: the batch seat is a 70B, chosen for
+    # comprehension over speed, and a progress line that lies about it reads as a hang.
+    console.print(
+        f"\n[dim]chronicle — {cfg.seats.utility_batch.model} writing the session up "
+        f"(a minute or two)...[/dim]"
+    )
     try:
         report = chronicler.record(campaign.history, session=log.session_id)
     finally:
@@ -1525,11 +1564,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     play.add_argument(
         "--no-sweep", action="store_true",
-        help="skip the end-of-session canon sweep on the local utility model (P2.3)",
+        help="skip the end-of-session canon sweep on the interactive utility seat (P2.3)",
     )
     play.add_argument(
         "--no-chronicle", action="store_true",
-        help="skip the end-of-session chronicle summary on the local utility model (P2.5)",
+        help="skip the end-of-session chronicle summary on the batch utility seat (P2.5)",
     )
     play.add_argument("--max-tokens", type=int, default=1024)
 
