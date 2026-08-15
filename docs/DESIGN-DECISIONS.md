@@ -220,6 +220,9 @@ cannot say who wrote it cannot be weighed.)*
 specified here, and `inventory_change` gains `applied` — "the table said yes" and "the
 sheet changed" are different facts, and the gap between them is the desync Finding 5
 was about.)*
+*(Amended 2026-08-20 by CC for P3.3: combat. `combat_start`, `combat_turn`,
+`hit_point_change` and `combat_end`; attacks, damage rolls, death saves and initiative
+stay `rules_resolution`, whose `kind` field named them in the original ruling.)*
 
 **Amended 2026-08-09 (Phase 2, doc-first per this decision's own rule).**
 
@@ -291,6 +294,61 @@ ruling left the wire format to CC and required it be written down before it is b
    The change still happens as far as the sheet can honour it (phantom items left behind
    because the narration was ahead of the sheet is the worse failure); `applied: false`
    is the flag that says the two did not match.
+
+**Amended 2026-08-20 (P3.3, doc-first per this decision's own rule).** Combat. Written
+*after* P3.1 and P3.2 rather than alongside them, deliberately: a vocabulary invented
+before a fight has ever run describes the code instead of the game.
+
+**First, what needs nothing.** `rules_resolution.kind` was specified in 2026-07-27 as
+`check | save | attack | damage | initiative | roll`, which already covers every die a
+fight rolls. Attack rolls, damage rolls, death saves and initiative rolls are
+`rules_resolution` rows and no new family is added for them — the field has `actor`,
+`target`, `dc` (a target's AC is a DC), `critical` and `seed`, which is the whole of what
+an attack needs. A death save is `kind: "save"` against DC 10 with no ability, which is
+exactly what a death save is in the rules.
+
+Four families are genuinely new, and they are separate types rather than one `combat`
+family with a `phase` field so that a wrong-shaped row is unrepresentable rather than
+merely discouraged — the same construction-over-instruction stance as OD-11 and OD-12.
+
+9. **`combat_start`** — the roster *as instantiated*, the initiative order, and the seed.
+   Load-bearing for replay: monster hit points may be rolled (P3.2), so without this row
+   the combatants cannot be reconstructed and every later row in the fight refers to
+   creatures of unknown durability. Fields: `encounter_id`, `combatants` (id, name, side,
+   max/current HP, AC, whether a player), `order` (combatant ids, first to last),
+   `seed`, `round` (always 1).
+
+10. **`combat_turn`** — `encounter_id`, `round`, `combatant`. Derivable in principle from
+    the initiative order and the rows between; derivable-in-principle is where analysis
+    goes wrong, and one cheap row per turn makes "which round was this narration in" a
+    lookup rather than a simulation. Phase 7 will ask how long fights run and whether
+    narration degrades by round.
+
+11. **`hit_point_change`** — the state change, as distinct from the roll that caused it.
+    The `inventory_change` argument exactly: the engine performs a change to a sheet the
+    GM must never invent, and it has to be visible as its own row. Fields: `combatant`,
+    `before`, `after`, `amount` (positive for damage, negative for healing), `damage_type`,
+    `effect` (`normal | resistant | vulnerable | immune`), `temporary_absorbed`,
+    `dropped`, `killed`, `resolution_seq` pointing at the `rules_resolution` that rolled
+    it — the same link `gm_adjudication` already uses. Separate from the roll because the
+    two genuinely come apart: a fall damages with no attack roll, and resistance changes
+    what a roll means without changing the roll.
+
+12. **`combat_end`** — `encounter_id`, `outcome` (`party | foes | draw`), `rounds`,
+    `survivors`. A fight's length and lethality are the numbers Phase 3 exists to make
+    measurable.
+
+**Which fight a roll belongs to** goes in `rules_resolution.detail["encounter"]`, not in
+a new field. `detail` is already the per-kind extras bag, three of the six `kind` values
+never occur in combat at all, and widening a family shared with every check in the game
+for something only combat needs is the wrong trade. Death saves also carry their running
+tally there (`successes`, `failures`, `revived`, `stabilised`, `died`) — the roll is one
+fact and how close to dead it left someone is another, and a reader should not have to
+count backwards through the log for it.
+
+**Deliberately not added: `condition_change`.** Conditions exist in the combat core and
+almost nothing consults them yet (P3.4 owns that). A family nothing emits is vocabulary
+ahead of code, which is the failure this amendment's own timing was chosen to avoid.
 
 **Rationale.** Same discipline as the mystery; the additions (canon_write provenance,
 cost, escalation) are what Phase 7's instruments — canon-drift measurement, ruling

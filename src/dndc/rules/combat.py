@@ -187,6 +187,9 @@ class DamageOutcome:
     absorbed: int
     #: What actually came off real hit points.
     taken: int
+    #: What kind of damage it was. On the outcome rather than left to the caller to
+    #: remember: whoever records this must not have to be told what it just applied.
+    damage_type: str | None = None
     effect: DamageEffect = DamageEffect.NORMAL
     dropped: bool = False
     killed: bool = False
@@ -264,6 +267,7 @@ def apply_damage(
     return DamageOutcome(
         combatant=updated,
         rolled=rolled,
+        damage_type=damage_type,
         effective=effective,
         absorbed=absorbed,
         taken=taken,

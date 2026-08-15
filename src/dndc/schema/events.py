@@ -38,6 +38,10 @@ class EventType(str, Enum):
     CANON_WRITE = "canon_write"
     INVENTORY_CHANGE = "inventory_change"
     CHRONICLE_WRITE = "chronicle_write"
+    COMBAT_START = "combat_start"
+    COMBAT_TURN = "combat_turn"
+    HIT_POINT_CHANGE = "hit_point_change"
+    COMBAT_END = "combat_end"
     ESCALATION = "escalation"
     COST = "cost"
 
@@ -277,6 +281,114 @@ class ChronicleWrite(_Event):
     token_estimate: int | None = Field(default=None, ge=0)
 
 
+class CombatSide(str, Enum):
+    """Mirrors `rules.combat.Side`. Spelled again here because the log is a wire format
+    with its own compatibility promises, and a schema that imports its vocabulary from
+    the engine changes shape whenever the engine is refactored."""
+
+    PARTY = "party"
+    FOES = "foes"
+
+
+class CombatOutcome(str, Enum):
+    PARTY = "party"
+    FOES = "foes"
+    #: Everyone down. Rare, and it happens.
+    DRAW = "draw"
+
+
+class DamageEffect(str, Enum):
+    """How the target's body answered the damage type (D-008, amended 2026-08-20)."""
+
+    NORMAL = "normal"
+    RESISTANT = "resistant"
+    VULNERABLE = "vulnerable"
+    IMMUNE = "immune"
+
+
+class CombatantRecord(BaseModel):
+    """A combatant as the fight received them — hit points included.
+
+    The reason `combat_start` exists. Monster hit points may be rolled (P3.2), so without
+    this every later row in the fight refers to a creature of unknown durability and the
+    fight cannot be replayed or read.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: str
+    name: str
+    side: CombatSide
+    max_hp: int = Field(ge=0)
+    current_hp: int = Field(ge=0)
+    armor_class: int = Field(ge=0)
+    is_player: bool = False
+
+
+class CombatStart(_Event):
+    """A fight begins: who is in it, in what order, from what seed."""
+
+    type: Literal[EventType.COMBAT_START] = EventType.COMBAT_START
+    encounter_id: str
+    combatants: tuple[CombatantRecord, ...] = ()
+    #: Combatant ids, first to last in the initiative order.
+    order: tuple[str, ...] = ()
+    seed: int | None = None
+    round: int = Field(default=1, ge=1)
+
+
+class CombatTurn(_Event):
+    """Whose turn it is, and in which round.
+
+    Derivable in principle from the order and the rows between; derivable-in-principle is
+    where analysis goes wrong, and one row per turn makes "which round was this narration
+    in" a lookup rather than a simulation.
+    """
+
+    type: Literal[EventType.COMBAT_TURN] = EventType.COMBAT_TURN
+    encounter_id: str
+    round: int = Field(ge=1)
+    combatant: str
+
+
+class HitPointChange(_Event):
+    """The state change, as distinct from the roll that caused it.
+
+    The `inventory_change` argument exactly: the engine performs a change to a sheet the
+    GM must never invent, so it is its own row. The two genuinely come apart — a fall
+    damages with no attack roll, and resistance changes what a roll means without
+    changing the roll.
+    """
+
+    type: Literal[EventType.HIT_POINT_CHANGE] = EventType.HIT_POINT_CHANGE
+    encounter_id: str | None = None
+    combatant: str
+    before: int = Field(ge=0)
+    after: int = Field(ge=0)
+    #: Positive for damage, negative for healing. What actually came off hit points,
+    #: after resistance and temporary hit points.
+    amount: int
+    damage_type: str | None = None
+    effect: DamageEffect = DamageEffect.NORMAL
+    #: Soaked by temporary hit points before real ones were touched.
+    temporary_absorbed: int = Field(default=0, ge=0)
+    dropped: bool = False
+    killed: bool = False
+    #: `seq` of the `rules_resolution` that rolled this, when a roll caused it — the same
+    #: link `gm_adjudication` uses.
+    resolution_seq: int | None = None
+
+
+class CombatEnd(_Event):
+    """A fight's outcome, length and survivors — what makes lethality measurable."""
+
+    type: Literal[EventType.COMBAT_END] = EventType.COMBAT_END
+    encounter_id: str
+    outcome: CombatOutcome
+    rounds: int = Field(default=0, ge=0)
+    survivors: tuple[str, ...] = ()
+
+
 class Escalation(_Event):
     """A threshold-moment escalation to the Opus seat (D-004 / OD-3)."""
 
@@ -322,6 +434,10 @@ Event = Annotated[
     | CanonWrite
     | InventoryChange
     | ChronicleWrite
+    | CombatStart
+    | CombatTurn
+    | HitPointChange
+    | CombatEnd
     | Escalation
     | Cost,
     Field(discriminator="type"),
@@ -337,6 +453,10 @@ EVENT_MODELS: dict[EventType, type[_Event]] = {
     EventType.CANON_WRITE: CanonWrite,
     EventType.INVENTORY_CHANGE: InventoryChange,
     EventType.CHRONICLE_WRITE: ChronicleWrite,
+    EventType.COMBAT_START: CombatStart,
+    EventType.COMBAT_TURN: CombatTurn,
+    EventType.HIT_POINT_CHANGE: HitPointChange,
+    EventType.COMBAT_END: CombatEnd,
     EventType.ESCALATION: Escalation,
     EventType.COST: Cost,
 }

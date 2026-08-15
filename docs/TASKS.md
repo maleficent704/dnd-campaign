@@ -200,6 +200,13 @@ Task breakdown:
   designed before P3.1/P3.2 exist: guessing what a fight emits before one runs is how a
   vocabulary ends up describing the code instead of the game. An attack is probably a
   `rules_resolution`; round boundaries, initiative order and HP changes are probably not.
+  *(Done 2026-08-20. D-008 amended first, items 9–12: `combat_start`, `combat_turn`,
+  `hit_point_change`, `combat_end`. **Attacks, damage rolls, death saves and initiative
+  added no family** — `rules_resolution.kind` named them in the original 2026-07-27
+  ruling, so combat reuses the vocabulary rather than growing it, and which fight a roll
+  belongs to rides in the documented `detail` bag. `condition_change` deliberately not
+  added: nothing emits it. `game/combatlog.py` is the recorder, and the way the amendment
+  was checked — a real fight is played, logged, and read back without re-simulating.)*
 - **P3.4** The combat turn loop: engine resolves, GM narrates per round, players act
   through the CLI. Where D-001's boundary takes its real load.
 - **P3.5** Encounter builder on a CR/XP budget, drawing on the ingested monsters.

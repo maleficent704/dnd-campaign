@@ -35,16 +35,17 @@ def roll(total: int = 14) -> DiceRoll:
 
 
 def test_every_event_type_has_a_model():
-    """D-008 names eleven families; the map must stay exhaustive."""
+    """D-008 names fifteen families; the map must stay exhaustive."""
     assert set(EVENT_MODELS) == set(EventType)
-    assert len(EVENT_MODELS) == 11
+    assert len(EVENT_MODELS) == 15
 
 
 def test_the_d008_family_names_are_exactly_as_specified():
     """Pinned so the vocabulary cannot grow in code before it grows in D-008.
 
-    `inventory_change` and `chronicle_write` were added by the 2026-08-09 amendment;
-    this test failing is the intended cost of adding a family, not an obstacle to it.
+    `inventory_change` and `chronicle_write` were added by the 2026-08-09 amendment, the
+    four combat families by the 2026-08-20 one; this test failing is the intended cost of
+    adding a family, not an obstacle to it.
     """
     assert {t.value for t in EventType} == {
         "session_meta",
@@ -56,6 +57,10 @@ def test_the_d008_family_names_are_exactly_as_specified():
         "canon_write",
         "inventory_change",
         "chronicle_write",
+        "combat_start",
+        "combat_turn",
+        "hit_point_change",
+        "combat_end",
         "escalation",
         "cost",
     }

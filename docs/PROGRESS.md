@@ -327,6 +327,95 @@ the sweep's display grouping — were implemented 2026-08-15.)*
 
 ---
 
+## 2026-08-20 — P3.3: the combat event vocabulary (Claude Code, kelly-pc)
+
+**P3.3 done. 968 tests, suite still fully offline.** No new rulings; the Acolyte question
+from 08-16 is still open and untouched.
+
+D-008 amended first, as its own rule requires — and written *after* P3.1 and P3.2 existed
+rather than alongside them, which was the whole reason P3.3 was scheduled third. There was
+a real fight to describe instead of a guess at one.
+
+### The best outcome was fewer families, not more
+
+`rules_resolution.kind` was specified on 2026-07-27 as
+`check | save | attack | damage | initiative | roll`. It already covers every die a fight
+rolls, and the family already carries `actor`, `target`, `dc` (a target's AC *is* a DC),
+`critical` and `seed`. So **attacks, damage rolls, death saves and initiative added no
+family at all** — a death save is a save against DC 10 with no ability and no proficiency,
+which is exactly what the rules say it is.
+
+Four are genuinely new (D-008 items 9–12): `combat_start`, `combat_turn`,
+`hit_point_change`, `combat_end`. Each earns its place on a specific question:
+
+- **`combat_start`** carries the roster *as instantiated*. Monster hit points may be
+  rolled (P3.2), so without it every later row refers to a creature of unknown durability
+  and the fight cannot be read, let alone replayed.
+- **`combat_turn`** is derivable in principle from the order and the rows between.
+  Derivable-in-principle is where analysis goes wrong, and Phase 7 will ask which round a
+  narration happened in.
+- **`hit_point_change`** is the `inventory_change` argument exactly: the engine performing
+  a change to a sheet the GM must never invent. It is separate from the roll because the
+  two come apart — a fall damages with no attack roll, and resistance changes what a roll
+  means without changing the roll.
+- **`combat_end`** makes a fight's length and lethality queryable, which is most of what
+  Phase 3 exists to make measurable.
+
+Separate types rather than one `combat` family with a `phase` field, so pydantic makes a
+wrong-shaped row unrepresentable rather than merely discouraged — the OD-11/OD-12 stance
+applied to a schema.
+
+**Deliberately not added: `condition_change`.** Nothing emits it; conditions barely act
+until P3.4. A family nothing writes is vocabulary ahead of code, which is the failure this
+task's own scheduling was chosen to avoid.
+
+**Which fight a roll belongs to** went in `rules_resolution.detail["encounter"]` rather
+than a new field. Three of the six `kind` values never occur in combat, and widening a
+family shared with every check in the game for something only combat needs is the wrong
+trade. Documented in the amendment so it is a decision rather than an undocumented habit.
+
+### The vocabulary was checked against a fight, not against itself
+
+`game/combatlog.py` — a recorder that watches an `Encounter` and writes the rows.
+`rules/combat.py` stays pure and cannot log, which is what keeps a fight reproducible; the
+recorder decides nothing and every number it writes was handed to it.
+
+The test that matters plays a real fight (a character and two SRD wolves), logs it, and
+then asks the log what happened **without re-simulating**: the roster reconstructs, every
+damage row points at a real combatant and at the roll that caused it, and summing the
+damage per combatant agrees with the final hit points.
+
+That last assertion caught a genuine bug. `DamageOutcome.taken` is the damage applied
+*before* the floor at zero, so a 31-point hit on a character with 24 left was writing
+`amount: 31` on a row whose own `before` and `after` differed by 24. A row that disagrees
+with itself is worse than a missing one, and every sum over the log would have inherited
+it. `amount` is now `before - after`, with the excess still recoverable from the damage
+roll.
+
+`DamageOutcome` also gained `damage_type` — the recorder was about to write `None` for
+every hit, and whoever records a change should not have to be told what was just applied.
+
+### Known issues
+
+- **Nothing calls the recorder in play yet.** That is P3.4 — there is no combat turn loop,
+  so the only thing that has ever written these rows is a test. The vocabulary is
+  validated against a real fight, not against a real *session*.
+- `INITIATIVE` is defined as a `kind` and unused: the order is logged once in
+  `combat_start`, which is more useful than a row per roll. The constant stays because
+  P3.6's CLI view may want to show individual initiative rolls.
+- `combat_start.round` is always 1. It exists for a fight resumed mid-way, which is Phase
+  5's business.
+
+### Recommended next task
+
+**P3.4 — the combat turn loop.** Where D-001's boundary takes its real load: the engine
+resolves, the GM narrates what it is handed, players act through the CLI, and the recorder
+finally runs in anger. It also has to decide what a turn does with the 41 unresolved
+multiattacks from P3.2 — most likely show the text and let the table say, because falling
+back to one attack is the quiet wrong answer.
+
+---
+
 ## 2026-08-19 — P3.2: stat blocks become combatants (Claude Code, kelly-pc)
 
 **P3.2 done. 951 tests, suite still fully offline.** No new rulings; the Acolyte question
