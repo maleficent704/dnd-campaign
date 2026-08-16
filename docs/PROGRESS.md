@@ -15,8 +15,18 @@ blockers into this list.
 
 ### Open now
 
-**None.** (Monster tactics and backgrounds both ruled 2026-08-15 (c) — tactics
-implemented 2026-08-15 (j); **backgrounds still to build**, and it is the next task.)
+**None awaiting Fable.** But one *ruled* item is **not yet built**, and it takes priority
+over TASKS.md order:
+
+> **NEXT TASK — the backgrounds ruling (option 3), ruled 2026-08-15 (c).** Co-creation
+> proposes an original background; the engine validates the shape deterministically
+> (exactly two skills from the standard list, ≤1 tool or language, **never** numeric
+> bonuses); the proposal must not duplicate the class skill picks (the P1.4
+> double-granting trap); the table confirms; confirmed backgrounds persist beside
+> `canon.yaml` for reuse. Acolyte stays as the one SRD row. **Kelly holds content veto**,
+> so show her what it generates. Full ruling text in the 2026-08-15 (c) block below.
+
+*(Monster tactics — the other half of that ruling — was implemented 2026-08-15 (j).)*
 
 *(Drift-baseline reproducibility ruled 2026-08-15 — implemented 2026-08-15 (c).)*
 
@@ -358,6 +368,47 @@ the drift instrument's own log is a finding worth the two-line fix.
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-08-15 (k) — the API key is now project-specific (Claude Code, kelly-pc)
+
+**No code. Operational, and one gotcha worth the entry.** Nothing in the repo changed;
+`3e63802` is still HEAD and everything is pushed. **The next task is unchanged: the
+backgrounds ruling** — see the (j) entry below for the full spec.
+
+Kelly rotated the Anthropic key because something unidentified was pulling from a shared
+one, and is now giving each project its own explicit key and letting the rest break to
+find the consumers. `C:\dev\dnd-campaign\.env` holds a dedicated key for this project.
+Verified live: `dndc gm --billing api` returned narration, $0.0218.
+
+**The gotcha, which cost a false pass before it was caught.** `load_env_file()`
+deliberately never overrides an existing environment variable — its docstring says "a
+real environment variable always wins", which is right in general and a trap here. An
+ambient `ANTHROPIC_API_KEY` (a user-level Windows variable, or one inherited by a
+long-running process that started before it was removed) **silently shadows `.env`**, and
+the CLI reports a confident success while billing the wrong key. Caught by comparing
+fingerprints of the ambient value and the file value rather than by running the check and
+believing it.
+
+So: if a key ever seems wrong here, check the ambient variable before touching `.env`, and
+test from a **freshly started** shell — a process started before the variable was removed
+keeps its stale copy.
+
+**Two things that will not announce a bad key here**, and they are worth knowing before
+someone debugs the wrong thing:
+
+- **Subscription mode does not use the key at all.** D-004's credential isolation strips
+  `ANTHROPIC_API_KEY` from the child environment, so `dndc play` on the sticky default
+  works perfectly with no key present. Absence of breakage proves nothing; force
+  `--billing api` to test.
+- **`--billing api` is sticky.** Passing it rewrites `config.yaml` line 5, so a one-off
+  test silently changes the default for every later session. Restored to `subscription`
+  after the check, which is Kelly's standing choice.
+
+### Recommended next task
+
+**Unchanged — the backgrounds ruling (option 3).** Full spec in the (j) entry below.
 
 ---
 
