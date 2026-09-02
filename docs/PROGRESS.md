@@ -378,6 +378,94 @@ the drift instrument's own log is a finding worth the two-line fix.
 
 ---
 
+## 2026-09-02 (e) — the gate does not cost 7 seconds, and the two models cannot share a box (Claude Code, kelly-pc)
+
+**No new features. A measurement I got wrong in (d), corrected, and a hardware fact that
+turns out to matter more than the accuracy argument it corrects.** Kelly asked the obvious
+question — *if the 70B is already loaded, does it still take that long?* — and the answer is
+no, by a factor of three.
+
+### What was wrong
+
+The (d) entry reported the 70B gate at **~7 s per check** and a gated exchange at **~10 s**,
+and handed Kelly a latency-versus-accuracy trade on those numbers. Both were measured
+immediately after an 8B control run. The two models evict each other on toto-llm, so every
+one of those timings had a **~68 s cold model load amortised into it**. I timed a reload and
+called it inference.
+
+Measured properly — warm the model first, then run the identical 13 cases:
+
+| | (d), cold-contaminated | (e), warm |
+|---|---|---|
+| 70B gate, per check | ~7 s | **2.2 s** |
+| NPC call | 2.8–3.3 s | 2.8–3.3 s |
+| **gated exchange, end to end** | ~10 s | **4.6–5.1 s** |
+
+Of that ~4.8 s, about half a second is CLI startup that will not exist inside a running
+session. So a gated NPC line in play is **~4.5 s**: the NPC call, plus roughly **1.5 s** for
+the gate. That is a pause, not a stall.
+
+### The finding that actually matters
+
+While checking whether the 8B gate was still worth having, `ollama ps` showed something
+better than a latency number:
+
+**`llama3.3:70b` and `llama3.1:8b` do not coexist on toto-llm. Each evicts the other.**
+
+Sequence, all timed:
+
+1. 70B resident, gated line with the **8B** gate → 9.5 s, and afterwards `ollama ps` shows
+   **only the 8B**. The gate check pushed the NPC seat's model out of VRAM.
+2. Next line, back on the 70B → **75 s.** A full reload, paid because the previous line's
+   gate ran on a different model.
+
+So the 8B gate is not "a bit faster and slightly less accurate". On this box it is
+**~70 seconds per line**, because every NPC call and every gate check would alternate the
+two models and reload one of them each time. The design implication is general even though
+the number is local: **the gate should share the NPC seat's model**, and the reason is
+eviction rather than accuracy.
+
+`_build_gate` now warns when the gate's model differs from the NPC seat's on the same
+host — a warning and not a refusal, because this is a property of that machine's VRAM and a
+box that fits both should not be told it cannot.
+
+### What this changes
+
+**Nothing about the default, and everything about the confidence in it.** `utility_batch`
+was already the default on the accuracy argument (the 8B quietly rewrites one clean line in
+six, and nobody at the table can see a draft). It is now the default for a much harder
+reason: the alternative reloads a 40 GB model on every line of dialogue.
+
+**And the question I put to Kelly is withdrawn.** I asked her to judge whether ~10 s per
+gated line was worth it at the table. It is 4.5 s, the alternative is 70 s, and there is no
+trade left to weigh. That was my error to find, and the honest note is that I found it
+because she asked the obvious question about a number I had not thought to check.
+
+### The general lesson, since this project collects them
+
+**A local-model timing taken right after a different local model ran is not a measurement of
+inference.** It is a measurement of whatever the VRAM was doing. The drift-baseline ruling
+already said seeds are hostage to model version and server internals; this is the same
+hazard wearing a stopwatch. Anything timed on toto-llm from here gets a warm-up call first,
+and the warm-up gets timed separately so the two numbers cannot be confused again.
+
+Filed to race-control `operations/llm-agents.md` as well, since toto-llm is shared with
+interp-lab and npc-village and this will bite them the same way.
+
+### Known issues
+
+- The ~70 s reload figure is one box, one pair of models, one day. It is a warning in the
+  code rather than a hard rule for that reason.
+- Nothing warms the seat at session start yet — still P4.5's job, and now clearly the single
+  highest-value thing in that task.
+
+### Recommended next task
+
+**P4.5 — wiring into the turn loop**, unchanged, with the warm-up call promoted from "nice"
+to "the thing that makes the tier usable at a table".
+
+---
+
 ## 2026-09-02 (d) — P4.4: the gate, and the control that kept catching it out (Claude Code, kelly-pc)
 
 **P4.4 done. 1182 tests, suite still fully offline.** D-008 amended first (items 19–20).
@@ -437,7 +525,13 @@ discrimination failure rather than variance.
 | seat | planted caught | false positives | per check |
 |---|---|---|---|
 | `utility_interactive` — llama3.1:8b | 7/7 | **1/6** | ~1 s |
-| `utility_batch` — llama3.3:70b | 7/7 | **0/6** | ~7 s |
+| `utility_batch` — llama3.3:70b | 7/7 | **0/6** | ~~7 s~~ **2.2 s** |
+
+> **Correction, same evening — see the (e) entry.** The 7 s figure was wrong: it was
+> measured straight after an 8B run, and the two models evict each other on toto-llm, so it
+> bundled a ~68 s model reload into a 13-case average. Warm, the 70B checks in **2.2 s**,
+> and a gated exchange costs **~4.5 s**, not ~10 s. The conclusion below is unchanged and
+> the reasoning under it is now much stronger — see (e).
 
 **Default is now the batch seat**, which is a change from what I first wrote. The reasoning
 is about *which failure is visible*: the 8B's cost is a character's honest opinion quietly
@@ -463,10 +557,9 @@ new fact about a place under discussion and is not.
 
 ### Known issues
 
-- **A gated line costs ~7 s on top of the NPC call**, so an exchange is ~10 s end to end
-  where an ungated one is ~3 s. That is the real number for P4.5's table judgement, and it
-  is Kelly's call whether it is worth it — the alternative is the 8B and one clean line in
-  six quietly flattened.
+- ~~**A gated line costs ~7 s on top of the NPC call**, so an exchange is ~10 s end to
+  end.~~ **Wrong — corrected in (e).** Warm, the gate adds ~1.5 s and a gated exchange is
+  ~4.5 s. The number above was a cold model load in disguise.
 - **The false positive may be an authoring artefact.** Maren's belief entry is a compound
   sentence bundling two beliefs, and the 8B may simply be failing to match half of it.
   Splitting it might fix the 8B — but tuning the fixture until the instrument looks good is

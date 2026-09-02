@@ -480,7 +480,30 @@ def _build_gate(cfg, args) -> tuple[Gatekeeper | None, object | None]:
         return None, None
     build = build_batch_backend if args.gate_seat == BATCH_SEAT else build_interactive_backend
     backend = build(cfg, temperature=GATEKEEPER_TEMPERATURE)
+    _warn_if_thrashing(cfg, backend)
     return Gatekeeper(backend=backend), backend
+
+
+def _warn_if_thrashing(cfg, gate_backend) -> None:
+    """A gate on a *different* model at the *same* endpoint reloads both, every line.
+
+    Measured on toto-llm 2026-09-02 (e): llama3.3:70b and llama3.1:8b do not coexist
+    there — each evicts the other — so alternating an NPC call and a gate check across
+    them costs a ~70 s reload **per line**, not the ~1.5 s the gate itself takes. This is
+    a property of that box's VRAM rather than of the design, which is exactly why it is a
+    warning and not a refusal: a machine that fits both should not be told it cannot.
+    """
+    npc_seat = cfg.seats.npc
+    if gate_backend.endpoint.rstrip("/") != npc_seat.endpoint.rstrip("/"):
+        return
+    if gate_backend.model == npc_seat.model:
+        return
+    Console().print(
+        f"[yellow]warning:[/yellow] the gate runs {gate_backend.model} where the NPC seat "
+        f"runs {npc_seat.model}, on the same host. If that host cannot hold both, every "
+        f"line will reload a model (~70 s on toto-llm). Prefer a gate seat whose model "
+        f"matches the NPC seat's."
+    )
 
 
 def _render_verdict(console: Console, reply) -> None:
