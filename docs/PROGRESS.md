@@ -18,9 +18,18 @@ blockers into this list.
 **None awaiting Fable, and nothing ruled is unbuilt.** Next session starts Phase 4 (the NPC
 agent tier, D-003) on TASKS.md order.
 
-One thing for **Kelly, not Fable**: the backgrounds ruling gave her a content veto, and the
-first thing it generated is quoted in the 2026-09-02 entry below. If *Coast-Road Grifter*
-is not the register she wants for this campaign, that is a prompt change, not a design one.
+One item is **provisionally accepted rather than settled** — Kelly's, not Fable's:
+
+> **The generated-background register: unsure, held open (Kelly, 2026-09-02).** She read
+> *Coast-Road Grifter* (quoted in the entry below), said it looks right, and explicitly
+> declined to call it: **not enough evidence yet to tell whether it is a problem.** So the
+> veto is neither exercised nor spent. Not blocking anything, and no ruling is wanted.
+>
+> **Trigger to revisit:** the table finding an invented background flat, generic, or wrong
+> in tone *during play* — a second or third one that reads like the first, a background
+> nobody refers to again. That is a prompt change (`creation_core.md`, the *Backgrounds are
+> yours to write* section), not a design one, and reversible in an evening. Do not tune it
+> speculatively; one sample is one sample.
 
 *(Both halves of the 2026-08-15 (c) ruling are now built: monster tactics 2026-08-15 (j),
 backgrounds 2026-09-02.)*
@@ -441,9 +450,16 @@ sheet came out with both background skills, the forgery kit **and** the class's 
 tools, and the filed row carries `proposed_for: Wren Ashcombe` and the date.
 
 That is the register the current prompt produces: concrete, second-person, tied to what the
-player actually said. **If it is not the register you want, that is a prompt change and not a
-design one** — say so and it is a ten-minute fix. The test campaign was deleted after the
-run; the log is `logs/20260902-061438.jsonl`.
+player actually said. The test campaign was deleted after the run; the log is
+`logs/20260902-061438.jsonl`.
+
+**Kelly's verdict, same day: unsure, and held open on purpose.** It looks right to her, and
+she has no way yet to tell whether it is a problem — one background from one interview is
+one sample. So the content veto is neither exercised nor spent, and this is *not* recorded
+as approved. It sits in the Open block at the top of this file with a named trigger: the
+table finding an invented background flat, generic or wrong in tone during actual play. Left
+alone until then; tuning a prompt against a single output it happens to have got right is
+how a register gets worse.
 
 ### A gotcha worth the entry: the interactive CLI cannot be scripted
 
