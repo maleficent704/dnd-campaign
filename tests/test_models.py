@@ -598,9 +598,11 @@ def test_threshold_selects_the_escalation_model():
 
 def test_seats_come_from_config_not_from_code():
     cfg = load_config()
-    npc = build_npc_backend(cfg)
+    npc, route = build_npc_backend(cfg)
     assert npc.model == cfg.seats.npc.model
     assert npc.endpoint == cfg.seats.npc.endpoint
+    # Unrouted: no probe, no network, and nothing claiming a host was chosen.
+    assert route is None
 
 
 # --- sticky billing default ------------------------------------------------

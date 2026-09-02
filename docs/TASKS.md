@@ -326,6 +326,15 @@ Task breakdown:
 - **P4.3** The routing layer and the NPC seat: pick an endpoint from `ollama_endpoints`
   (toto-llm primary, sam-pc registered since day one per OD-5), health-check and fall back,
   emit `npc_turn` with `CallStatus`/`call_id`. First task in the phase that needs the LAN.
+  *(Done 2026-09-02. `models/routing.py` — an endpoint is a candidate only if it is up
+  **and has the model**, because a host that answers without the model fails at generate
+  time, halfway into a scene; nothing ever substitutes a different model, which would make
+  every later measurement a lie. Resolution is cached (`force=True` re-probes after a
+  failure, not before every call that might have one). `game/npcturn.py` runs a turn and
+  keeps the claims ledger automatically. D-008 amended first, items 17–18: `knowledge_scope`
+  carries the permitted entry **ids**, and `npc_turn` gains `endpoint`. `dndc npc speak` is
+  the demo runner. **Live-verified on toto-llm — and the number worth knowing is that a
+  cold 70B costs ~68 s on the first call and ~1–3 s warm.**)*
 - **P4.4** The gatekeeper pass: check a draft against what that NPC was permitted to know
   and against established canon; `pass | revised | blocked`, minimal rewrite, fail open,
   raw draft logged. Validated by **positive control** before any zero is believed — the

@@ -69,6 +69,7 @@ from dndc.game.inventory import InventoryStore, describe_change, proposals_for
 from dndc.game.party import resolve_member
 from dndc.game.turn import TurnEngine
 from dndc.gm.canon import npc_issues
+from dndc.game.npcturn import NPCVoice
 from dndc.gm.npcprompt import NPCPromptBuilder, NPCScene
 from dndc.gm.inventorytag import InventoryTag
 from dndc.gm import (
@@ -96,9 +97,12 @@ from dndc.models import (
     INTERACTIVE_SEAT,
     THROTTLE_WARNING,
     GMBackendError,
+    OllamaRouter,
+    RoutingError,
     build_batch_backend,
     build_gm_backend,
     build_interactive_backend,
+    build_npc_backend,
     estimate_cost,
     load_prices,
 )
@@ -438,6 +442,59 @@ def _cmd_npc_show(console: Console, args: argparse.Namespace) -> int:
         console.print(f"\n[yellow]{len(issues)} issue(s) with this knowledge scope[/yellow]")
         for issue in issues:
             console.print(f"  - {issue}")
+    return 0
+
+
+def _cmd_npc_speak(console: Console, args: argparse.Namespace) -> int:
+    """Say something to one NPC and hear back (P4.3) — the demo runner for the seat.
+
+    The counterpart of `dndc combat`: a way to exercise the tier end to end before the
+    turn loop wires it in (P4.5), and the only way to find out what the 70B actually does
+    with a voice card. Ungated — the gatekeeper is P4.4 — so what is printed here is the
+    raw draft, which is exactly what a leak-rate denominator is made of.
+    """
+    cfg = load_config()
+    book = load_campaign_npcs(args.campaign)
+    npc = book.get(args.name)
+    if npc is None:
+        console.print(f"[red]error:[/red] no NPC called {args.name!r} in {args.campaign}")
+        if book.names():
+            console.print(f"[dim]have: {', '.join(book.names())}[/dim]")
+        return 1
+
+    ledger = load_campaign_canon(args.campaign)
+    try:
+        backend, route = build_npc_backend(cfg, OllamaRouter.for_config(cfg))
+    except RoutingError as exc:
+        console.print(f"[red]error:[/red] {exc}")
+        return 1
+
+    where = route.endpoint.name if route else backend.endpoint
+    console.print(f"[dim]{backend.model} on {where}[/dim]")
+    if route is not None and route.fell_back:
+        # Never silent: a fallback changes latency and quantization mid-session, and an
+        # unexplained change is how a Phase 7 measurement quietly stops meaning anything.
+        console.print(f"[yellow]fell back[/yellow] [dim]— {route.reason}[/dim]")
+
+    log = start_session_log(cfg, campaign=args.campaign)
+    voice = NPCVoice(backend=backend, log=log, route=route)
+    console.print(f"[dim]{len(ledger.for_npc(npc))} fact(s) in scope · log -> {log.path}[/dim]\n")
+
+    try:
+        reply = voice.speak(npc, ledger, args.said, setting=args.setting or "")
+    except GMBackendError as exc:
+        console.print(f"[red]error:[/red] {exc}")
+        return 1
+    finally:
+        backend.close()
+
+    console.print(f"[bold cyan]{npc.name}[/bold cyan]")
+    console.print(reply.text, markup=False, highlight=False, soft_wrap=True)
+    usage = reply.response.usage
+    console.print(
+        f"\n[dim]{usage.input_tokens} in / {usage.output_tokens} out · "
+        f"{reply.response.duration_ms or 0} ms[/dim]"
+    )
     return 0
 
 
@@ -2153,6 +2210,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--prompt", action="store_true",
         help="print the assembled call instead — the bytes a model would receive",
     )
+    npc_speak = npc_commands.add_parser(
+        "speak", help="say something to an NPC and hear back (ungated until P4.4)"
+    )
+    npc_speak.add_argument("name")
+    npc_speak.add_argument("said", help="what the party says or does, as the GM would put it")
+    npc_speak.add_argument("--campaign", metavar="SLUG", required=True)
+    npc_speak.add_argument("--setting", help="where this is happening, in a line")
 
     roll_command = commands.add_parser("roll", help="roll dice through the rules engine")
     roll_command.add_argument("expression", help="e.g. 2d6+3, 4d6kh3, d20")
@@ -2388,6 +2452,8 @@ def main(argv: list[str] | None = None) -> int:
                 return _cmd_npc_list(console, args)
             if args.npc_command == "show":
                 return _cmd_npc_show(console, args)
+            if args.npc_command == "speak":
+                return _cmd_npc_speak(console, args)
             parser.parse_args(["npc", "--help"])
             return 0
         if args.command == "roll":

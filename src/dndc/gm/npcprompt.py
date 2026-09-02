@@ -183,8 +183,13 @@ _SECTIONS: dict[str, Callable[[NPC], str]] = {
     "role": _role,
     "persona": lambda npc: npc.voice.persona,
     "manner": lambda npc: f"How you talk: {npc.voice.manner}" if npc.voice.manner else "",
+    # The trailing instruction is not decoration. Live-verified 2026-09-02: given sample
+    # lines alone, the 70B reused one verbatim in two consecutive replies. Examples are
+    # the strongest voice signal there is — a model imitates an example and paraphrases a
+    # description — and that same strength is what makes them get quoted back.
     "samples": lambda npc: (
-        "Things you have been heard to say:\n"
+        "How you sound — these are your rhythm and register, not a script, and you never "
+        "repeat them back:\n"
         + "\n".join(f'- "{line}"' for line in npc.voice.sample_lines)
         if npc.voice.sample_lines
         else ""

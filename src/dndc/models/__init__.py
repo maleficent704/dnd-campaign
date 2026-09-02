@@ -23,14 +23,17 @@ from dndc.models.base import (
 from dndc.models.mock import MockBackend
 from dndc.models.ollama import OllamaBackend
 from dndc.models.pricing import ModelPrice, estimate_cost, load_prices, price_for
+from dndc.models.routing import Endpoint, OllamaRouter, Route, RoutingError
 from dndc.models.subscription import THROTTLE_WARNING, SubscriptionBackend
 
 __all__ = [
     "APIBackend",
     "BATCH_SEAT",
+    "Endpoint",
     "Billing",
     "DEFAULT_MAX_TOKENS",
     "INTERACTIVE_SEAT",
+    "NPC_SEAT",
     "GMBackend",
     "GMBackendError",
     "GMRequest",
@@ -40,7 +43,10 @@ __all__ = [
     "MockBackend",
     "ModelPrice",
     "OllamaBackend",
+    "OllamaRouter",
     "Role",
+    "Route",
+    "RoutingError",
     "SubscriptionBackend",
     "Usage",
     "build_batch_backend",
@@ -76,15 +82,30 @@ def build_gm_backend(
     raise GMBackendError(f"unknown billing mode: {choice}")
 
 
-def build_npc_backend(config: Config) -> OllamaBackend:
-    """NPC voices — local 70B on toto-llm (D-003)."""
+def build_npc_backend(
+    config: Config, router: OllamaRouter | None = None
+) -> tuple[OllamaBackend, Route | None]:
+    """NPC voices — local 70B, routed (D-003, P4.3).
+
+    Without a `router` this is what it has always been: the seat's own endpoint, taken on
+    faith. That keeps every existing caller offline and unprobed. Pass a router and the
+    endpoint is *chosen* — checked for the model, with the second registered host as the
+    fallback — which is what the CLI does for anything that will actually talk.
+
+    The returned `Route` says which host won and whether it was the first choice; the
+    caller logs it, because a silent fallback is the one failure this layer can hide.
+    """
     seat = config.seats.npc
-    return OllamaBackend(model=seat.model, endpoint=seat.endpoint)
+    if router is None:
+        return OllamaBackend(model=seat.model, endpoint=seat.endpoint), None
+    route = router.resolve(seat)
+    return OllamaBackend(model=route.model, endpoint=route.endpoint.url), route
 
 
-#: Names for the two utility seats, used for `cost.seat` and `session_meta.seats` so a
-#: log says which of them ran. Constants rather than literals because the split is only
-#: measurable if both halves of the codebase spell it the same way.
+#: Names for the seats that appear in `cost.seat` and `session_meta.seats`, so a log says
+#: which of them ran. Constants rather than literals because the split is only measurable
+#: if both halves of the codebase spell it the same way.
+NPC_SEAT = "npc"
 INTERACTIVE_SEAT = "utility_interactive"
 BATCH_SEAT = "utility_batch"
 

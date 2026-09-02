@@ -183,9 +183,19 @@ class NPCTurn(_Event):
     #: Shared by the pending and terminal writes of one model call (OD-9).
     call_id: str | None = None
     #: pass | blocked | revised — a blocked draft is still logged; leaks are the study.
+    #: `None` means no check ran, and stays `None` rather than becoming an optimistic
+    #: "pass": a row claiming a check succeeded when none happened is worse than a silent
+    #: one, because it will be believed.
     gatekeeper_verdict: str | None = None
     gatekeeper_reason: str | None = None
+    #: The canon entry ids this NPC was permitted, comma-joined, as of this call (D-008
+    #: item 17). Ids and not a count: a leak is only measurable against what was in scope
+    #: at the time, and the scope moves as canon is written during a session.
     knowledge_scope: str | None = None
+    #: Which Ollama host served the call (D-008 item 18) — the routing layer's only
+    #: observable, and the difference between "the 70B answered" and "the 70B on the box
+    #: we expected answered".
+    endpoint: str | None = None
 
 
 class CanonOperation(str, Enum):

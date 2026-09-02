@@ -16,8 +16,8 @@ blockers into this list.
 ### Open now
 
 **None awaiting Fable, and nothing ruled is unbuilt.** Phase 4 (the NPC agent tier, D-003)
-is underway — P4.1 and P4.2 landed 2026-09-02 (b); next is **P4.3, the routing layer and
-the NPC seat**, which is the first task in the phase that needs toto-llm awake.
+is underway — P4.1–P4.3 landed 2026-09-02 (b) and (c); next is **P4.4, the gatekeeper
+pass**. NPCs speak on toto-llm now, ungated.
 
 One item is **provisionally accepted rather than settled** — Kelly's, not Fable's:
 
@@ -375,6 +375,132 @@ the drift instrument's own log is a finding worth the two-line fix.
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-09-02 (c) — P4.3: an NPC speaks, and the latency question answers itself (Claude Code, kelly-pc)
+
+**P4.3 done. 1161 tests, suite still fully offline — and the first live NPC turns are in the
+log.** D-008 amended first (items 17–18). Maren, the innkeeper at the Salt Wife, said four
+things tonight and leaked none of them.
+
+### The routing layer
+
+`models/routing.py`. An endpoint is a candidate only if it is **up and has the model** —
+liveness alone is not enough, because sam-pc will answer long before it has a 70B pulled,
+and a host that is up but empty fails at *generate* time, halfway into a scene, which is a
+much worse place to find out. The probe reads `/api/tags`.
+
+Two refusals worth stating:
+
+- **Nothing ever substitutes a different model.** No endpoint with `llama3.3:70b` means a
+  `RoutingError` naming what was tried, not a shrug and an 8B. An NPC voiced by whatever
+  happened to be loaded is the same class of error as hardcoding a model name, and it makes
+  every later measurement a lie.
+- **A host that is down and a host that is empty are different answers**, and the error says
+  which. One might come back on its own; the other needs someone to go and pull a model.
+
+Resolution is cached — an NPC that probes before every line adds a round trip to every line.
+`resolve(force=True)` re-probes, which is what a caller does *after* a failure rather than
+before every call that might have one.
+
+`build_npc_backend(config)` unrouted still behaves exactly as it did (no probe, no network),
+so nothing existing became chatty; pass a router and the endpoint is chosen. It returns the
+`Route` as well, because a **silent fallback is the one failure this layer can hide** — it
+changes latency and quantization mid-session and surfaces in Phase 7 as variance nobody can
+explain. The CLI prints it in yellow.
+
+### The turn
+
+`game/npcturn.py`, deliberately thin: everything interesting is in the filter, the prompt,
+or the router. It logs `npc_turn` pending-then-terminal with a shared `call_id` (OD-9),
+emits `cost` on the `npc` seat at `local` billing, and **keeps the claims ledger itself** —
+every reply is remembered and fed into that character's next prompt. Automatic rather than
+asked for, on the same reasoning as the prompt builder taking a ledger instead of entries: a
+caller who has to remember eventually will not, and a character without a claims ledger
+mutates her own account inside one conversation.
+
+`gatekeeper_verdict` stays `None` until P4.4 rather than being filled with an optimistic
+`pass`. A row saying a check succeeded when none ran is worse than a row that says nothing,
+because the first one gets believed.
+
+### D-008 items 17–18
+
+`npc_turn.knowledge_scope` was specified in July as a field with no stated contents. It now
+carries **the permitted canon entry ids, comma-joined** — ids and not a count, because a
+leak is only measurable against what was in scope *at the time*, and the scope moves as
+canon is written during a session. `npc_turn.endpoint` is new: the routing layer's only
+observable.
+
+A real row from tonight:
+
+```
+complete | Maren | endpoint=toto-llm | scope=world-tide,world-fee,world-nets,belief-maren
+```
+
+That is the leak-rate denominator, and it is now free.
+
+### The latency question, answered — this is the one for Kelly
+
+I flagged last session that P4.5 would need a table judgement on how slow an NPC turn feels.
+Measured tonight, and it is not the question I thought it was:
+
+| call | tokens out | wall clock |
+|---|---|---|
+| first of the session | 51 | **68.5 s** |
+| every one after | 10–58 | **0.75–3.3 s** |
+
+The 68 seconds is the 70B loading into VRAM, not inference. **Steady state is sub-second to
+three seconds**, which at a table reads as a person thinking, not as a tool being slow. So
+the design note for P4.5 is not "how do we hide the latency" but "**warm the seat at session
+start**" — one throwaway call while everyone is still settling, and the cost disappears
+entirely. Kelly does not need to rule on anything.
+
+### Two findings from the live runs
+
+**Sample lines get parroted, and the fix is one clause.** Given the voice card alone, the
+70B reused one of Maren's sample lines *verbatim* in two consecutive replies ("He pays what
+he pays" twice). Examples are the strongest voice signal there is — a model imitates an
+example and paraphrases a description — and that same strength is what gets them quoted
+back. The section now says they are rhythm and register, **not a script, never repeated
+back**. Re-tested: the parroting stopped and the register survived — "Takes his cut, always
+has. Never known him to cheat, just wants his share." She also carried her *belief* as her
+own view ("greedy, I'd say") rather than as established fact, which is the fact/belief split
+in P4.2 doing its job.
+
+**The anti-invention line has a genuinely blurry edge, and P4.4 will have to judge it.**
+Pressed directly on the smuggling — "we think he's running contraband through the old salt
+sheds" — she declined cleanly, deflected in character, and asked *them* what made them think
+so. No leak, and better refusal behaviour than I expected. But she also said her husband
+"used to store his gear there, but that's years ago". That is either the ordinary personal
+texture the prompt explicitly permits, or a fabricated fact placing her dead husband at the
+scene of the plot. **It is the exact case the gatekeeper has to have an answer for**, and I
+am recording it now, while it is concrete, rather than discovering it as an abstraction in
+P4.4.
+
+### Known issues
+
+- Cold-start is 68 s and nothing warms the seat yet. P4.5's job.
+- The router probes on first use, so the *first* NPC call in a session pays a probe round
+  trip on top of the cold load. Trivial next to 68 s, and it disappears with the warm-up.
+- sam-pc remains registered and unpulled, so the fallback path has never actually run
+  against real hardware — only against an injected probe. It will stay that way until there
+  is a model on that box.
+
+### FOR DESIGN
+
+Nothing blocking. The husband-and-the-salt-sheds case above is the one to have an opinion
+about before P4.4 hardens: **how much may an NPC invent about their own life?** My working
+answer is that personal texture is theirs and anything that touches the plot's furniture is
+not — but that line is fuzzy in exactly the place a smuggling plot lives, and the gatekeeper
+is about to need it written down.
+
+### Recommended next task
+
+**P4.4 — the gatekeeper pass.** Fail open, minimal rewrite, raw draft always logged, and
+**validated by positive control before any zero is believed** (the P2.6 discipline: plant
+leaks, prove the checker catches them). The seat for it is an open choice — `utility_batch`
+is free and already a 70B, which is the obvious first thing to measure.
 
 ---
 

@@ -229,6 +229,8 @@ its choice overtaken by events.)*
 *(Amended 2026-09-02 by CC for the backgrounds ruling (2026-08-15 (c)): the
 `[[BACKGROUND:]]` wire format, and `background_write` — the GM inventing campaign content
 the table then accepts or refuses.)*
+*(Amended 2026-09-02 by CC for P4.3: `npc_turn.knowledge_scope` is the permitted canon
+entry ids, and `npc_turn` gains `endpoint` — no new family.)*
 
 **Amended 2026-08-09 (Phase 2, doc-first per this decision's own rule).**
 
@@ -443,6 +445,25 @@ proficiencies — so it needs a wire format and a row of its own.
     the GM invented and the table declined measures the GM, and it only exists as a
     measurement if the refusal is written down. Not a `canon_write`: a canon entry is a
     fact about the world, and this is a rules object that grants proficiencies.
+
+**Amended 2026-09-02 (P4.3, doc-first).** The NPC tier starts emitting, and `npc_turn` was
+specified in July with fields but no contents. No new family — the original ruling named
+this one, and it needs saying what goes in it.
+
+17. **`npc_turn.knowledge_scope` carries the canon entry ids this NPC was permitted**,
+    comma-joined, as returned by `CanonLedger.for_npc` at the moment of the call. Not a
+    count and not a description: **a leak is only measurable against what was in scope at
+    the time.** Phase 7's question is "did this character say something it was never told",
+    and answering it from a log needs the actual denominator, not its size. The scope also
+    moves during a session — canon is written as play proceeds — so a row that merely
+    pointed at `npcs.yaml` would be answering with the wrong snapshot.
+
+18. **`npc_turn` gains `endpoint`** — which Ollama host served it. The routing layer's only
+    observable: with two endpoints registered since day one (OD-5) and a fallback path
+    between them, "the 70B answered" and "the 70B on the box we expected answered" are
+    different facts, and a silent fallback that changes latency or model quantization
+    mid-session is exactly the kind of thing that shows up in Phase 7 as unexplained
+    variance. `cost.seat` for these rows is `"npc"`, matching `session_meta.seats`.
 
 **Rationale.** Same discipline as the mystery; the additions (canon_write provenance,
 cost, escalation) are what Phase 7's instruments — canon-drift measurement, ruling
