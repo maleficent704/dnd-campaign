@@ -339,6 +339,18 @@ Task breakdown:
   and against established canon; `pass | revised | blocked`, minimal rewrite, fail open,
   raw draft logged. Validated by **positive control** before any zero is believed — the
   P2.6 discipline: plant leaks, prove the checker catches them.
+  *(Done 2026-09-02 (d). `gm/gatekeeper.py` + `gm/prompts/gatekeeper.md`, wired into
+  `NPCVoice` as an optional gate. D-008 amended first, items 19–20: the verdict vocabulary
+  gains **`unchecked`** — fail-open must be visible, or a night when the checker was down
+  reads later as a night with no leaks — and `npc_turn.draft` keeps the pre-gate text when
+  the gate changed it. **The checker is never told the secret either**, which is where this
+  departs from the mystery deliberately: the NPC prompt never held `gm_only` canon, so a
+  leak can only be invention, and asking about invention catches it without the plot
+  entering a second model call that untrusted draft text could prompt-inject.
+  `dndc npc control` runs planted cases and scores recall and false positives — the P2.6
+  rule, that a zero is also what a broken instrument produces. **The control immediately
+  earned itself**: see the handoff for the miss it found, the false positive it found after
+  that, and the seat it settled by measurement.)*
 - **P4.5** Wiring into the turn loop: the GM directs who speaks (a tag, the eighth use of
   the convention), the engine runs that NPC's own call, the gatekeeper gates it, and what
   the NPC said comes back to the GM as established dialogue. Cost and latency at the table

@@ -16,8 +16,8 @@ blockers into this list.
 ### Open now
 
 **None awaiting Fable, and nothing ruled is unbuilt.** Phase 4 (the NPC agent tier, D-003)
-is underway — P4.1–P4.3 landed 2026-09-02 (b) and (c); next is **P4.4, the gatekeeper
-pass**. NPCs speak on toto-llm now, ungated.
+is underway — P4.1–P4.4 landed 2026-09-02 (b)–(d); next is **P4.5, wiring into the turn
+loop**. NPCs speak on toto-llm and their drafts are gated.
 
 One item is **provisionally accepted rather than settled** — Kelly's, not Fable's:
 
@@ -375,6 +375,123 @@ the drift instrument's own log is a finding worth the two-line fix.
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-09-02 (d) — P4.4: the gate, and the control that kept catching it out (Claude Code, kelly-pc)
+
+**P4.4 done. 1182 tests, suite still fully offline.** D-008 amended first (items 19–20).
+The interesting part of this entry is not the gatekeeper; it is that the positive control
+found a real miss, then a real false positive, then settled the seat choice — three times
+in one evening, on work I would otherwise have called finished.
+
+### What it does
+
+`gm/gatekeeper.py` checks each NPC draft against the same permitted-canon list the NPC's
+own prompt was built from, and returns `pass` · `revised` · `blocked` · `unchecked`. A
+revision replaces the line; a block shows nothing; `unchecked` shows the draft and says so.
+Wired into `NPCVoice` as an optional gate — ungated still works and is logged as ungated.
+
+**The checker is never told the secret either.** This is the deliberate departure from the
+mystery, whose gatekeeper is the director and holds the withheld truth. Here the NPC prompt
+never contained `gm_only` canon, so a leak can only arise by *invention* or by *agreeing
+with a player's guess* — and asking "does this assert anything outside what the character
+knows" catches both **without the plot ever entering a second model call**. That matters
+more than it sounds: the draft is untrusted text, and a checker holding the campaign's
+secrets is a checker worth prompt-injecting.
+
+**It fails open**, and `unchecked` exists so that failing open is visible. Recording a
+skipped check as `pass` would be a lie the log tells about itself, and it would be worst
+exactly where it is least visible: a night when the checker was down must not read, later,
+as a night with no leaks.
+
+**The claims ledger remembers what she *said*, not what she drafted.** A character held to
+a line the table never heard would contradict herself out loud to stay consistent with a
+sentence struck before it left her mouth.
+
+### The control earned itself three times
+
+`dndc npc control` runs planted drafts past the gate and scores recall and false positives —
+P2.6's rule one layer up, that **a zero is also what a broken instrument produces**.
+
+**First run: 5/5 planted caught, 0/5 false positives, on the 8B, in ten seconds.** Including
+the borderline case from (c) — "my husband used to store his gear in those sheds" — which I
+had planted verbatim from the live session. I nearly stopped there.
+
+**Then a live turn walked straight through it.** Asked about the smuggling, Maren said:
+*"Salt sheds are old, been empty since my husband was fishing."* Same invention, same
+character, same gate — passed. The difference was **dilution**: planted bare it is obviously
+a fabrication; wrapped in three honest refusals it reads as part of a cooperative answer. So
+my control had been measuring the easy version of the failure. Three mixed cases went in —
+mostly-clean replies with one invented clause — and the gate immediately failed at 6/7.
+
+**The prompt fix was one section** ("read every sentence; a draft that is nine-tenths clean
+is still a revise if any part of it invents"), and recall went to 7/7. But the harder control
+now surfaced a *false positive*: the 8B flagged "no buyer, is what I heard" — which is
+Maren's own belief, hedged the way people actually hedge. A second bullet ("a belief on the
+list stays fine however it is hedged") did not shift it. Twice running, the same line, so a
+discrimination failure rather than variance.
+
+### The seat, settled by measurement rather than by argument
+
+| seat | planted caught | false positives | per check |
+|---|---|---|---|
+| `utility_interactive` — llama3.1:8b | 7/7 | **1/6** | ~1 s |
+| `utility_batch` — llama3.3:70b | 7/7 | **0/6** | ~7 s |
+
+**Default is now the batch seat**, which is a change from what I first wrote. The reasoning
+is about *which failure is visible*: the 8B's cost is a character's honest opinion quietly
+rewritten out of her mouth, and nobody at the table ever sees the draft, so that harm is
+undetectable in play. The 70B's cost is seven seconds, which anyone can see and judge.
+Defaulting to the harm nobody can see would be the wrong way round. `--gate-seat` moves it.
+
+Live-verified end to end afterwards: pressed on the smuggling, the 70B-gated turn produced a
+draft inventing that the harbourmaster drinks at the inn and does not talk business there —
+neither in scope — and the gate revised it to *"Couldn't tell you about that. You'd do best
+to speak with him direct if you've got questions."* Minimal, in voice, and the draft is in
+the log beside it.
+
+### The invention line, now written down
+
+The (c) entry left a `FOR DESIGN:` asking how much an NPC may invent about their own life.
+Encoded in the gatekeeper prompt as a mechanical rule, because a fuzzy one cannot be
+checked: **feelings, opinions, weather, aches and the business of running an inn are the
+character's own; a specific person, place, time, object or event that is not on their list
+is not** — and naming one the travellers have just raised is the common failure. "I've never
+been in those sheds" is a refusal and fine. "My husband kept his gear in those sheds" is a
+new fact about a place under discussion and is not.
+
+### Known issues
+
+- **A gated line costs ~7 s on top of the NPC call**, so an exchange is ~10 s end to end
+  where an ungated one is ~3 s. That is the real number for P4.5's table judgement, and it
+  is Kelly's call whether it is worth it — the alternative is the 8B and one clean line in
+  six quietly flattened.
+- **The false positive may be an authoring artefact.** Maren's belief entry is a compound
+  sentence bundling two beliefs, and the 8B may simply be failing to match half of it.
+  Splitting it might fix the 8B — but tuning the fixture until the instrument looks good is
+  the exact sin P2.6 avoided, so I have not, and it stays a hypothesis rather than a fix.
+- **A rewrite can be slightly over-eager.** The live revision also dropped "or maybe the
+  fishermen, they might know more", which was probably fine. Minimal-ish rather than
+  minimal; worth watching at P4.7 rather than tuning against one sample.
+- The control is one campaign's cases against one NPC. It measures this gate on this
+  material, not the gate in general.
+
+### FOR DESIGN
+
+Nothing blocking. One thing worth a ruling eventually: **whether a `blocked` line should
+cost the turn or fall through to the GM.** Right now blocking shows nothing, which is honest
+but leaves a hole in the scene. The natural repair is for the GM to narrate around the
+silence, and that is P4.5 wiring rather than a new decision — but if Fable would rather a
+block never reach the table at all (retry the NPC instead), that is a design call and it
+changes P4.5's shape.
+
+### Recommended next task
+
+**P4.5 — wiring into the turn loop.** The GM directs who speaks, the engine runs that NPC's
+call, the gate gates it, and what was said comes back as established dialogue. It also owns
+the **warm-up call** identified in (c) — 68 s of cold load is a session-start problem, not a
+per-line one — and it is where the ~10 s gated exchange gets measured at a real table.
 
 ---
 

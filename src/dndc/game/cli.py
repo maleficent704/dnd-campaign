@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
+import yaml
 from pydantic import ValidationError
 from rich.console import Console
 from rich.prompt import Prompt
@@ -69,6 +70,7 @@ from dndc.game.inventory import InventoryStore, describe_change, proposals_for
 from dndc.game.party import resolve_member
 from dndc.game.turn import TurnEngine
 from dndc.gm.canon import npc_issues
+from dndc.gm.gatekeeper import ControlCase, Gatekeeper, Verdict, run_control
 from dndc.game.npcturn import NPCVoice
 from dndc.gm.npcprompt import NPCPromptBuilder, NPCScene
 from dndc.gm.inventorytag import InventoryTag
@@ -445,6 +447,118 @@ def _cmd_npc_show(console: Console, args: argparse.Namespace) -> int:
     return 0
 
 
+#: The gate's cases file, beside `npcs.yaml`. Per-campaign because a planted leak has to
+#: be about this campaign's own secrets to be worth planting.
+CONTROL_FILE = "gatekeeper-control.yaml"
+
+#: Judgement wants no creativity: the same draft should get the same verdict twice.
+GATEKEEPER_TEMPERATURE = 0.0
+
+
+def _add_gate_flags(parser: argparse.ArgumentParser) -> None:
+    # Measured 2026-09-02 (d) on 13 planted cases: both seats catch 7/7 inventions, but
+    # the 8B persistently flags one clean line — the same one, twice running, so a
+    # discrimination failure rather than variance. Its failure is *invisible at the table*
+    # (a character's honest opinion quietly rewritten out of her mouth, with nobody able to
+    # see the draft), while the 70B's cost is ~7s and plainly visible. Defaulting to the
+    # harm nobody can see would be the wrong way round.
+    parser.add_argument(
+        "--gate-seat", choices=[INTERACTIVE_SEAT, BATCH_SEAT], default=BATCH_SEAT,
+        help="which utility seat checks drafts (default: %(default)s — measured cleaner)",
+    )
+
+
+def _build_gate(cfg, args) -> tuple[Gatekeeper | None, object | None]:
+    """The output gate and the backend to close afterwards, or (None, None) if ungated.
+
+    Which seat checks is a flag rather than a constant because the two candidates trade
+    against each other and the trade is measurable: `utility_interactive` is the seat
+    defined as "the jobs the table waits on", and `utility_batch` is the better reader. Run
+    `dndc npc control` against both before believing either.
+    """
+    if getattr(args, "ungated", False):
+        return None, None
+    build = build_batch_backend if args.gate_seat == BATCH_SEAT else build_interactive_backend
+    backend = build(cfg, temperature=GATEKEEPER_TEMPERATURE)
+    return Gatekeeper(backend=backend), backend
+
+
+def _render_verdict(console: Console, reply) -> None:
+    """Say what the gate did. Never silent on an interception — a rewrite the table cannot
+    see is a rewrite nobody can argue with."""
+    judgement = reply.judgement
+    if judgement is None or judgement.verdict is Verdict.PASS:
+        return
+    if judgement.verdict is Verdict.UNCHECKED:
+        console.print(f"\n[yellow]unchecked[/yellow] [dim]— {judgement.reason}[/dim]")
+        return
+    console.print(f"\n[yellow]{judgement.verdict.value}[/yellow] [dim]— {judgement.reason}[/dim]")
+    console.print(f"[dim]draft was: {judgement.draft}[/dim]")
+
+
+def _cmd_npc_control(console: Console, args: argparse.Namespace) -> int:
+    """Run the planted-leak control (P4.4) — what makes a later zero mean anything.
+
+    The P2.6 discipline one layer up: a zero is also what a broken instrument produces, so
+    before "no leaks tonight" counts as evidence about the NPC tier, the checker has to
+    catch leaks that are definitely there and leave clean lines alone.
+    """
+    cfg = load_config()
+    book = load_campaign_npcs(args.campaign)
+    npc = book.get(args.name)
+    if npc is None:
+        console.print(f"[red]error:[/red] no NPC called {args.name!r} in {args.campaign}")
+        return 1
+
+    path = Path(args.cases) if args.cases else campaign_dir(args.campaign) / CONTROL_FILE
+    if not path.exists():
+        console.print(
+            f"[red]error:[/red] no control cases at {path}. They are per-campaign by "
+            f"nature — a planted leak has to be about this campaign's own secrets."
+        )
+        return 1
+    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    cases = [
+        ControlCase(draft=case["draft"], invents=bool(case["invents"]), note=case.get("note", ""))
+        for case in raw.get("cases", [])
+    ]
+    if not cases:
+        console.print(f"[red]error:[/red] {path} has no cases")
+        return 1
+
+    ledger = load_campaign_canon(args.campaign)
+    gate, gate_backend = _build_gate(cfg, args)
+    if gate is None:
+        console.print("[red]error:[/red] --ungated makes no sense for the control")
+        return 1
+
+    console.print(
+        f"[bold]{npc.name}[/bold] · {len(cases)} case(s) · "
+        f"[dim]{gate_backend.model} on {gate_backend.endpoint}[/dim]\n"
+    )
+    try:
+        report = run_control(gate, npc, ledger, cases)
+    finally:
+        gate_backend.close()
+
+    for case in report.misses:
+        console.print(f"  [red]missed[/red] {case.draft}")
+        if case.note:
+            console.print(f"    [dim]{case.note}[/dim]")
+    for case, reason in report.flagged:
+        console.print(f"  [yellow]false positive[/yellow] {case.draft}")
+        console.print(f"    [dim]{reason}[/dim]")
+
+    colour = "green" if report.trustworthy else "yellow"
+    console.print(f"\n[{colour}]{report.summary()}[/{colour}]")
+    if not report.trustworthy:
+        console.print(
+            "[dim]a zero from this gate does not yet mean anything — fix the prompt or "
+            "the seat before trusting it[/dim]"
+        )
+    return 0
+
+
 def _cmd_npc_speak(console: Console, args: argparse.Namespace) -> int:
     """Say something to one NPC and hear back (P4.3) — the demo runner for the seat.
 
@@ -477,8 +591,13 @@ def _cmd_npc_speak(console: Console, args: argparse.Namespace) -> int:
         console.print(f"[yellow]fell back[/yellow] [dim]— {route.reason}[/dim]")
 
     log = start_session_log(cfg, campaign=args.campaign)
-    voice = NPCVoice(backend=backend, log=log, route=route)
-    console.print(f"[dim]{len(ledger.for_npc(npc))} fact(s) in scope · log -> {log.path}[/dim]\n")
+    gate, gate_backend = _build_gate(cfg, args)
+    voice = NPCVoice(backend=backend, log=log, route=route, gate=gate)
+    gated = "gated" if gate is not None else "[yellow]ungated[/yellow]"
+    console.print(
+        f"[dim]{len(ledger.for_npc(npc))} fact(s) in scope ·[/dim] {gated} "
+        f"[dim]· log -> {log.path}[/dim]\n"
+    )
 
     try:
         reply = voice.speak(npc, ledger, args.said, setting=args.setting or "")
@@ -487,9 +606,15 @@ def _cmd_npc_speak(console: Console, args: argparse.Namespace) -> int:
         return 1
     finally:
         backend.close()
+        if gate_backend is not None:
+            gate_backend.close()
 
     console.print(f"[bold cyan]{npc.name}[/bold cyan]")
-    console.print(reply.text, markup=False, highlight=False, soft_wrap=True)
+    if reply.text:
+        console.print(reply.text, markup=False, highlight=False, soft_wrap=True)
+    else:
+        console.print("[dim](nothing — the gate found something it could not repair)[/dim]")
+    _render_verdict(console, reply)
     usage = reply.response.usage
     console.print(
         f"\n[dim]{usage.input_tokens} in / {usage.output_tokens} out · "
@@ -2217,6 +2342,22 @@ def build_parser() -> argparse.ArgumentParser:
     npc_speak.add_argument("said", help="what the party says or does, as the GM would put it")
     npc_speak.add_argument("--campaign", metavar="SLUG", required=True)
     npc_speak.add_argument("--setting", help="where this is happening, in a line")
+    _add_gate_flags(npc_speak)
+    npc_speak.add_argument(
+        "--ungated", action="store_true",
+        help="skip the output gate — what the draft looked like before it was checked",
+    )
+
+    npc_control = npc_commands.add_parser(
+        "control", help="run planted leaks past the gate and score it (P4.4)"
+    )
+    npc_control.add_argument("name")
+    npc_control.add_argument("--campaign", metavar="SLUG", required=True)
+    npc_control.add_argument(
+        "--cases", metavar="PATH",
+        help=f"control cases (default: the campaign's own {CONTROL_FILE})",
+    )
+    _add_gate_flags(npc_control)
 
     roll_command = commands.add_parser("roll", help="roll dice through the rules engine")
     roll_command.add_argument("expression", help="e.g. 2d6+3, 4d6kh3, d20")
@@ -2454,6 +2595,8 @@ def main(argv: list[str] | None = None) -> int:
                 return _cmd_npc_show(console, args)
             if args.npc_command == "speak":
                 return _cmd_npc_speak(console, args)
+            if args.npc_command == "control":
+                return _cmd_npc_control(console, args)
             parser.parse_args(["npc", "--help"])
             return 0
         if args.command == "roll":

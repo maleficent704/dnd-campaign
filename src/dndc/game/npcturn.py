@@ -12,9 +12,10 @@ conversation — and an innkeeper who contradicts her last answer is not a chara
 a random-sentence generator with a name. Making it automatic means a caller cannot forget
 it, which is the same reasoning as the prompt builder taking a ledger rather than entries.
 
-**The gatekeeper is not here yet** (P4.4). `npc_turn.gatekeeper_verdict` stays unset rather
-than being filled with an optimistic `pass`: a row saying a check passed when no check ran
-is worse than a row that says nothing, because the first one is believed.
+**The gate is optional and the turn does not depend on it** (P4.4). Without one,
+`gatekeeper_verdict` stays unset rather than becoming an optimistic `pass` — a row saying a
+check passed when none ran is worse than one that says nothing, because the first is
+believed. With one, the *displayed* text may differ from the draft, and both are logged.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from dndc.gm.canon import CanonLedger
+from dndc.gm.gatekeeper import Gatekeeper, Judgement, Verdict
 from dndc.gm.npcprompt import NPCPromptBuilder, NPCScene
 from dndc.logging import SessionLog
 from dndc.models import NPC_SEAT, GMBackend, GMResponse, Route, new_call_id
@@ -47,6 +49,13 @@ class NPCReply:
     scope: tuple[str, ...] = ()
     #: Which Ollama host answered.
     endpoint: str = ""
+    #: The gate's verdict, when there was a gate. `text` is already what to show.
+    judgement: Judgement | None = None
+
+    @property
+    def draft(self) -> str:
+        """What the model said, before any repair."""
+        return self.judgement.draft if self.judgement is not None else self.text
 
 
 @dataclass
@@ -58,6 +67,8 @@ class NPCVoice:
     #: Set when the seat was routed, so the log can say which host served the turn and
     #: whether it was the first choice (D-008 item 18).
     route: Route | None = None
+    #: The output gate (P4.4). None runs ungated, which is honest and logged as such.
+    gate: Gatekeeper | None = None
     builder: NPCPromptBuilder = field(default_factory=NPCPromptBuilder)
     max_tokens: int = DEFAULT_MAX_TOKENS
     #: Per-NPC claims ledger, keyed by id: what each character has already said tonight.
@@ -89,13 +100,27 @@ class NPCVoice:
             self._emit(npc, "", CallStatus.FAILED, call_id, scope)
             raise
 
-        text = response.text.strip()
-        self._emit(npc, text, CallStatus.COMPLETE, response.call_id, scope, response.model)
+        draft = response.text.strip()
+        judgement = self.gate.check(npc, ledger, draft) if self.gate is not None else None
+        text = judgement.text if judgement is not None else draft
+
+        self._emit(
+            npc, text, CallStatus.COMPLETE, response.call_id, scope, response.model,
+            judgement=judgement,
+        )
         self._emit_cost(response)
+        # The claims ledger remembers what she *said*, not what she drafted. A character
+        # held to a line the table never heard would contradict herself out loud to stay
+        # consistent with a sentence that was struck before it left her mouth.
         if text:
             self.said.setdefault(npc.id, []).append(text)
         return NPCReply(
-            npc=npc, text=text, response=response, scope=scope, endpoint=self._endpoint()
+            npc=npc,
+            text=text,
+            response=response,
+            scope=scope,
+            endpoint=self._endpoint(),
+            judgement=judgement,
         )
 
     def forget(self, npc: NPC) -> None:
@@ -117,6 +142,7 @@ class NPCVoice:
         call_id: str | None,
         scope: tuple[str, ...],
         model: str | None = None,
+        judgement: Judgement | None = None,
     ) -> None:
         if self.log is None:
             return
@@ -131,6 +157,15 @@ class NPCVoice:
             # at the time, and the scope moves as canon is written (D-008 item 17).
             knowledge_scope=",".join(scope),
             endpoint=self._endpoint(),
+            gatekeeper_verdict=judgement.verdict.value if judgement else None,
+            gatekeeper_reason=(judgement.reason or None) if judgement else None,
+            # Only on divergence (D-008 item 20): a duplicate of every clean line doubles
+            # the log to say nothing, and the drafts that matter are the ones that changed.
+            draft=(
+                judgement.draft
+                if judgement is not None and judgement.draft != text
+                else None
+            ),
         )
 
     def _emit_cost(self, response: GMResponse) -> None:

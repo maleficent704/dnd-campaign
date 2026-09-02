@@ -231,6 +231,8 @@ its choice overtaken by events.)*
 the table then accepts or refuses.)*
 *(Amended 2026-09-02 by CC for P4.3: `npc_turn.knowledge_scope` is the permitted canon
 entry ids, and `npc_turn` gains `endpoint` — no new family.)*
+*(Amended 2026-09-02 by CC for P4.4: the `gatekeeper_verdict` vocabulary including
+`unchecked` — fail-open must be visible — and `npc_turn.draft` for what the gate changed.)*
 
 **Amended 2026-08-09 (Phase 2, doc-first per this decision's own rule).**
 
@@ -464,6 +466,29 @@ this one, and it needs saying what goes in it.
     different facts, and a silent fallback that changes latency or model quantization
     mid-session is exactly the kind of thing that shows up in Phase 7 as unexplained
     variance. `cost.seat` for these rows is `"npc"`, matching `session_meta.seats`.
+
+**Amended 2026-09-02 (P4.4, doc-first).** The gatekeeper starts writing verdicts, and the
+July ruling named the field without fixing its values.
+
+19. **`npc_turn.gatekeeper_verdict` takes `pass` · `revised` · `blocked` · `unchecked`**,
+    or stays `None` when no gate is configured at all. The fourth value is the one worth
+    arguing for: the gatekeeper **fails open**, so an unreachable host or an unparseable
+    verdict means the draft is shown *unchecked*. Recording that as `pass` would be a lie
+    the log tells about itself, and the difference matters most exactly when it is least
+    visible — a night where the checker was down and every line sailed through must not
+    read, later, as a night with no leaks. `None` (no gate) and `unchecked` (a gate that
+    could not answer) are also kept apart: one is configuration, the other is an incident.
+
+20. **`npc_turn.draft`** — the pre-gate text, set **only when the gate changed it**. Every
+    leak rate Phase 7 computes has pre-censor drafts as its denominator, and a gate that
+    quietly improved the record of its own performance would be an instrument measuring
+    itself. Written only on divergence because a duplicate of every clean line doubles the
+    log to say nothing.
+
+    Note what is deliberately *not* logged: the checker's own prompt and its reasoning.
+    The gate is asked "does this draft assert anything outside what the character knows",
+    and it is never told the secret — so unlike the mystery's director-gatekeeper, there is
+    no withheld truth in this call to leak into a log in the first place.
 
 **Rationale.** Same discipline as the mystery; the additions (canon_write provenance,
 cost, escalation) are what Phase 7's instruments — canon-drift measurement, ruling

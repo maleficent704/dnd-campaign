@@ -182,12 +182,17 @@ class NPCTurn(_Event):
     status: CallStatus = CallStatus.COMPLETE
     #: Shared by the pending and terminal writes of one model call (OD-9).
     call_id: str | None = None
-    #: pass | blocked | revised — a blocked draft is still logged; leaks are the study.
-    #: `None` means no check ran, and stays `None` rather than becoming an optimistic
-    #: "pass": a row claiming a check succeeded when none happened is worse than a silent
-    #: one, because it will be believed.
+    #: `pass` | `revised` | `blocked` | `unchecked` (D-008 item 19). `None` means no gate
+    #: was configured at all — kept distinct from `unchecked`, which is a gate that was
+    #: asked and could not answer: one is configuration, the other is an incident. Neither
+    #: is ever recorded as `pass`, because a row claiming a check succeeded when none ran
+    #: is worse than a silent one — it gets believed.
     gatekeeper_verdict: str | None = None
     gatekeeper_reason: str | None = None
+    #: The pre-gate text, set **only when the gate changed it** (D-008 item 20). Every leak
+    #: rate has pre-censor drafts as its denominator, and a gate that quietly improved the
+    #: record of its own performance would be an instrument measuring itself.
+    draft: str | None = None
     #: The canon entry ids this NPC was permitted, comma-joined, as of this call (D-008
     #: item 17). Ids and not a count: a leak is only measurable against what was in scope
     #: at the time, and the scope moves as canon is written during a session.
