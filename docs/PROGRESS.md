@@ -15,8 +15,9 @@ blockers into this list.
 
 ### Open now
 
-**None awaiting Fable, and nothing ruled is unbuilt.** Next session starts Phase 4 (the NPC
-agent tier, D-003) on TASKS.md order.
+**None awaiting Fable, and nothing ruled is unbuilt.** Phase 4 (the NPC agent tier, D-003)
+is underway — P4.1 and P4.2 landed 2026-09-02 (b); next is **P4.3, the routing layer and
+the NPC seat**, which is the first task in the phase that needs toto-llm awake.
 
 One item is **provisionally accepted rather than settled** — Kelly's, not Fable's:
 
@@ -374,6 +375,124 @@ the drift instrument's own log is a finding worth the two-line fix.
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-09-02 (b) — Phase 4 opens: an NPC, and the whole of what it may be told (Claude Code, kelly-pc)
+
+**Phase 4 broken into seven tasks; P4.1 and P4.2 done. 1143 tests, suite still fully
+offline.** No model calls anywhere in this commit — the phase's central guarantee turns out
+to be provable without one, which is the best possible thing to learn early.
+
+### The breakdown
+
+TASKS.md carried Phase 4 as a paragraph. It is now P4.1–P4.7, with the two properties that
+govern all of them stated once at the top: **substitution never prohibition**, and **the
+gatekeeper is a backstop rather than the gate** (it fails open; the architecture protects,
+the checker only measures). Both are ported from the mystery, whose `gatekeeper/check.py`
+and `director/prompts/suspect.py` I read rather than reconstructed from memory.
+
+### P4.1 — an NPC is a voice card and a knowledge scope, kept apart
+
+`schema/npc.py`: `VoiceCard` (role, persona, manner, sample lines, demeanour), `NPC`
+(identity, scope), `NPCBook` → `campaigns/<slug>/npcs.yaml`, beside `canon.yaml` and
+hand-authorable. Separate types because the two halves fail differently — a thin voice card
+makes a dull innkeeper, a wrong knowledge scope leaks the plot — so a session can rewrite
+the first freely without touching the second.
+
+`CanonLedger.for_npc` is the filter, and it is an **allow-list**: a fact reaches a character
+because they were given it (a tag in `knows_tags`, an id in `knows`, campaign common
+knowledge) or because it is their own belief. `npc_issues` is the authoring lint, because
+every failure here is silent — a scope that grants nothing produces a character with nothing
+to say and no complaint from anywhere.
+
+`dndc npc list` shows the cast and how much canon reaches each of them (a zero is coloured);
+`dndc npc show NAME` prints the voice card and **the whole of what a call would carry**,
+which is the only honest way to check a scope before trusting it in play.
+
+### The design decision inside it, which a test forced
+
+Three exclusions are **unconditional** — not defaults, not overridable by authoring, not by
+a tag and not by naming the entry outright:
+
+- **`gm_only`.** If a character genuinely knows a secret, that is a *belief* of theirs and
+  belongs in an `npc_belief` entry with their name on it — which the view does return. The
+  refusal being absolute is what makes "no NPC prompt has ever carried `gm_only` canon" a
+  property of the code rather than of whoever last edited a YAML file.
+- **another character's beliefs.** A village where everyone can see what everyone else
+  privately thinks has no secrets left in it.
+- **`player_known`** — and this one I got wrong first. I had it reachable-by-tag, on the
+  reasoning that an author tagging a fact is a deliberate act. A test I wrote to assert the
+  exclusion failed, and the failure was right: **P2.3's sweep forces `player_known` in
+  code**, so it is the one scope that fills up automatically with everything the party did
+  and learned, tagged by whoever wrote the tag with no NPC in mind. A leak there would grow
+  by itself, session over session, with nobody authoring it. It is now as absolute as
+  `gm_only`, and the lint says so when an author names one.
+
+`NPC.notes` is the field for "she has been paid to forget a name" — printed for the GM,
+**never rendered into a prompt**, and there is a test asserting it.
+
+### P4.2 — the prompt, where the guarantee becomes bytes
+
+`gm/npcprompt.py` + `gm/prompts/npc_core.md`. Two construction choices carry the rule:
+
+- **The builder takes a ledger, never a list of entries.** There is deliberately no way to
+  hand it canon: it calls `for_npc` itself. The filter cannot be forgotten, bypassed for
+  convenience, or handed `ledger.active()` by a caller in a hurry — the one door into an NPC
+  prompt is the one with the lock on it.
+- **Facts and beliefs render under separate headings.** A model that treats them alike
+  asserts a private suspicion as established fact, and three turns later it is something
+  "everyone knows".
+
+Section order is a tuple the builder accepts, not a sequence baked into the template —
+order versus leak rate is a Phase 7 research variable, and the mystery treated it the same
+way. The conduct block is mostly the mystery's, with one addition this project needs:
+**an NPC never decides what happens, what anyone finds, whether an attempt succeeds, or what
+a roll comes to.** That is D-001 reaching the NPC tier — a villager narrating an outcome
+would be the number ban's side door.
+
+The absence tests assert on the **assembled bytes**, not on the filter: build a prompt from
+a ledger full of secrets and grep it for "smuggling", "paymaster", "customs house". One test
+greps for prohibition phrasing — "do not mention", "never reveal" — because if that ever
+appears, the design has quietly inverted into the thing it was built to avoid.
+
+### Why the two landed in one commit
+
+Neither half is testable alone. P4.1's filter is a list-comprehension whose correctness is
+only meaningful once something assembles a call, and P4.2's guarantee is a property of the
+assembled bytes. Splitting them would have produced one commit of types with no consumer and
+one commit where the interesting tests live. One session, one commit — this is one thing.
+
+### Known issues
+
+- **An NPC's own belief renders in the third person.** Canon reads "Maren thinks the
+  harbourmaster is merely greedy", and in Maren's own prompt that sits under "What you
+  believe". It is understandable and the heading disambiguates, but rewriting canon text for
+  a prompt would be inventing, so I have not. **Worth watching at P4.7:** if the 70B starts
+  referring to itself in the third person, this is the cause and the fix is authoring
+  guidance rather than code.
+- **`common_knowledge` is a boolean, not a scope.** "What everyone knows" is a tag on the
+  fact rather than a property of the teller, which is right, but it means one flat tier —
+  there is no "everyone in Brakewater" versus "everyone on the coast" without authoring two
+  tags. Fine for one town; revisit if a campaign spans regions.
+- Nothing in the phase has touched the LAN yet. P4.3 is the first task that needs toto-llm
+  up, and the first that can be wrong in a way tests cannot catch.
+
+### FOR DESIGN
+
+Nothing blocking. One observation to bank for whenever Fable next looks: the unconditional
+`player_known` exclusion means **a fact the party and the world both know has to be written
+twice** — once as what the players established, once as world canon. That is the correct
+trade (the alternative leaks by default and grows), but it is a real authoring cost, and if
+it becomes annoying in play the fix is a promotion path — the GM marking a player-known fact
+as having got out — rather than loosening the filter.
+
+### Recommended next task
+
+**P4.3 — the routing layer and the NPC seat.** `ollama_endpoints` already carries toto-llm
+and sam-pc (OD-5, registered since day one); this is the task that picks one, health-checks
+it, falls back, and emits `npc_turn`. First task in the phase that needs the LAN, so check
+toto-llm is awake before starting.
 
 ---
 

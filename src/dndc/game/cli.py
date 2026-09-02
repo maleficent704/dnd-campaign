@@ -52,6 +52,7 @@ from dndc.game.creation import (
     CreationSession,
     load_campaign_backgrounds,
     load_campaign_canon,
+    load_campaign_npcs,
     load_campaign_chronicle,
     load_campaign_sheets,
     summarize,
@@ -67,6 +68,8 @@ from dndc.game.combatturn import (
 from dndc.game.inventory import InventoryStore, describe_change, proposals_for
 from dndc.game.party import resolve_member
 from dndc.game.turn import TurnEngine
+from dndc.gm.canon import npc_issues
+from dndc.gm.npcprompt import NPCPromptBuilder, NPCScene
 from dndc.gm.inventorytag import InventoryTag
 from dndc.gm import (
     DEFAULT_WINDOW,
@@ -115,6 +118,7 @@ from dndc.rules.statblock import (
 from dndc.rules.dice import Advantage, DiceError, roll, roll_d20
 from dndc.schema.campaign import slugify
 from dndc.schema.events import Cost, DiceRoll, GMNarration, RulesResolution, SeatInfo, SessionMeta
+from dndc.schema.npc import NPCS_FILE
 from dndc.schema.sheet import SKILL_ABILITY, Ability, CharacterSheet, Skill
 from dndc.schema.srd import IngestScope
 from dndc.srd import SRDIngestError, ingest, load_dataset, validate_dataset, verify_pin
@@ -346,6 +350,94 @@ def _cmd_campaigns(console: Console) -> int:
             campaign.name, campaign.slug, str(campaign.created), ", ".join(campaign.players)
         )
     console.print(table)
+    return 0
+
+
+# --- npc -------------------------------------------------------------------
+
+
+def _cmd_npc_list(console: Console, args: argparse.Namespace) -> int:
+    """The campaign's cast, and how much each of them actually knows (P4.1)."""
+    book = load_campaign_npcs(args.campaign)
+    if not len(book):
+        console.print(
+            f"no NPCs in [bold]{args.campaign}[/bold] yet — write them into "
+            f"`campaigns/{args.campaign}/{NPCS_FILE}`"
+        )
+        return 0
+
+    ledger = load_campaign_canon(args.campaign)
+    table = Table(title=f"{args.campaign} — cast", title_style="bold")
+    for column in ("name", "role", "location", "knows"):
+        table.add_column(column)
+    for npc in book:
+        known = len(ledger.for_npc(npc))
+        # Zero is worth colouring: a character with no canon has nothing to say, and
+        # nothing else in the system will ever complain about it.
+        colour = "yellow" if known == 0 else "white"
+        table.add_row(
+            npc.name, npc.voice.role, npc.location, f"[{colour}]{known} fact(s)[/{colour}]"
+        )
+    console.print(table)
+    return 0
+
+
+def _cmd_npc_show(console: Console, args: argparse.Namespace) -> int:
+    """One NPC: the voice card, and **exactly** what a call would be allowed to carry.
+
+    The knowledge list is the point of this command. It is the same view the prompt
+    builder gets, so what is printed here is what the model would see — which is the only
+    honest way to check a knowledge scope before trusting it in play.
+    """
+    book = load_campaign_npcs(args.campaign)
+    npc = book.get(args.name)
+    if npc is None:
+        console.print(f"[red]error:[/red] no NPC called {args.name!r} in {args.campaign}")
+        if book.names():
+            console.print(f"[dim]have: {', '.join(book.names())}[/dim]")
+        return 1
+
+    if args.prompt:
+        # The whole call, verbatim, and *nothing else* — printing the GM-facing view
+        # above it would put the author's notes on the same screen as "here is what the
+        # model receives", which is the one confusion this flag exists to prevent.
+        request = NPCPromptBuilder().build(
+            npc, load_campaign_canon(args.campaign), NPCScene()
+        )
+        console.print(request.system, markup=False, highlight=False, soft_wrap=True)
+        return 0
+
+    console.print(f"[bold]{npc.name}[/bold]" + (f" [dim]({npc.pronouns})[/dim]" if npc.pronouns else ""))
+    for label, value in (
+        ("role", npc.voice.role),
+        ("where", npc.location),
+        ("persona", npc.voice.persona),
+        ("manner", npc.voice.manner),
+        ("demeanour", npc.voice.demeanour),
+    ):
+        if value:
+            console.print(f"  [dim]{label}:[/dim] {value}")
+    for line in npc.voice.sample_lines:
+        console.print(f"  [dim]says:[/dim] “{line}”")
+    if npc.notes:
+        # Printed for the GM, never assembled into a prompt — the field exists precisely
+        # for things the model voicing her must not be told.
+        console.print(f"  [dim]notes (never sent to the model):[/dim] {npc.notes}")
+
+    ledger = load_campaign_canon(args.campaign)
+    known = ledger.for_npc(npc)
+    console.print(f"\n[bold]knows[/bold] [dim]({len(known)} fact(s) — this is the whole of "
+                  f"what a call would carry)[/dim]")
+    for entry in known:
+        console.print(f"  {entry.render()}")
+    if not known:
+        console.print("  [yellow](nothing)[/yellow]")
+
+    issues = npc_issues(npc, ledger)
+    if issues:
+        console.print(f"\n[yellow]{len(issues)} issue(s) with this knowledge scope[/yellow]")
+        for issue in issues:
+            console.print(f"  - {issue}")
     return 0
 
 
@@ -2048,6 +2140,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     commands.add_parser("campaigns", help="list campaigns")
 
+    npc = commands.add_parser("npc", help="the campaign's cast and what each one knows (D-003)")
+    npc_commands = npc.add_subparsers(dest="npc_command")
+    npc_list = npc_commands.add_parser("list", help="every NPC, and how much canon reaches them")
+    npc_list.add_argument("--campaign", metavar="SLUG", required=True)
+    npc_show = npc_commands.add_parser(
+        "show", help="one NPC's voice card and the whole of what a call would carry"
+    )
+    npc_show.add_argument("name")
+    npc_show.add_argument("--campaign", metavar="SLUG", required=True)
+    npc_show.add_argument(
+        "--prompt", action="store_true",
+        help="print the assembled call instead — the bytes a model would receive",
+    )
+
     roll_command = commands.add_parser("roll", help="roll dice through the rules engine")
     roll_command.add_argument("expression", help="e.g. 2d6+3, 4d6kh3, d20")
     roll_command.add_argument("--modifier", type=int, default=0)
@@ -2277,6 +2383,13 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_new_campaign(console, args)
         if args.command == "campaigns":
             return _cmd_campaigns(console)
+        if args.command == "npc":
+            if args.npc_command == "list":
+                return _cmd_npc_list(console, args)
+            if args.npc_command == "show":
+                return _cmd_npc_show(console, args)
+            parser.parse_args(["npc", "--help"])
+            return 0
         if args.command == "roll":
             return _cmd_roll(console, args)
         if args.command == "create-character":

@@ -52,6 +52,7 @@ from dndc.schema.events import (
     GMNarration,
     PlayerInput,
 )
+from dndc.schema.npc import NPCS_FILE, NPCBook
 from dndc.schema.sheet import CharacterSheet
 from dndc.srd.repository import SRDRepository
 
@@ -472,6 +473,11 @@ def load_campaign_backgrounds(
 ) -> BackgroundBook:
     """The campaign's own backgrounds. An absent file is an empty book, not an error."""
     return BackgroundBook.load(campaign_dir(campaign_slug, root) / BACKGROUNDS_FILE)
+
+
+def load_campaign_npcs(campaign_slug: str, root: Path | None = None) -> NPCBook:
+    """The campaign's cast (P4.1). An absent file is an empty book, not an error."""
+    return NPCBook.load(campaign_dir(campaign_slug, root) / NPCS_FILE)
 
 
 def load_campaign_chronicle(campaign_slug: str, root: Path | None = None) -> Chronicle:

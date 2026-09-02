@@ -283,6 +283,63 @@ NPC schema (voice card, knowledge scope, canon-ledger view), per-turn prompt reb
 by GM director, gatekeeper pass, stance-scoped supersession port. Routing layer picks
 Ollama endpoint (toto-llm primary, sam-pc secondary) from config.
 
+**The phase D-003 was written for, and the one the canon scopes have been waiting for since
+P1.2.** Two properties govern every task below, both ported from the mystery:
+
+- **Substitution, never prohibition.** An NPC's prompt is built from what that NPC knows.
+  There is no "do not mention the tunnel" line anywhere, because that is the pink-elephant
+  anti-pattern — protection comes from what is *absent* from the prompt. `gm_only` canon is
+  never assembled into an NPC call at all, which makes the guarantee testable rather than
+  hopeful.
+- **The gatekeeper is a backstop, not the gate.** It fails *open*: a broken checker must
+  never break a turn, because the architecture is what protects and the checker only
+  measures how well. Raw drafts are kept whatever the verdict — pre-censor drafts are the
+  denominator of every leak rate Phase 7 will want.
+
+Task breakdown:
+
+- **P4.1** NPC records as campaign data: the voice card (who they are, how they talk), the
+  knowledge scope (what canon they may see), and the ledger's per-NPC view. `npcs.yaml`
+  beside `canon.yaml`, hand-authorable; `dndc npc list|show`. No model calls, no prompt
+  assembly — the shape is the commitment.
+  *(Done 2026-09-02. `schema/npc.py` — `VoiceCard`, `NPC`, `NPCBook`; `CanonLedger.for_npc`
+  is the filter and `npc_issues` is the authoring lint. **An NPC sees only what it was
+  granted**: entries carrying one of its `knows_tags`, entries named in `knows`, campaign
+  common knowledge, and its own beliefs. Three exclusions are *unconditional* and cannot be
+  overridden by authoring — `gm_only`, `player_known`, and any other character's beliefs.
+  `player_known` is the one that changed during the work: it started as reachable-by-tag and
+  a test caught the leak, because **the sweep writes that scope automatically** (P2.3), so it
+  is the one bucket that fills with everything the party did without anyone authoring it.
+  `NPC.notes` exists for what the model must not be told and is never rendered.)*
+- **P4.2** NPC prompt assembly: voice card + permitted canon + their own beliefs + what
+  they have already said, in an order that is data rather than code (section order vs.
+  leak rate is a research variable). Pure function; the absence property is asserted here.
+  *(Done 2026-09-02. `gm/npcprompt.py` + `gm/prompts/npc_core.md`. **The builder takes a
+  ledger, never a list of entries** — it calls `for_npc` itself, so the filter cannot be
+  forgotten or bypassed by a caller in a hurry; the one door into an NPC prompt is the one
+  with the lock on it. Facts and beliefs render under separate headings, because a model
+  that treats them alike turns a private suspicion into something "everyone knows". The
+  absence property is asserted on the assembled bytes rather than on the filter, and one
+  test greps the whole prompt for prohibition phrasing — "do not mention" appearing anywhere
+  would mean the design had quietly inverted. Landed with P4.1 because neither half is
+  testable alone: the guarantee is a property of the assembled call.)*
+- **P4.3** The routing layer and the NPC seat: pick an endpoint from `ollama_endpoints`
+  (toto-llm primary, sam-pc registered since day one per OD-5), health-check and fall back,
+  emit `npc_turn` with `CallStatus`/`call_id`. First task in the phase that needs the LAN.
+- **P4.4** The gatekeeper pass: check a draft against what that NPC was permitted to know
+  and against established canon; `pass | revised | blocked`, minimal rewrite, fail open,
+  raw draft logged. Validated by **positive control** before any zero is believed — the
+  P2.6 discipline: plant leaks, prove the checker catches them.
+- **P4.5** Wiring into the turn loop: the GM directs who speaks (a tag, the eighth use of
+  the convention), the engine runs that NPC's own call, the gatekeeper gates it, and what
+  the NPC said comes back to the GM as established dialogue. Cost and latency at the table
+  are the thing to measure here.
+- **P4.6** Stance-scoped supersession (mystery OD-13): when the GM changes what an NPC
+  knows or believes, the change is *decisive* in the next prompt rather than a quiet
+  contradiction of everything the window still remembers them saying.
+- **P4.7** Live verification and a scene at the table: a planted-leak control against the
+  real 70B seat, then NPCs in actual play, findings to `docs/playtests/`.
+
 ## Phase 5 — Campaign persistence + between-session jobs
 
 Save/load full campaign state; `seq` continuity across process restarts (npc-village
