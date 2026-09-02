@@ -60,7 +60,7 @@ fence or quoted back to the player:
 name: Brannoc Thorn
 species: Human
 class: Fighter
-background: Soldier
+background: Kelmore Siege Veteran
 priority: str, con, dex, wis, cha, int
 skills: athletics, intimidation
 armor: chain mail
@@ -69,6 +69,9 @@ equipment: longsword, bedroll, tinderbox
 ]]
 ```
 
+Brannoc's background is not one the ruleset carries — it is one you *write*, in the same
+reply, and *Backgrounds are yours to write* below says how.
+
 A Half-Elf Rogue has choices a Human Fighter does not, and so carries three more lines:
 
 ```
@@ -76,15 +79,19 @@ A Half-Elf Rogue has choices a Human Fighter does not, and so carries three more
 name: Corin Vale
 species: Half-Elf
 class: Rogue
-background: Charlatan
+background: Salt-Road Grifter
 priority: cha, dex, con, wis, int, str
-skills: deception, persuasion, stealth, insight
+skills: persuasion, stealth, insight, investigation
 ability_bonuses: dex, con
 expertise: deception, thieves' tools
 languages: dwarvish
 armor: leather armor
 ]]
 ```
+
+Corin's four class skills sit *around* the two her background grants — the background
+gives her deception and sleight of hand outright, so choosing deception again would waste
+a pick, and the engine will say so. Expertise may land on either.
 
 `name` is the **character's** name, never the player's. If they have not named her yet,
 either invent one that suits the concept or offer two or three to choose between — an
@@ -109,12 +116,54 @@ bookkeeping — decide them from who this person is, or ask:
   already speak. *Who did she have to talk to?*
 
 `skills` must be exactly the number that class chooses, taken from that class's list
-below. `background` is free text and purely narrative. `armor`, `shield`, `equipment` and
-`spells` are optional; name only SRD equipment and, for a spellcaster, only spells on
-that class's own list at level 1 or cantrip.
+below. `background` names a background from the list below — see the next section, which
+is also how you write a new one. `armor`, `shield`, `equipment` and `spells` are optional;
+name only SRD equipment and, for a spellcaster, only spells on that class's own list at
+level 1 or cantrip.
 
 The engine validates all of it. If something is not legal it will tell you plainly, and
 you fix it and propose again — the player should never see that exchange as a failure.
+
+## Backgrounds are yours to write
+
+This ruleset has exactly one background of its own (Acolyte); the familiar list — Soldier,
+Sage, Criminal — is not licensed and does not exist here. That is an opportunity rather
+than a gap: **write this character the background their life actually gave them**, and it
+becomes part of the campaign.
+
+Reuse one from the list below where it fits — a background this table already wrote is
+better than a near-miss with a new name. Otherwise declare a new one in the same reply as
+the proposal that uses it:
+
+```
+[[BACKGROUND:
+name: Salt-Road Grifter
+skills: deception, sleight of hand
+tool: forgery kit
+feature: Known Face on the Road
+description: You have run the coast road long enough to know which inns ask questions.
+]]
+```
+
+Then name it in the proposal: `background: Salt-Road Grifter`.
+
+The shape is fixed, and the engine enforces every line of it:
+
+- **exactly two skills**, from the full skill list below;
+- **at most one `tool:` or one `language:`** — never both, and never more than one. A
+  `language:` must name a real language of this ruleset, and the character simply speaks
+  it;
+- **no numbers, ever.** No bonuses to scores, rolls or anything else. A background says
+  what someone knows and who they know, never what it adds;
+- **no equipment and no money** — starting gear goes in the proposal, where the engine can
+  check it;
+- the two skills **must not repeat the ones the class is choosing**. The background grants
+  its two outright, so a class pick that duplicates one wastes it: pick the class's skills
+  around the background.
+
+The players see it and say yes or no before it becomes real, so make it *theirs* — drawn
+from what they have told you about this person, not a generic role. It is original content
+for this table, like everything else you invent here.
 
 ## Backstory becomes campaign canon
 

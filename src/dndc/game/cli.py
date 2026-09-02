@@ -50,6 +50,7 @@ from dndc.game.campaign import (
 )
 from dndc.game.creation import (
     CreationSession,
+    load_campaign_backgrounds,
     load_campaign_canon,
     load_campaign_chronicle,
     load_campaign_sheets,
@@ -98,6 +99,7 @@ from dndc.models import (
     estimate_cost,
     load_prices,
 )
+from dndc.rules.background import describe_grants
 from dndc.rules.build import BuildError, grant_issues
 from dndc.rules.combat import Condition as CombatCondition
 from dndc.rules.combat import Encounter
@@ -745,6 +747,41 @@ def ask_selection(console: Console, count: int, question: str, attempts: int = 3
         if attempt < attempts - 1:
             console.print("[yellow]didn't follow that[/yellow] — 'all', 'none', or e.g. 1 3")
     return set()
+
+
+def confirm_background(console: Console, background, attempts: int = 3) -> bool:
+    """The table's say over a background the GM invented (the 2026-08-15 (c) ruling).
+
+    Shown in full before it is asked about, because this is the one place the GM writes
+    *mechanics* — two skills and sometimes a tool, on the sheet for the life of the
+    character — and "Kelly holds content veto" only means something if she can see what
+    she is vetoing.
+
+    Nobody answering is a no, the same conservative reading `ask_selection` takes: a
+    background nobody said yes to does not become part of the campaign.
+    """
+    console.print()
+    console.print(f"  [bold]{background.name}[/bold] [dim]— a background the GM wrote[/dim]")
+    console.print(f"  [dim]grants[/dim] {describe_grants(background)}")
+    if background.feature:
+        console.print(f"  [dim]feature[/dim] {background.feature}")
+    for line in background.feature_description:
+        console.print(f"  [dim]{line}[/dim]")
+
+    for attempt in range(attempts):
+        try:
+            answer = Prompt.ask("  [dim]add it to the campaign?[/dim] y / n", default="y")
+        except (EOFError, KeyboardInterrupt):
+            return False
+        normalized = answer.strip().casefold()
+        if normalized in {"y", "yes", "ok", "sure", ""}:
+            return True
+        if normalized in {"n", "no", "nope"}:
+            console.print("  [dim]declined — the GM will write another[/dim]")
+            return False
+        if attempt < attempts - 1:
+            console.print("[yellow]y or n[/yellow]")
+    return False
 
 
 def choose_proposals(
@@ -1748,6 +1785,8 @@ def _cmd_create_character(console: Console, args: argparse.Namespace) -> int:
         max_tokens=args.max_tokens,
         billing=billing.value,
         prices=load_prices(cfg.pricing),
+        backgrounds=load_campaign_backgrounds(campaign.slug),
+        confirm_background=lambda background: confirm_background(console, background),
     )
 
     console.print(f"[bold]{campaign.name}[/bold] — making a character for {args.player}")
@@ -1787,7 +1826,9 @@ def _cmd_create_character(console: Console, args: argparse.Namespace) -> int:
                         )
                         continue
                     try:
-                        sheet_path, canon_path = session.finish(campaign.slug)
+                        sheet_path, canon_path, backgrounds_path = session.finish(
+                            campaign.slug
+                        )
                     except BuildError as exc:
                         console.print(f"[red]error:[/red] {exc}")
                         continue
@@ -1795,6 +1836,8 @@ def _cmd_create_character(console: Console, args: argparse.Namespace) -> int:
                     console.print(f"[green]saved[/green] {summarize(session.sheet, session.facts)}")
                     console.print(f"  sheet -> {sheet_path}")
                     console.print(f"  canon -> {canon_path}")
+                    if backgrounds_path is not None:
+                        console.print(f"  backgrounds -> {backgrounds_path}")
                     break
                 else:
                     console.print(f"[yellow]unknown command {command}[/yellow] — /help")
@@ -1829,6 +1872,11 @@ def _creation_reply(console: Console, reply, stream: bool) -> None:
 
     if reply.refused:
         console.print("[yellow]the model declined that[/yellow]")
+    if reply.background is not None:
+        console.print(
+            f"  [dim]background:[/dim] {reply.background.name} "
+            f"[dim]({describe_grants(reply.background)})[/dim]"
+        )
     for fact in reply.facts:
         console.print(f"  [dim]canon:[/dim] {fact}")
     if reply.sheet is not None:
@@ -1934,8 +1982,15 @@ def _cmd_sheet_validate(console: Console, args: argparse.Namespace) -> int:
     # Schema-valid is not the same as complete: a sheet can parse cleanly and still be
     # missing what its species and class actually grant. That is how the first
     # co-created character reached the table two ability points short.
+    # A background the campaign wrote grants real proficiencies, so without its book this
+    # check silently stops looking at half of them — an unknown background resolves to
+    # nothing and reports no issue, which is the quiet kind of gap this function exists
+    # to close.
+    campaign_backgrounds = (
+        load_campaign_backgrounds(args.campaign).get if args.campaign else None
+    )
     try:
-        issues = grant_issues(sheet, SRDRepository.load())
+        issues = grant_issues(sheet, SRDRepository.load(), campaign_backgrounds)
     except SRDIngestError as exc:
         console.print(f"[dim]grants not checked: {exc}[/dim]")
         return 0
@@ -2188,6 +2243,10 @@ def build_parser() -> argparse.ArgumentParser:
     sheet_show.add_argument("path")
     sheet_validate = sheet_commands.add_parser("validate", help="validate a sheet")
     sheet_validate.add_argument("path")
+    sheet_validate.add_argument(
+        "--campaign", metavar="SLUG",
+        help="also resolve backgrounds this campaign wrote (they grant proficiencies)",
+    )
     return parser
 
 

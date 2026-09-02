@@ -15,18 +15,15 @@ blockers into this list.
 
 ### Open now
 
-**None awaiting Fable.** But one *ruled* item is **not yet built**, and it takes priority
-over TASKS.md order:
+**None awaiting Fable, and nothing ruled is unbuilt.** Next session starts Phase 4 (the NPC
+agent tier, D-003) on TASKS.md order.
 
-> **NEXT TASK — the backgrounds ruling (option 3), ruled 2026-08-15 (c).** Co-creation
-> proposes an original background; the engine validates the shape deterministically
-> (exactly two skills from the standard list, ≤1 tool or language, **never** numeric
-> bonuses); the proposal must not duplicate the class skill picks (the P1.4
-> double-granting trap); the table confirms; confirmed backgrounds persist beside
-> `canon.yaml` for reuse. Acolyte stays as the one SRD row. **Kelly holds content veto**,
-> so show her what it generates. Full ruling text in the 2026-08-15 (c) block below.
+One thing for **Kelly, not Fable**: the backgrounds ruling gave her a content veto, and the
+first thing it generated is quoted in the 2026-09-02 entry below. If *Coast-Road Grifter*
+is not the register she wants for this campaign, that is a prompt change, not a design one.
 
-*(Monster tactics — the other half of that ruling — was implemented 2026-08-15 (j).)*
+*(Both halves of the 2026-08-15 (c) ruling are now built: monster tactics 2026-08-15 (j),
+backgrounds 2026-09-02.)*
 
 *(Drift-baseline reproducibility ruled 2026-08-15 — implemented 2026-08-15 (c).)*
 
@@ -368,6 +365,129 @@ the drift instrument's own log is a finding worth the two-line fix.
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-09-02 — the backgrounds ruling: the GM writes campaign mechanics now (Claude Code, kelly-pc)
+
+**The 2026-08-15 (c) ruling implemented, option 3. 1101 tests, suite still fully offline.**
+Both halves of that ruling are now built; nothing ruled is outstanding, and the next session
+starts Phase 4.
+
+### What it does
+
+Co-creation can write a background. The GM proposes one in the same reply as the character,
+the engine decides whether it may be granted, **the table says yes or no before anything is
+filed**, and confirmed ones live in `campaigns/<slug>/backgrounds.yaml` beside `canon.yaml`,
+reusable by the next character who wants one.
+
+D-008 amended first, items 15 and 16: the `[[BACKGROUND:]]` wire format (the seventh use of
+the tag convention, so it costs no extra call and the `[[` filter already hides it), and a
+`background_write` family. It carries `confirmed` and `applied` for the same reason
+`inventory_change` does — the table agreeing and the file changing are different facts, and
+a background the table *refused* is a measurement of the GM that only exists if it is
+written down.
+
+The shape rules are the ruling's, enforced deterministically:
+
+- exactly two skills, distinct, from the standard list;
+- at most one tool **or** one language — never both;
+- never a numeric bonus. There is nowhere in the type to put one, so the only way one could
+  arrive is written into prose, and the validator refuses a signed number in the name,
+  feature or description;
+- no equipment and no money. Starting gear stays in `[[PROPOSE:]]`, where the SRD catalogue
+  checks it; a second unvalidated path into the inventory is how a background starts granting
+  a longbow. A tag carrying `equipment:` is refused **by name** rather than ignored, because
+  a silently dropped line is the GM telling the player about gear the sheet never received.
+
+**The class-pick clash needed no new code.** `build_character` has refused a class skill the
+background grants since the ingest task, and a campaign background reaches that check by the
+same path an SRD one does — which is why `CampaignBackground` *subclasses* the SRD type
+rather than paralleling it. Nothing downstream can tell an invented background from Acolyte,
+which is the property that matters: a character with one is not a second-class sheet.
+
+### Three things that fell out, all of them arguable
+
+**A background's `language:` names the language, and the character speaks it.** The SRD's own
+model is "N languages of your choice" (Acolyte grants two). A choice is a thing that gets
+left half-spent — the Half-Elf's floating ability bonuses proved that once already — and a
+background written for one character can perfectly well say which language that life taught
+her. Documented in D-008 rather than left as an implementation detail, since it diverges from
+the ruleset's shape.
+
+**Expertise may now land on a background skill.** It could not before: `_validate_expertise`
+offered only the class's own picks, which refuses a legal rogue whose best skill is the one
+her life gave her (5e says "two of your skill proficiencies"). Latent since the ingest task
+and invisible until backgrounds granted real skills; now every character has two.
+
+**`dndc sheet validate` gained `--campaign`.** Without the campaign's book an invented
+background resolves to nothing and the grants check reports no issue at all — it silently
+stops looking at half of a character's proficiencies, which is the quiet failure that
+function exists to prevent.
+
+### Live-verified, and here is what it wrote — Kelly, this is your veto
+
+One sentence of concept ("a grifter who has been running the coast road since she was
+twelve — quick, charming, forges a decent letter of passage") produced, on the first try:
+
+> **Coast-Road Grifter** — deception, sleight of hand; forgery kit
+> *Familiar Face:* "You've worked the coast road since you were twelve — every innkeeper,
+> ferryman, and dockhand between here and the border towns has seen your face under one name
+> or another, and most of them owe you a favor or a grudge."
+
+It then built Wren Ashcombe (Half-Elf Rogue) and chose her four class skills *around* the
+background — acrobatics, insight, persuasion, stealth — rather than colliding with it. The
+sheet came out with both background skills, the forgery kit **and** the class's thieves'
+tools, and the filed row carries `proposed_for: Wren Ashcombe` and the date.
+
+That is the register the current prompt produces: concrete, second-person, tied to what the
+player actually said. **If it is not the register you want, that is a prompt change and not a
+design one** — say so and it is a ten-minute fix. The test campaign was deleted after the
+run; the log is `logs/20260902-061438.jsonl`.
+
+### A gotcha worth the entry: the interactive CLI cannot be scripted
+
+The first live attempt piped answers into `dndc create-character` and produced a confident
+cascade of nonsense — three backgrounds proposed and all three refused, ending in "the table
+declined that background". **rich's `Prompt.ask` does not read piped stdin**; it raises
+`EOFError` immediately, so every confirmation in that run declined by default. Nothing was
+wrong with the code: the repair loop did exactly what it should when the table says no three
+times running.
+
+This is pre-existing and affects every confirmation gate in the project (`confirm_inventory`,
+the sweep, and now this one), so it is worth knowing before someone debugs the wrong thing:
+**a live check of anything behind a prompt has to drive the session object directly, not the
+CLI.** That is how this one was verified, and the driver is four lines of setup.
+
+### Known issues
+
+- **Acolyte's `languages_choose: 2` still grants nothing.** The SRD row says two languages of
+  the character's choice; `_validate_languages` only ever consulted the species, so those two
+  have been silently dropped since backgrounds were ingested. Deliberately **not** fixed here:
+  the fix is a choice-point in the build path, it changes what an existing Acolyte sheet must
+  carry, and folding it into this commit would blur two things that want separate scrutiny.
+  Same class of bug as the Half-Elf's missing ability points, so it should be fixed — as its
+  own small task, with `grant_issues` taught to notice it.
+- **The numeric-bonus guard is narrow by construction.** It catches a signed number in the
+  prose, not every phrasing a model could reach for ("your Charisma improves"). The real
+  guarantee is that the type has nowhere to put a bonus; this only guards the free-text
+  field. Worth remembering before trusting it as a filter rather than a backstop.
+- Equipment packs still have no upstream weight (unchanged from the ingest task).
+
+### FOR DESIGN
+
+Nothing blocking, and nothing that needs a ruling to proceed. One observation for whenever
+Fable next looks at this: **the GM now writes content that grants proficiencies**, which is a
+new kind of authority for the model tier and the first one that is *reusable* — a background
+confirmed for one character is offered to the next. The gate is per-proposal and the table
+sees the full shape, so nothing lands unseen; but if a campaign accumulates a dozen invented
+backgrounds, "what has the GM been granting itself" becomes a Phase 7 question, and
+`background_write` rows are the ready-made answer.
+
+### Recommended next task
+
+**Phase 4 — the NPC agent tier (D-003).** TASKS.md order, nothing blocking it. The Acolyte
+languages gap above would make a clean warm-up if a session wants one.
 
 ---
 

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import Callable
 
 from dndc.rules.allocate import (
     STANDARD_ARRAY,
@@ -44,6 +45,10 @@ from dndc.schema.sheet import (
     SpellSlotLevel,
 )
 from dndc.srd.repository import SRDRepository
+
+#: Resolves a campaign-written background by name. `BackgroundBook.get` is the one the
+#: game layer passes; the annotation is structural so this module imports no campaign code.
+BackgroundLookup = Callable[[str], object | None]
 
 #: Allocation methods the GM may name.
 STANDARD_ARRAY_METHOD = "standard_array"
@@ -182,8 +187,18 @@ def _skill_from_index(index: str) -> Skill | None:
         return None
 
 
-def build_character(concept: Concept, repo: SRDRepository) -> CharacterSheet:
-    """Build a validated level-1 sheet, or raise `BuildError` explaining why not."""
+def build_character(
+    concept: Concept,
+    repo: SRDRepository,
+    backgrounds: BackgroundLookup | None = None,
+) -> CharacterSheet:
+    """Build a validated level-1 sheet, or raise `BuildError` explaining why not.
+
+    `backgrounds` resolves a background the *campaign* wrote (the 2026-08-15 (c) ruling),
+    consulted after the SRD's own. Passed in rather than imported, the way `apply_gain`
+    takes its catalogue: this module stays a pure function over the ruleset, and campaign
+    content reaches it as an argument.
+    """
     species = repo.species(concept.species)
     if species is None:
         raise BuildError(f"no SRD species called {concept.species!r}")
@@ -197,9 +212,9 @@ def build_character(concept: Concept, repo: SRDRepository) -> CharacterSheet:
     except AllocationError as exc:
         raise BuildError(str(exc)) from exc
 
-    background = repo.background(concept.background) if concept.background else None
+    background = resolve_background(concept.background, repo, backgrounds)
     skills = _validate_skills(concept, character_class, background)
-    expertise = _validate_expertise(concept, character_class, skills)
+    expertise = _validate_expertise(concept, character_class, skills, background)
     languages = _validate_languages(concept, species)
     types = repo.data.proficiency_types
     armor, shield = _armor(concept, repo)
@@ -240,7 +255,7 @@ def build_character(concept: Concept, repo: SRDRepository) -> CharacterSheet:
                     *(background.tools if background else ()),
                 )
             },
-            languages=[_titled(language) for language in (*species.languages, *languages)],
+            languages=_languages(species, languages, background),
         ),
         hit_points=HitPoints(maximum=hit_points, current=hit_points),
         armor_class=_armor_class(scores, armor, shield),
@@ -256,7 +271,11 @@ def build_character(concept: Concept, repo: SRDRepository) -> CharacterSheet:
 # --- pieces ----------------------------------------------------------------
 
 
-def grant_issues(sheet: CharacterSheet, repo: SRDRepository) -> list[str]:
+def grant_issues(
+    sheet: CharacterSheet,
+    repo: SRDRepository,
+    backgrounds: BackgroundLookup | None = None,
+) -> list[str]:
     """Ways a finished sheet falls short of what its species and class actually grant.
 
     The counterpart to `build_character` for sheets that already exist — hand-edited
@@ -337,7 +356,7 @@ def grant_issues(sheet: CharacterSheet, repo: SRDRepository) -> list[str]:
     # A background the SRD knows grants skills outright. One the SRD has never heard of
     # grants nothing and is not an issue — the table invents most of them, and flagging
     # every character for having a background would train the reader to ignore this list.
-    background = repo.background(sheet.background) if sheet.background else None
+    background = resolve_background(sheet.background, repo, backgrounds)
     if background is not None:
         absent = [
             skill.value for skill in background.skills if skill not in sheet.proficiencies.skills
@@ -346,6 +365,21 @@ def grant_issues(sheet: CharacterSheet, repo: SRDRepository) -> list[str]:
             issues.append(
                 f"{background.name} grants {', '.join(sorted(absent))}; sheet does not have "
                 f"{'them' if len(absent) > 1 else 'it'}"
+            )
+        held_tools = {_normalize(name) for name in sheet.proficiencies.tools}
+        missing_tools = [name for name in background.tools if _normalize(name) not in held_tools]
+        if missing_tools:
+            issues.append(
+                f"{background.name} grants {', '.join(sorted(missing_tools))}; sheet does not"
+            )
+        spoken = {_normalize(name) for name in sheet.proficiencies.languages}
+        unspoken = [
+            name for name in _background_languages(background) if _normalize(name) not in spoken
+        ]
+        if unspoken:
+            issues.append(
+                f"{background.name} teaches {', '.join(sorted(unspoken))}; sheet does not "
+                f"list {'them' if len(unspoken) > 1 else 'it'}"
             )
     return issues
 
@@ -387,9 +421,15 @@ def _all_bonuses(concept: Concept, species) -> dict[Ability, int]:
 
 
 def _validate_expertise(
-    concept: Concept, character_class, skills: tuple[Skill, ...]
+    concept: Concept, character_class, skills: tuple[Skill, ...], background=None
 ) -> set[str]:
-    """Expertise picks must be things this character is actually proficient in."""
+    """Expertise picks must be things this character is actually proficient in.
+
+    Background grants count. 5e says expertise is "two of your skill proficiencies", not
+    two of your class's picks — and now that a background grants two real skills and
+    sometimes a tool, excluding them would refuse a legal rogue whose best skill is the
+    one her life gave her.
+    """
     first = character_class.levels.get(1)
     count = first.expertise_choices if first is not None else 0
     picks = tuple(dict.fromkeys(_normalize(pick) for pick in concept.expertise))
@@ -399,11 +439,16 @@ def _validate_expertise(
             raise BuildError(f"{character_class.name} has no expertise at level 1")
         return set()
 
-    proficient = {skill.value for skill in skills} | {
-        _normalize(index)
-        for index in character_class.proficiencies
-        if index.endswith("-tools")
-    }
+    proficient = (
+        {skill.value for skill in skills}
+        | {skill.value for skill in _background_skills(background)}
+        | {
+            _normalize(index)
+            for index in character_class.proficiencies
+            if index.endswith("-tools")
+        }
+        | {_normalize(name) for name in (background.tools if background else ())}
+    )
     if len(picks) != count:
         raise BuildError(
             f"{character_class.name} takes expertise in exactly {count} of its "
@@ -519,6 +564,52 @@ def _armor_class(scores: AbilityScores, armor, shield) -> int:
 
 def _background_skills(background) -> tuple[Skill, ...]:
     return background.skills if background is not None else ()
+
+
+def _background_languages(background) -> tuple[str, ...]:
+    """Languages a background teaches outright — campaign backgrounds only.
+
+    The SRD type has no such field (Acolyte grants two of the character's *choice*, which
+    nothing consumes yet — see the handoff), so this reads as empty for an SRD background
+    and the two paths stay one code path.
+    """
+    return tuple(getattr(background, "languages", ()) or ())
+
+
+def _languages(species, chosen: tuple[str, ...], background) -> list[str]:
+    """Everything the character speaks, in the order they came by it.
+
+    De-duplicated rather than refused when a background teaches something the species
+    already knows. Unlike the skill clash — where the class *chose* and could have chosen
+    otherwise, so a duplicate costs a real pick — a granted language nobody selected costs
+    nothing recoverable, and refusing a reusable background because this particular elf
+    already speaks Elvish would make it unreusable.
+    """
+    names: list[str] = []
+    seen: set[str] = set()
+    for language in (*species.languages, *chosen, *_background_languages(background)):
+        key = _normalize(language)
+        if key in seen:
+            continue
+        seen.add(key)
+        names.append(_titled(language))
+    return names
+
+
+def resolve_background(name: str | None, repo: SRDRepository, backgrounds=None):
+    """The ruleset's background, then the campaign's, then nothing.
+
+    SRD first because the ruleset wins where the two could disagree — and they cannot,
+    since `validate_background` refuses a campaign background that reuses an SRD name.
+    An unknown name still resolves to `None` and stays flavour, which is what makes every
+    character built before backgrounds granted anything still loadable.
+    """
+    if not name:
+        return None
+    found = repo.background(name)
+    if found is not None:
+        return found
+    return backgrounds(name) if backgrounds is not None else None
 
 
 def _inventory(concept: Concept, armor, shield, background, repo: SRDRepository):

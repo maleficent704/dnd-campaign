@@ -23,16 +23,24 @@ from typing import Sequence
 
 from dndc.gm.templates import render_template
 from dndc.models.base import DEFAULT_MAX_TOKENS, GMRequest, Message, Role
+from dndc.rules.background import describe_grants
 from dndc.rules.build import class_skill_options
-from dndc.schema.sheet import CharacterSheet
+from dndc.schema.campaign import BackgroundBook
+from dndc.schema.sheet import CharacterSheet, Skill
 from dndc.srd.repository import SRDRepository
 
 #: Armour categories worth offering at level 1, in the order a player thinks of them.
 _ARMOR_CATEGORIES = ("Light", "Medium", "Heavy")
 
 
-def render_options(repo: SRDRepository) -> str:
-    """The SRD menu, as prompt text. Session-stable, so it rides in the cached prefix."""
+def render_options(repo: SRDRepository, backgrounds: BackgroundBook | None = None) -> str:
+    """The SRD menu, as prompt text. Session-stable, so it rides in the cached prefix.
+
+    Carries the campaign's own backgrounds too (the 2026-08-15 (c) ruling). They are not
+    ruleset content, but they belong in the same list for the same reason everything else
+    is here: a background this campaign already wrote should be reused by name rather than
+    reinvented under a near-miss.
+    """
     lines = [
         "## What this ruleset actually offers",
         "",
@@ -86,6 +94,25 @@ def render_options(repo: SRDRepository) -> str:
 
     lines.extend([
         "",
+        "**Skills** — the whole list, which is what a background chooses its two from:",
+        "",
+        ", ".join(sorted(skill.value.replace("_", " ") for skill in Skill)) + ".",
+    ])
+
+    lines.extend(["", "**Backgrounds:**", ""])
+    for background in sorted(repo.data.backgrounds.values(), key=lambda b: b.name):
+        lines.append(f"- **{background.name}** *(ruleset)* — {describe_grants(background)}")
+    for background in sorted(backgrounds or (), key=lambda b: b.name):
+        lines.append(
+            f"- **{background.name}** *(this campaign)* — {describe_grants(background)}"
+        )
+    lines.extend([
+        "",
+        "Anything else has to be written from scratch with a `[[BACKGROUND: ...]]` block.",
+    ])
+
+    lines.extend([
+        "",
         "Spells are not listed — name them from the class's own SRD list and the engine "
         "will check them.",
     ])
@@ -108,9 +135,12 @@ def _armor_by_category(repo: SRDRepository) -> list[tuple[str, str]]:
 class CreationPromptBuilder:
     """Builds the request for one exchange of the interview."""
 
-    def __init__(self, repo: SRDRepository) -> None:
+    def __init__(
+        self, repo: SRDRepository, backgrounds: BackgroundBook | None = None
+    ) -> None:
         self.repo = repo
-        self._options = render_options(repo)
+        self.backgrounds = backgrounds
+        self._options = render_options(repo, backgrounds)
 
     def system(self) -> str:
         """Instructions plus the SRD menu. Fixed for the interview — the cached prefix."""

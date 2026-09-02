@@ -18,7 +18,11 @@ from typing import Self
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
+from dndc.schema.srd import Background
+
 CAMPAIGN_FILE = "campaign.yaml"
+#: Original backgrounds, beside `canon.yaml` — campaign content, not ruleset (D-007).
+BACKGROUNDS_FILE = "backgrounds.yaml"
 
 
 def slugify(name: str) -> str:
@@ -66,3 +70,91 @@ class Campaign(BaseModel):
     @classmethod
     def load(cls, path: Path) -> Self:
         return cls.from_yaml(Path(path).read_text(encoding="utf-8"))
+
+
+class CampaignBackground(Background):
+    """A background this table wrote, granted exactly as an SRD one is.
+
+    Fable's 2026-08-15 (c) ruling: the SRD has one background (Acolyte) and the rest are
+    PHB, so the *mechanism* was complete and the dataset was one row. Original backgrounds
+    are the D-007-native answer — the mechanism (a name, two skills, a small extra,
+    flavour) is uncopyrightable, and the names and text generated here are this campaign's
+    own.
+
+    A subclass of the SRD type rather than a parallel one, because everything downstream
+    should be unable to tell the difference: `build_character` grants these by the same
+    code path, and a character with an invented background is not a second-class sheet.
+
+    Two fields the SRD type has no use for:
+
+    - `languages` names what the background teaches. The SRD's `languages_choose` is a
+      *choice* the character makes later; a background written for one character can
+      simply say which language it taught, and a grant with nothing left to decide cannot
+      be left half-spent.
+    - `proposed_for` / `established` are provenance. The event log carries the same facts,
+      but this file outlives any one session's log and is the artifact a human reads when
+      deciding whether a second character may take this background.
+    """
+
+    #: Languages granted outright. At most one, per the ruling's "small extra".
+    languages: tuple[str, ...] = ()
+    #: The character whose interview produced it. It outlives them and is reusable.
+    proposed_for: str | None = None
+    established: date | None = None
+
+
+class BackgroundBook(BaseModel):
+    """`campaigns/<slug>/backgrounds.yaml` — the campaign's own backgrounds.
+
+    Beside `canon.yaml` and for the same reason: what play establishes has to survive the
+    process. A background is reusable by construction, so the second character to want a
+    Salt-Road Grifter gets the same one rather than a near-miss with the same name.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    backgrounds: list[CampaignBackground] = Field(default_factory=list)
+
+    def __iter__(self):
+        return iter(self.backgrounds)
+
+    def __len__(self) -> int:
+        return len(self.backgrounds)
+
+    def names(self) -> list[str]:
+        return [background.name for background in self.backgrounds]
+
+    def get(self, name: str) -> CampaignBackground | None:
+        """Case-insensitive lookup by name — what the GM writes is what it means."""
+        if not name:
+            return None
+        folded = name.strip().casefold()
+        for background in self.backgrounds:
+            if background.name.casefold() == folded or background.index == folded:
+                return background
+        return None
+
+    def add(self, background: CampaignBackground) -> CampaignBackground:
+        """File a confirmed background. Re-adding an existing name is a no-op."""
+        held = self.get(background.name)
+        if held is not None:
+            return held
+        self.backgrounds.append(background)
+        return background
+
+    def to_yaml(self) -> str:
+        payload = self.model_dump(mode="json", exclude_defaults=True)
+        return yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
+
+    @classmethod
+    def load(cls, path: Path | str) -> Self:
+        target = Path(path)
+        if not target.exists():
+            return cls()
+        return cls.model_validate(yaml.safe_load(target.read_text(encoding="utf-8")) or {})
+
+    def save(self, path: Path | str) -> Path:
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(self.to_yaml(), encoding="utf-8")
+        return target

@@ -179,11 +179,14 @@ def test_finish_writes_the_sheet_and_the_canon(repo, campaigns_root):
     convo.open()
     convo.say("Tell me about his debts.")
 
-    sheet_path, canon_path = convo.finish("the-hollow-road")
+    sheet_path, canon_path, backgrounds_path = convo.finish("the-hollow-road")
 
     assert sheet_path.name == "brannoc-thorn.yaml"
     assert sheet_path.parent == campaigns_root / "the-hollow-road" / "characters"
     assert canon_path.name == CANON_FILENAME
+    # Nothing was invented, so nothing is filed — a campaign only grows a background book
+    # when the GM writes a background.
+    assert backgrounds_path is None
 
     (loaded,) = load_campaign_sheets("the-hollow-road")
     assert loaded.name == "Brannoc Thorn"

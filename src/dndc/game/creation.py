@@ -17,10 +17,12 @@ part of this project that is supposed to feel like sitting down with a person.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import Callable, Sequence
 
 from dndc.game.campaign import CHARACTERS_DIRNAME, campaign_dir
+from dndc.gm.backgroundtag import find_background, strip_background_tags
 from dndc.gm.canon import CanonEntry, CanonLedger, CanonScope
 from dndc.gm.chronicle import Chronicle
 from dndc.gm.creation import CreationPromptBuilder, assistant, user
@@ -33,9 +35,16 @@ from dndc.memory.canon_store import CANON_FILENAME
 from dndc.memory.chronicle import CHRONICLE_FILENAME
 from dndc.models.base import GMBackend, GMResponse, Message, new_call_id
 from dndc.models.pricing import estimate_cost
+from dndc.rules.background import BackgroundError, describe_grants, validate_background
 from dndc.rules.build import BuildError, build_character
-from dndc.schema.campaign import slugify
+from dndc.schema.campaign import (
+    BACKGROUNDS_FILE,
+    BackgroundBook,
+    CampaignBackground,
+    slugify,
+)
 from dndc.schema.events import (
+    BackgroundWrite,
     CallStatus,
     CanonSource,
     CanonWrite,
@@ -77,6 +86,9 @@ class CreationReply:
     text: str
     sheet: CharacterSheet | None = None
     facts: list[str] = field(default_factory=list)
+    #: A background the GM wrote this exchange and the table accepted. Set once, on the
+    #: reply that established it — a later reply naming it again is reuse, not news.
+    background: CampaignBackground | None = None
     #: Set only when the engine could not build a legal character *and* the GM could not
     #: repair it — at which point the player does need to know something is wrong.
     error: str | None = None
@@ -97,19 +109,28 @@ class CreationSession:
         max_tokens: int = 1024,
         billing: str = "api",
         prices: dict | None = None,
+        backgrounds: BackgroundBook | None = None,
+        confirm_background: Callable[[CampaignBackground], bool] | None = None,
     ) -> None:
         self.backend = backend
         self.repo = repo
         self.player = player
-        self.builder = builder or CreationPromptBuilder(repo)
+        self.backgrounds = backgrounds if backgrounds is not None else BackgroundBook()
+        self.builder = builder or CreationPromptBuilder(repo, self.backgrounds)
         self.log = log
         self.max_tokens = max_tokens
         self.billing = billing
         self.prices = prices or {}
+        #: The table's say over content the GM invented (the 2026-08-15 (c) ruling). None
+        #: accepts — a scripted or replayed interview has no table to ask, and the CLI
+        #: always passes one.
+        self.confirm_background = confirm_background
 
         self.messages: list[Message] = []
         self.sheet: CharacterSheet | None = None
         self.facts: list[str] = []
+        #: Backgrounds confirmed this interview — what `finish` has to write.
+        self.new_backgrounds: list[CampaignBackground] = []
         #: Player turns so far — what the propose-now nudge is timed off.
         self.turns = 0
 
@@ -145,12 +166,21 @@ class CreationSession:
         response = self._call(on_text)
         self.messages.append(assistant(response.text))
 
-        reply = CreationReply(text=strip_tags(response.text), responses=[response])
+        reply = CreationReply(
+            text=strip_tags(strip_background_tags(response.text)), responses=[response]
+        )
         if response.refused:
             reply.refused = True
             return reply
 
         reply.facts = self._record_facts(response.text)
+
+        # Before the proposal, because the proposal names it: a background declared in
+        # this reply has to be in the book by the time `build_character` resolves it.
+        try:
+            reply.background = self._record_background(response.text)
+        except BackgroundError as exc:
+            return self._repair(str(exc), on_text, attempt, reply)
 
         try:
             proposal = find_proposal(response.text, player=self.player)
@@ -174,7 +204,7 @@ class CreationSession:
             )
 
         try:
-            self.sheet = build_character(proposal.concept, self.repo)
+            self.sheet = build_character(proposal.concept, self.repo, self.backgrounds.get)
         except BuildError as exc:
             return self._repair(str(exc), on_text, attempt, reply)
 
@@ -205,6 +235,9 @@ class CreationSession:
         # The failed reply's prose was already shown; only the correction is new.
         follow_up.facts = reply.facts + follow_up.facts
         follow_up.responses = reply.responses + follow_up.responses
+        # A background confirmed before the rejected proposal survives the repair — the
+        # table already said yes to it, and the objection was about the character.
+        follow_up.background = follow_up.background or reply.background
         return follow_up
 
     def _record_facts(self, text: str) -> list[str]:
@@ -212,6 +245,64 @@ class CreationSession:
         fresh = [fact for fact in find_facts(text) if fact not in self.facts]
         self.facts.extend(fresh)
         return fresh
+
+    def _record_background(self, text: str) -> CampaignBackground | None:
+        """Validate, confirm and file a background the GM wrote (the 2026-08-15 (c) ruling).
+
+        Raises `BackgroundError` both when the engine will not grant it and when the table
+        says no. The two travel the same route deliberately: either way the answer is "not
+        that one, write another", it goes to the GM rather than the player (D-005), and the
+        GM has one reply in which to fix it.
+
+        Every proposal is logged, refusals included. What a model invented and the humans
+        declined measures the model, and only exists as a measurement if it is written down.
+        """
+        tag = find_background(text)
+        if tag is None:
+            return None
+
+        background = validate_background(
+            name=tag.name,
+            skills=tag.skills,
+            tool=tag.tool,
+            language=tag.language,
+            feature=tag.feature,
+            description=tag.description,
+            srd_names=[entry.name for entry in self.repo.data.backgrounds.values()],
+            existing={entry.name: entry for entry in self.backgrounds},
+            languages_known=self.repo.known_languages(),
+        )
+
+        if self.backgrounds.get(background.name) is not None:
+            # The campaign already has it, unchanged — the GM naming what it already
+            # carries. Reuse, so there is nothing to confirm and nothing to write.
+            return None
+
+        confirmed = (
+            self.confirm_background(background) if self.confirm_background else True
+        )
+        self._emit(
+            BackgroundWrite,
+            name=background.name,
+            skills=[skill.value for skill in background.skills],
+            tools=list(background.tools),
+            languages=list(background.languages),
+            feature=background.feature,
+            character=self.sheet.name if self.sheet is not None else None,
+            established_by=tag.raw,
+            confirmed=confirmed,
+            applied=confirmed,
+        )
+        if not confirmed:
+            raise BackgroundError(
+                "the table declined that background. Write a different one — a different "
+                "name and a different pair of skills — or use one that already exists."
+            )
+
+        filed = background.model_copy(update={"established": date.today()})
+        self.backgrounds.add(filed)
+        self.new_backgrounds.append(filed)
+        return filed
 
     # --- the call ----------------------------------------------------------
 
@@ -251,8 +342,14 @@ class CreationSession:
 
     # --- finishing ---------------------------------------------------------
 
-    def finish(self, campaign_slug: str, root: Path | None = None) -> tuple[Path, Path]:
-        """Write the sheet and the backstory canon. Returns both paths."""
+    def finish(
+        self, campaign_slug: str, root: Path | None = None
+    ) -> tuple[Path, Path, Path | None]:
+        """Write the sheet, the backstory canon, and any background this interview wrote.
+
+        The third path is `None` when the character took one that already existed — most
+        characters after the first few, once the campaign has a shelf of them.
+        """
         if self.sheet is None:
             raise BuildError("no character has been built yet")
 
@@ -264,6 +361,8 @@ class CreationSession:
         characters.mkdir(parents=True, exist_ok=True)
         sheet_path = characters / f"{slugify(self.sheet.name)}.yaml"
         self.sheet.save(sheet_path)
+
+        backgrounds_path = self._save_backgrounds(target)
 
         canon_path = target / CANON_FILENAME
         ledger = CanonLedger.load(canon_path)
@@ -278,7 +377,26 @@ class CreationSession:
                 source=CanonSource.CO_CREATION,
             )
         ledger.save(canon_path)
-        return sheet_path, canon_path
+        return sheet_path, canon_path, backgrounds_path
+
+    def _save_backgrounds(self, target: Path) -> Path | None:
+        """File this interview's backgrounds, stamped with who they were written for.
+
+        Provenance is stamped here rather than at confirmation because that is the first
+        moment the character has a settled name — the background is proposed before the
+        sheet exists, and often before anyone has decided what she is called.
+        """
+        if not self.new_backgrounds:
+            return None
+        assert self.sheet is not None
+
+        written = {background.name for background in self.new_backgrounds}
+        for index, held in enumerate(self.backgrounds.backgrounds):
+            if held.name in written and held.proposed_for is None:
+                self.backgrounds.backgrounds[index] = held.model_copy(
+                    update={"proposed_for": self.sheet.name}
+                )
+        return self.backgrounds.save(target / BACKGROUNDS_FILE)
 
     def _canon_entries(self, ledger: CanonLedger) -> list[CanonEntry]:
         """Backstory facts as `character`-scope canon, with ids that do not collide."""
@@ -347,6 +465,13 @@ def load_campaign_sheets(campaign_slug: str, root: Path | None = None) -> list[C
 
 def load_campaign_canon(campaign_slug: str, root: Path | None = None) -> CanonLedger:
     return CanonLedger.load(campaign_dir(campaign_slug, root) / CANON_FILENAME)
+
+
+def load_campaign_backgrounds(
+    campaign_slug: str, root: Path | None = None
+) -> BackgroundBook:
+    """The campaign's own backgrounds. An absent file is an empty book, not an error."""
+    return BackgroundBook.load(campaign_dir(campaign_slug, root) / BACKGROUNDS_FILE)
 
 
 def load_campaign_chronicle(campaign_slug: str, root: Path | None = None) -> Chronicle:

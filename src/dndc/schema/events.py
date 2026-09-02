@@ -38,6 +38,7 @@ class EventType(str, Enum):
     CANON_WRITE = "canon_write"
     INVENTORY_CHANGE = "inventory_change"
     CHRONICLE_WRITE = "chronicle_write"
+    BACKGROUND_WRITE = "background_write"
     COMBAT_START = "combat_start"
     COMBAT_TURN = "combat_turn"
     HIT_POINT_CHANGE = "hit_point_change"
@@ -281,6 +282,37 @@ class ChronicleWrite(_Event):
     token_estimate: int | None = Field(default=None, ge=0)
 
 
+class BackgroundWrite(_Event):
+    """An original background the GM proposed during co-creation (D-008, item 16).
+
+    The first campaign content the GM writes that is *mechanical* — canon is fiction and
+    an inventory change moves something the ruleset already defines, but a background
+    grants proficiencies. So the row carries the whole shape, not a reference: a log
+    should say what a character was granted without needing the campaign file that
+    version of it was written into.
+
+    `confirmed` is the table agreeing; `applied` is the campaign file changing. They come
+    apart when the background already exists identically — accepted, nothing written. A
+    refused proposal is logged with `confirmed: false` and never persisted.
+    """
+
+    type: Literal[EventType.BACKGROUND_WRITE] = EventType.BACKGROUND_WRITE
+    name: str
+    skills: tuple[str, ...] = ()
+    tools: tuple[str, ...] = ()
+    #: Languages the background teaches, named — at most one, per the ruling's "small
+    #: extra". Named rather than "one of your choice" because a grant with a decision left
+    #: in it is a grant that gets left half-spent.
+    languages: tuple[str, ...] = ()
+    feature: str = ""
+    #: The character it was proposed for. A background outlives them and is reusable, but
+    #: whose interview produced it is the provenance that matters.
+    character: str | None = None
+    established_by: str | None = None
+    confirmed: bool = True
+    applied: bool = True
+
+
 class CombatSide(str, Enum):
     """Mirrors `rules.combat.Side`. Spelled again here because the log is a wire format
     with its own compatibility promises, and a schema that imports its vocabulary from
@@ -455,6 +487,7 @@ Event = Annotated[
     | CanonWrite
     | InventoryChange
     | ChronicleWrite
+    | BackgroundWrite
     | CombatStart
     | CombatTurn
     | HitPointChange
@@ -474,6 +507,7 @@ EVENT_MODELS: dict[EventType, type[_Event]] = {
     EventType.CANON_WRITE: CanonWrite,
     EventType.INVENTORY_CHANGE: InventoryChange,
     EventType.CHRONICLE_WRITE: ChronicleWrite,
+    EventType.BACKGROUND_WRITE: BackgroundWrite,
     EventType.COMBAT_START: CombatStart,
     EventType.COMBAT_TURN: CombatTurn,
     EventType.HIT_POINT_CHANGE: HitPointChange,

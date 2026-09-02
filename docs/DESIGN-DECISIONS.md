@@ -226,6 +226,9 @@ stay `rules_resolution`, whose `kind` field named them in the original ruling.)*
 *(Amended 2026-08-15 by CC for P3.7: the `[[TARGET:]]` tag, and `combat_turn` gains
 `target` / `target_source` so a logged fight says whether the GM chose, defaulted, or had
 its choice overtaken by events.)*
+*(Amended 2026-09-02 by CC for the backgrounds ruling (2026-08-15 (c)): the
+`[[BACKGROUND:]]` wire format, and `background_write` — the GM inventing campaign content
+the table then accepts or refuses.)*
 
 **Amended 2026-08-09 (Phase 2, doc-first per this decision's own rule).**
 
@@ -380,6 +383,66 @@ re-asking.
 **Deliberately not added: `condition_change`.** Conditions exist in the combat core and
 almost nothing consults them yet (P3.4 owns that). A family nothing emits is vocabulary
 ahead of code, which is the failure this amendment's own timing was chosen to avoid.
+
+**Amended 2026-09-02 (the backgrounds ruling, doc-first).** Fable ruled on 2026-08-15 (c)
+that co-creation may **propose an original background**, the engine validates its shape
+deterministically, the table confirms, and confirmed backgrounds persist as campaign data.
+That makes the GM a writer of *mechanical* campaign content for the first time — canon is
+fiction and inventory moves things the ruleset already defines, but a background grants
+proficiencies — so it needs a wire format and a row of its own.
+
+15. **The tag the GM writes**, on its own, in a co-creation reply:
+
+    ```
+    [[BACKGROUND:
+    name: Salt-Road Grifter
+    skills: deception, sleight of hand
+    tool: forgery kit
+    feature: Known Face on the Road
+    description: You have run the coast road long enough to know which inns ask questions.
+    ]]
+    ```
+
+    The seventh use of the `[[TAG:]]` convention `[[CHECK]]` established, and the
+    `[[`-suppressing filter already keeps it off the player's screen. `tool:` may instead
+    be `language:`, and **at most one of the two may appear** — that is the "small extra"
+    the ruling allows. There is no `equipment:` key: starting gear already has a home in
+    the `[[PROPOSE:]]` block, where it is validated against the SRD catalogue, and a
+    second unvalidated path to the inventory is how a background starts granting a
+    longbow.
+
+    **`language:` names the language**, and the character simply speaks it — it is not the
+    SRD's "one of your choice". A grant with a decision still inside it is a grant that
+    gets left half-spent, which is the failure mode the Half-Elf's floating ability
+    bonuses already demonstrated once; and a background written for one character can
+    perfectly well say which language that life taught them.
+
+    The parser's posture is `[[CHECK]]`'s, not `[[CANON]]`'s: **a background that cannot
+    be read cleanly is refused back to the GM**, never partially built. A dropped canon
+    line costs the ledger a sentence; a half-read background grants a proficiency nobody
+    chose.
+
+    **Validation is deterministic and structural, per the ruling:** exactly two distinct
+    skills from the standard list; at most one tool *or* one language, never both; a name
+    that collides with neither the SRD's own background nor an existing campaign one; and
+    **never a numeric bonus** — the `Background` type has nowhere to put an ability score,
+    so the only way one could arrive is written into prose, which the validator refuses.
+    The class-pick clash (P1.4's double-granting trap) needs nothing new: `build_character`
+    already refuses a class skill the background grants, and a campaign background reaches
+    that check by the same path an SRD one does.
+
+16. **New event family `background_write`** — one row per proposal, whether or not it
+    survives. Fields: `name`, `skills` (the two), `tools`, `languages` (named, at most
+    one), `feature`, `character` (who it was proposed for), `established_by` (the raw
+    tag), `confirmed` (the table agreed), and `applied` (it was written to the campaign's
+    `backgrounds.yaml`).
+
+    `confirmed` and `applied` come apart the same way `inventory_change`'s do: a
+    background the table accepts but which already exists identically is confirmed and not
+    written. A refused one is logged with `confirmed: false` and **never persisted** — what
+    the GM invented and the table declined measures the GM, and it only exists as a
+    measurement if the refusal is written down. Not a `canon_write`: a canon entry is a
+    fact about the world, and this is a rules object that grants proficiencies.
 
 **Rationale.** Same discipline as the mystery; the additions (canon_write provenance,
 cost, escalation) are what Phase 7's instruments — canon-drift measurement, ruling

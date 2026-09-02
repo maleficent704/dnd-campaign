@@ -89,6 +89,19 @@ class SRDRepository:
     def condition(self, key: str) -> Condition | None:
         return self._get("conditions", key)
 
+    def known_languages(self) -> tuple[str, ...]:
+        """Every language this ruleset names, from the species that speak or offer them.
+
+        There is no languages collection upstream — a language exists in the SRD only by
+        being somebody's. Derived rather than listed for that reason: a hand-kept list is
+        one more thing that can disagree with the data.
+        """
+        names = {language for species in self.data.species.values() for language in species.languages}
+        for species in self.data.species.values():
+            if species.language_options is not None:
+                names.update(species.language_options.options)
+        return tuple(sorted(names))
+
     def counts(self) -> dict[str, int]:
         return self.data.counts()
 

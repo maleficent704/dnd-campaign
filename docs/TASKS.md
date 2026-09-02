@@ -249,6 +249,34 @@ blocks, a logged event vocabulary, a turn loop with the GM narrating outcomes it
 computed, an encounter budget measured against the engine, and a view that owns the
 numbers.
 
+## Between phases — original backgrounds (the 2026-08-15 (c) ruling)
+
+Ruled by Fable 2026-08-15 (c), option 3, ahead of Phase 4: co-creation proposes an
+original background, the engine validates the shape deterministically, the table confirms,
+confirmed ones persist as campaign data. The SRD's one row (Acolyte) is untouched.
+
+*(Done 2026-09-02. D-008 amended first — items 15 and 16: the `[[BACKGROUND:]]` wire
+format, and a `background_write` family carrying `confirmed` and `applied`, so a
+background the table refused is a measurement rather than a silence. `gm/backgroundtag.py`
+parses, `rules/background.py` decides what may be granted, `schema/campaign.py` holds the
+`CampaignBackground` type and the `backgrounds.yaml` book, and `CreationSession` asks the
+table before anything is filed. **The shape rules are the ruling's**: exactly two skills
+from the standard list, at most one tool **or** one language, never a numeric bonus, and no
+equipment — starting gear stays in `[[PROPOSE:]]` where the SRD catalogue can check it.
+
+The class-pick clash needed nothing new: `build_character` has refused a class skill the
+background grants since the ingest task, and campaign backgrounds reach that check by the
+same path SRD ones do — which is the whole reason `CampaignBackground` subclasses the SRD
+type instead of paralleling it. Two things fell out: a background's `language:` names the
+language and the character simply speaks it (a grant with a choice left in it is a grant
+that gets left half-spent), and expertise may now land on a background skill, which 5e
+always allowed and the engine was refusing. `dndc sheet validate` gained `--campaign`,
+without which it silently stops checking half of a character's proficiencies.
+
+Live-verified: from one sentence of concept the GM wrote *Coast-Road Grifter* — deception,
+sleight of hand, a forgery kit, and a feature about being known on the road — and chose the
+rogue's four skills around it. **Kelly holds content veto**; the sample is in the handoff.)*
+
 ## Phase 4 — NPC agent tier (D-003)
 
 NPC schema (voice card, knowledge scope, canon-ledger view), per-turn prompt rebuild
