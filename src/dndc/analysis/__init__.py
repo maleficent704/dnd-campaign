@@ -7,6 +7,17 @@ doctrine for `analysis/` (2026-08-15): an instrument that alters what it measure
 an instrument.
 """
 
+from dndc.analysis.cost import (
+    SEAT_ORDER,
+    CampaignCost,
+    SeatCost,
+    SessionCost,
+    Summary,
+    latest_log,
+    logs_in,
+    read_campaign,
+    read_session,
+)
 from dndc.analysis.baseline import (
     BASELINE_SUFFIX,
     DEFAULT_BASELINE_ROOT,

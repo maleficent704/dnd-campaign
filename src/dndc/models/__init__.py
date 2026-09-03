@@ -32,6 +32,7 @@ __all__ = [
     "Endpoint",
     "Billing",
     "DEFAULT_MAX_TOKENS",
+    "GM_SEAT",
     "INTERACTIVE_SEAT",
     "NPC_SEAT",
     "GMBackend",
@@ -105,6 +106,7 @@ def build_npc_backend(
 #: Names for the seats that appear in `cost.seat` and `session_meta.seats`, so a log says
 #: which of them ran. Constants rather than literals because the split is only measurable
 #: if both halves of the codebase spell it the same way.
+GM_SEAT = "gm"
 NPC_SEAT = "npc"
 INTERACTIVE_SEAT = "utility_interactive"
 BATCH_SEAT = "utility_batch"

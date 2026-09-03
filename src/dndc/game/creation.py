@@ -33,6 +33,7 @@ from dndc.logging import SessionLog
 # to one path and read from another.
 from dndc.memory.canon_store import CANON_FILENAME
 from dndc.memory.chronicle import CHRONICLE_FILENAME
+from dndc.models import GM_SEAT
 from dndc.models.base import GMBackend, GMResponse, Message, new_call_id
 from dndc.models.pricing import estimate_cost
 from dndc.rules.background import BackgroundError, describe_grants, validate_background
@@ -436,7 +437,7 @@ class CreationSession:
         estimated = estimate_cost(usage, response.model, self.prices) if self.prices else None
         self.log.emit(
             Cost,
-            seat="gm",
+            seat=GM_SEAT,
             model=response.model,
             billing=self.billing,
             input_tokens=usage.input_tokens,

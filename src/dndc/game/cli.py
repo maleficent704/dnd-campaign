@@ -31,6 +31,10 @@ from dndc.analysis import (
     DriftBaseline,
     baseline_path,
     compare,
+    latest_log,
+    logs_in,
+    read_campaign,
+    read_session,
     digest,
     load_baselines,
     measure,
@@ -101,6 +105,7 @@ from dndc.memory import (
 )
 from dndc.models import (
     BATCH_SEAT,
+    GM_SEAT,
     INTERACTIVE_SEAT,
     THROTTLE_WARNING,
     GMBackendError,
@@ -1001,7 +1006,7 @@ def _cmd_gm(console: Console, args: argparse.Namespace) -> int:
         )
         log.emit(
             Cost,
-            seat="gm",
+            seat=GM_SEAT,
             model=response.model,
             billing=billing.value,
             input_tokens=usage.input_tokens,
@@ -1965,6 +1970,128 @@ def _render_turn(console: Console, encounter: Encounter, outcome) -> None:
         console.print(f"\n{outcome.narration}\n", markup=False, highlight=False)
 
 
+def _duration(ms: int | None) -> str:
+    """Milliseconds as a table reads them, not as a machine writes them."""
+    if ms is None:
+        return "-"
+    if ms < 10_000:
+        return f"{ms / 1000:.1f}s"
+    seconds = round(ms / 1000)
+    if seconds < 60:
+        return f"{seconds}s"
+    return f"{seconds // 60}m {seconds % 60:02d}s"
+
+
+def _spend(seat) -> str:
+    if seat.usd:
+        return f"${seat.usd:.4f}"
+    if seat.hypothetical_usd:
+        # Parenthesised because it is not money that was spent. See the footnote.
+        return f"(${seat.hypothetical_usd:.4f})"
+    return "local"
+
+
+def _render_cost(console: Console, report, title: str) -> None:
+    """One seat per row, money and time side by side.
+
+    Both columns are here because both are real. The GM seat costs pennies and answers in
+    seconds; the 70B costs nothing and can hold the table up for a minute. A report with
+    only one of those columns would be answering a question nobody at this table asks.
+    """
+    if report.empty:
+        console.print(f"[dim]{title}: no model calls[/dim]")
+        return
+
+    table = Table(title=title, title_justify="left", header_style="bold")
+    table.add_column("seat")
+    table.add_column("calls", justify="right")
+    table.add_column("in", justify="right")
+    table.add_column("out", justify="right")
+    table.add_column("median", justify="right")
+    table.add_column("slowest", justify="right")
+    table.add_column("spend", justify="right")
+    for seat in report.ordered:
+        table.add_row(
+            seat.seat,
+            f"{seat.calls:,}",
+            f"{seat.input_tokens:,}",
+            f"{seat.output_tokens:,}",
+            _duration(seat.median_ms),
+            _duration(seat.slowest_ms),
+            _spend(seat),
+        )
+    console.print(table)
+
+    summary = report.summary
+    local = [seat for seat in report.ordered if seat.local]
+    line = f"[bold]${summary.usd:.4f}[/bold] billed"
+    if local:
+        calls = sum(seat.calls for seat in local)
+        clock = sum(seat.ms for seat in local)
+        # The sentence this whole task exists for: a local seat is not free, it is paid
+        # for in evening.
+        line += f" · {calls} local call{'s' if calls != 1 else ''}"
+        if clock:
+            line += f", {_duration(clock)} of it waiting"
+    console.print(f"  {line}")
+
+    if summary.hypothetical_usd:
+        console.print(
+            f"  [dim](${summary.hypothetical_usd:.4f}) would have cost that at API rates "
+            f"— not a bill, and not comparable (OD-16)[/dim]"
+        )
+    mispriced = sum(seat.unpriced for seat in report.ordered if not seat.local)
+    if mispriced:
+        console.print(
+            f"  [yellow]{mispriced} call(s) carried no price[/yellow] — the model is "
+            f"missing from `pricing:` in config.yaml, so the total above is a floor"
+        )
+
+
+def _session_title(report) -> str:
+    parts = [f"session {report.session_id or '?'}"]
+    if report.campaign:
+        parts.append(report.campaign)
+    if report.billing:
+        parts.append(" + ".join(report.billing))
+    if report.restarts:
+        parts.append(f"{report.restarts} restart{'s' if report.restarts != 1 else ''}")
+    return "cost - " + " · ".join(parts)
+
+
+def _cmd_cost(console: Console, args: argparse.Namespace) -> int:
+    """`dndc cost` — what an evening, or a campaign, actually cost (P5.4)."""
+    cfg = load_config()
+    log_dir = resolve_log_dir(cfg.logging.dir)
+
+    if args.campaign:
+        # Logs record the campaign's *name*; people type its slug. Accept either.
+        name = args.campaign
+        try:
+            name = load_campaign(args.campaign).name
+        except (CampaignError, ValidationError):
+            pass
+        report = read_campaign(logs_in(log_dir), campaign=name)
+        if report.empty:
+            console.print(f"[yellow]no logged calls[/yellow] for campaign {name!r}")
+            return 1
+        _render_cost(console, report, f"cost - {name} · {len(report.sessions)} sessions")
+        first, last = report.sessions[0], report.sessions[-1]
+        console.print(
+            f"  [dim]{first.session_id} to {last.session_id}[/dim]"
+        )
+        return 0
+
+    path = Path(args.log) if args.log else latest_log(log_dir)
+    if path is None or not path.exists():
+        console.print(f"[yellow]no session log to read[/yellow] ({args.log or log_dir})")
+        return 1
+    report = read_session(path)
+    _render_cost(console, report, _session_title(report))
+    console.print(f"  [dim]{path}[/dim]")
+    return 0
+
+
 def _cmd_drift_check(console: Console, args: argparse.Namespace) -> int:
     """The survival baseline — deterministic, offline, no model and no logs.
 
@@ -2386,6 +2513,8 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
         # what carries this session into the next one (D-002).
         saves.close(campaign, acting=active, log=log)
         console.print(f"[dim]saved -> {saves.path}[/dim]")
+    console.print()
+    _render_cost(console, read_session(log.path), "what the evening cost")
     console.print(f"[dim]logged -> {log.path}[/dim]")
     return 0
 
@@ -2994,6 +3123,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_gate_flags(play)
 
+    cost = commands.add_parser(
+        "cost", help="what a session or a campaign cost, read back off the log (P5.4)"
+    )
+    cost.add_argument("--log", metavar="PATH", help="a session log (default: the newest)")
+    cost.add_argument(
+        "--campaign", metavar="SLUG",
+        help="every session of one campaign instead of a single one",
+    )
+
     combat = commands.add_parser(
         "combat", help="run a fight against SRD monsters (P3.4 demo runner)"
     )
@@ -3134,6 +3272,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_gm(console, args)
         if args.command == "play":
             return _cmd_play(console, args)
+        if args.command == "cost":
+            return _cmd_cost(console, args)
         if args.command == "combat":
             return _cmd_combat(console, args)
         if args.command == "drift":

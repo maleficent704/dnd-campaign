@@ -20,11 +20,14 @@ and 2026-09-03. The GM directs, NPCs answer for themselves on toto-llm, their dr
 gated, changes of mind supersede the beliefs they replace, and the tier has been verified
 end to end against a real campaign (`docs/playtests/2026-09-02-npc-tier-verification.md`).
 
-**Phase 5 is underway** — P5.1, P5.2 and P5.3 landed 2026-09-03 (b), (c) and (d): a session
-that is interrupted now survives being interrupted, picks up in the same log where it
-stopped, the analysis side reads the restart honestly, and a campaign picked up again reads
-itself back to the table — including where the party is standing, which nothing else knew.
-**P5.4 (the cost report) is all that is left of Phase 5.**
+**Phase 5 is complete** — P5.1–P5.4 landed 2026-09-03 (b)–(e). A session that is
+interrupted survives being interrupted and picks up in the same log where it stopped; the
+analysis side reads the restart honestly; a campaign picked up again reads itself back to
+the table, including where the party is standing; and an evening now says what it cost, in
+both of the currencies it spends — **$0.2428 of API billing across the whole campaign to
+date, and one 65-second wait for a cold 70B.**
+
+**Phases 0–5 are built. Phase 6 (the LAN GUI) is next, and nothing ruled is unbuilt.**
 
 Three questions are open, none blocking:
 
@@ -415,6 +418,110 @@ the drift instrument's own log is a finding worth the two-line fix.
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-09-03 (e) — P5.4: what an evening costs, and the two currencies it costs it in (Claude Code, kelly-pc)
+
+**P5.4 done. Phase 5 is complete.** 1338 tests, suite still fully offline. The first task
+in the phase that needed **no D-008 amendment** — `cost` rows have carried everything this
+needs since P4.5 added `latency_ms`, and nothing had ever read them back.
+
+No model calls anywhere in the task, which meant it could be verified against **fourteen
+real sessions** instead of fixtures. That is the nicest kind of verification available and
+it is worth noticing when a task offers it.
+
+### Three rules, all of them about a total not claiming more than it knows
+
+**Money and would-have-cost never add.** In subscription mode `usd` is what the call *would*
+have cost at API rates, and OD-16 already ruled that those figures measure headless Claude
+Code's harness rather than this campaign. So they get their own column, their own line, and
+the words *not a bill, and not comparable*. Adding them would produce a number that is
+wrong in a way nobody could later detect.
+
+**A local seat's cost is time.** toto-llm bills nothing and can hold the table up for a
+minute. A report printing `$0.00` beside the 70B and stopping would be lying by omission —
+the expensive thing about the NPC tier has never been money. Latency sits beside spend, as
+**median and worst case** rather than a sum: one 62-second cold load inside twenty warm
+calls is the finding, and a mean hides it exactly.
+
+**Unpriced calls are counted, not zeroed.** A row with no price is a local seat or a model
+missing from `pricing:` in config.yaml. The second one is a bug, and a total that silently
+skipped it would under-report forever, so the report says the figure is a floor.
+
+### What it says about this campaign
+
+```
+cost - The Salt Road · 14 sessions
+  seat   calls      in      out   median  slowest     spend
+  gm        41  21,367   18,980     9.5s     9.5s   $0.2428
+  npc        1      25        2   1m 05s   1m 05s     local
+  $0.2428 billed · 1 local call, 1m 05s of it waiting
+  ($1.6617) would have cost that at API rates — not a bill, and not comparable (OD-16)
+```
+
+**Twenty-four cents of API spend across the whole campaign to date** — and that figure needs
+its denominator said out loud, or it flatters the project. Those fourteen sessions are
+mostly verification runs of two to four turns, not evenings; the two real playtests are in
+there but so are a dozen smoke tests. Per call it works out around $0.006, which is exactly
+consistent with the plan doc's measured **$0.50–2 per 3-hour session** (2026-08-04,
+superseding the original estimate) and with the 08-05 playtest's ~$1.10 for three hours.
+**Nothing here revises the cost model; it confirms it from a second direction.** The single
+local call at 1m 05s is the 70B's cold load, measured rather than remembered — the point of
+`latency_ms`, and the lesson of 2026-09-02 (e), where a timing claim was answered from
+memory and was wrong.
+
+`dndc cost` reads the newest session; `--log` any of them; `--campaign` the campaign to
+date, by slug or by name. The same report prints at session end.
+
+### One thing fixed on the way
+
+`"gm"` was a bare string literal in four places while `npc`, `utility_interactive` and
+`utility_batch` were constants — with a comment beside them saying why: *the split is only
+measurable if both halves of the codebase spell it the same way*. In the task whose entire
+job is measuring that split, that comment is not decoration. `GM_SEAT` now exists and is
+used.
+
+### Known issues
+
+- **The pre-P4.5 logs have no latency at all**, so a campaign-to-date median is drawn only
+  from sessions since 2026-09-02. The report shows `-` rather than `0`, which is honest,
+  but a Phase 7 trend line over latency starts in September and not in August.
+- **Subscription-mode token counts are not comparable either.** Session 2's log records 22
+  input tokens for eleven turns, which is the harness reporting its own accounting rather
+  than the campaign's. OD-16 says this about cost; it is equally true of tokens, and the
+  report currently displays them without the caveat the money gets.
+- Nothing dedupes a campaign's scratch logs. `--campaign` filters by the name in
+  `session_meta`, so verification runs under other names are excluded — but a scratch run
+  *under the campaign's own name* would be counted. Nothing to do until it happens.
+
+### FOR DESIGN
+
+None new. **Phase 5 is complete and nothing ruled is unbuilt.** The (b) question stands —
+should a closed save restore the turn window — still my call, still one boolean.
+
+**Carried, all three still open and none blocking:** whether a GM should declare a change of
+mind before the character concedes it; whether the GM should voice player characters at all;
+whether a `blocked` line should cost the turn.
+
+### Recommended next task
+
+**Phase 6 — the LAN web GUI**, per TASKS.md: FastAPI over the same engine, two-device play
+from the couch, hot-seat CLI still supported. It is the first phase whose value is entirely
+about how the table *feels*, which makes it the phase most in need of the thing below.
+
+Two smaller things worth doing before or alongside it:
+
+1. **The chronicle pronoun fix** from (d) — the chronicle called Corin "he". The sheets have
+   pronouns; the prompt does not get them. A prompt change and an evening's work, and it is
+   read aloud now.
+2. **A playtest doc for Phase 5**, if the next session is a real one: `docs/playtests/` has
+   nothing about persistence because none of it has been through a real evening.
+
+And the thing that has been top of this list for four sessions: **an evening with Kelly and
+Sam at the Brakewater crossroads.** Phase 5 is done. The evening survives being interrupted,
+picks itself back up, reads itself back to them, and tells them what it cost. There is
+nothing left to build before that table happens.
 
 ---
 

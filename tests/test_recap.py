@@ -329,6 +329,8 @@ def test_pickup_reads_the_campaign_back_and_opens_where_it_says(
     out = capsys.readouterr().out
     assert "Previously on Salt Road" in out
     assert GOOD in out
+    # P5.4 rides on the same wiring: the evening says what it cost on the way out.
+    assert "what the evening cost" in out
     # The confirmed scene is what the GM was actually handed.
     assert "The waystation yard at Ashmill" in everything(gm.calls[0])
 

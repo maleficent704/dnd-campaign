@@ -477,6 +477,22 @@ Task breakdown:
 - **P5.4** Session cost report: per-seat totals, call counts and latency read back from the
   log's `cost` rows, printed at session end and available as `dndc cost`. The seat split
   (Fable, 2026-08-14) was made to be measurable; this is the thing that measures it.
+  *(Done 2026-09-03 (e). `analysis/cost.py` — read-only over the logs, no model calls in the
+  task at all, so it was verified against fourteen real sessions rather than fixtures.
+  **The first Phase 5 task needing no D-008 amendment**: `cost` already carried everything,
+  including `latency_ms` from P4.5. Three rules keep a total from claiming more than it
+  knows. **Money and would-have-cost never add** — a subscription figure is an argument, not
+  a bill, and OD-16 says it is not even comparable. **A local seat's cost is time**, so
+  latency is a column beside spend, reported as median *and* worst case because one 62 s
+  cold load inside twenty warm calls is the finding and a mean hides it. **Unpriced calls
+  are counted, not zeroed**, so a model missing from `pricing:` makes the total announce
+  itself as a floor instead of quietly under-reporting. `dndc cost` reads the newest
+  session, `--log` any of them, `--campaign` the campaign to date (slug or name). Also
+  fixed: `"gm"` was a bare literal in four places while the other three seats were
+  constants — in the task whose whole job is measuring the split, the comment beside those
+  constants ("only measurable if both halves spell it the same way") is not decoration.
+  **The Salt Road to date: 41 GM calls, $0.2428 actually billed, $1.66 that would have
+  cost, one 65 s NPC call.**)*
 
 ## Phase 6 — LAN web GUI
 

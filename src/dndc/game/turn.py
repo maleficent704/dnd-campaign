@@ -42,6 +42,7 @@ from dndc.game.beliefturn import BeliefUpdate, StanceKeeper
 from dndc.game.npcturn import NPCReply, NPCVoice
 from dndc.logging import SessionLog
 from dndc.memory.canon_store import CanonStore
+from dndc.models import GM_SEAT
 from dndc.models.base import GMBackend, GMResponse, new_call_id
 from dndc.models.pricing import estimate_cost
 from dndc.rules.checks import CheckResult, resolve_check, resolve_save
@@ -593,7 +594,7 @@ class TurnEngine:
         subscription = self.billing == "subscription"
         self.log.emit(
             Cost,
-            seat="gm",
+            seat=GM_SEAT,
             model=response.model,
             billing=self.billing,
             input_tokens=usage.input_tokens,

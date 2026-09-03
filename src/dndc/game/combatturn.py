@@ -42,6 +42,7 @@ from dndc.game.party import resolve_member
 from dndc.gm.context import CampaignContext, GMPromptBuilder
 from dndc.gm.targettag import find_target_declarations, strip_target_declarations
 from dndc.gm.templates import render_template
+from dndc.models import GM_SEAT
 from dndc.models.base import GMBackend, GMRequest, GMResponse, Message, Role, new_call_id
 from dndc.rules.checks import AttackResult, resolve_attack
 from dndc.rules.combat import Combatant, DamageOutcome, Encounter, Side
@@ -378,7 +379,7 @@ class CombatEngine:
         estimated = estimate_cost(usage, response.model, self.prices) if self.prices else None
         log.emit(
             Cost,
-            seat="gm",
+            seat=GM_SEAT,
             model=response.model,
             billing=self.billing,
             input_tokens=usage.input_tokens,
