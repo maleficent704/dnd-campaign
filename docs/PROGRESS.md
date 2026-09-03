@@ -20,8 +20,10 @@ and 2026-09-03. The GM directs, NPCs answer for themselves on toto-llm, their dr
 gated, changes of mind supersede the beliefs they replace, and the tier has been verified
 end to end against a real campaign (`docs/playtests/2026-09-02-npc-tier-verification.md`).
 
-**Phase 5 is underway** — P5.1 landed 2026-09-03 (b): a session that is interrupted now
-survives being interrupted, and picks up in the same log where it stopped.
+**Phase 5 is underway** — P5.1 and P5.2 landed 2026-09-03 (b) and (c): a session that is
+interrupted now survives being interrupted, picks up in the same log where it stopped, and
+the analysis side reads the restart honestly rather than attributing the whole evening to
+whichever code finished it.
 
 Three questions are open, none blocking:
 
@@ -412,6 +414,101 @@ the drift instrument's own log is a finding worth the two-line fix.
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-09-03 (c) — P5.2: the two places a restart could still lie (Claude Code, kelly-pc)
+
+**P5.2 done.** 1290 tests, suite still fully offline. The mechanism landed with P5.1 and
+was live-verified then, so this was the short task the last handoff predicted: not building
+the rider, but checking the two places it could still be wrong.
+
+### The analysis side was quietly lying about provenance
+
+`replay()` read `session_meta` and assigned each field as it went. That was correct for
+every log written before yesterday, because there was only ever one such row. Since P5.1 a
+resumed session writes a **second** header into the same file — so the last one silently
+won, and an evening that spanned a crash reported one `commit_sha` for turns that had run
+under two.
+
+That is the one field in the log that exists to answer "which code produced this", and it
+was answering with whichever code happened to *finish* the evening. Now:
+
+- `commit_sha` — what the session **started** at, never overwritten.
+- `commits` — every distinct commit that wrote into the log, in order.
+- `restarts` — how many times the process came back. Zero for every log before today.
+- `resumed_from` — what this session was picked up from, when it was.
+
+Nothing else in `analysis/` needed changing: `replay_turns` concatenates whole sessions, the
+drift baseline pins its own provenance, and the abandoned call at the crash point was
+already handled — a `pending` row with nothing terminal is not a turn, which the module
+docstring has said since P2.6.
+
+### The resume is now driven through `dndc play`, not through the store
+
+The P5.1 tests exercised `SaveStore` and `restore()` directly, which proves the parts and
+not the wiring. These kill a session for real — a `RuntimeError` raised after a turn has
+been saved, which is what a process dying between one turn and the next prompt actually
+looks like — and then resume it:
+
+- the save left behind is open, with the opening scene and the killed turn in it;
+- the second run writes into the **same log file** and `seq` runs `0..n` unbroken;
+- the pre-crash narration and player input are in the GM's assembled prompt on its first
+  call, which is the property that matters — the GM cannot tell the process restarted;
+- `--fresh` starts a new log and the old scene is *not* in the prompt;
+- and a session that ended properly starts a new log next time, because a bedtime is not
+  a restart.
+
+**Verified against a real artifact as well**, not just fixtures: replaying yesterday's
+actual crash log gives `restarts 1`, `resumed_from` naming the previous evening, and 2
+turns rather than 3 — the abandoned call correctly not counted. It also shows the
+`dirty_worktree` flag earning its place: both halves ran at `56ba1cc` with uncommitted P5.1
+code in the tree, so the SHA alone does not describe what ran, and the flag is the only
+thing that says so.
+
+### Deviation, made deliberately
+
+**A failed model call mid-loop used to end the process with a traceback.** Only the opening
+scene was guarded. Since the entire claim of P5.1 and P5.2 is that an interruption does not
+cost the evening — and a rate limit or a dropped connection is the likeliest interruption
+there is — the turn loop now catches it, says what failed, and hands the turn back to the
+table. `KeyboardInterrupt` is not an `Exception` and still ends the session cleanly, so
+Ctrl-C keeps working exactly as it did.
+
+This is scope I added rather than scope I was given, and it is a behaviour change to the
+play loop; flagged here rather than buried. The engine's own logging is unaffected — a
+failed call still leaves a `pending` row with no terminal, which is what a failed call is
+supposed to look like.
+
+### Known issues
+
+- Unchanged from (b): nothing updates `campaign.scene` as play moves, so a restored scene
+  is only ever what `--scene` or `/scene` last set. **P5.3 is where to fix it.**
+- The retry after a failed turn re-sends the same prompt from scratch; there is no backoff
+  and no automatic retry. At a table with a human at the keyboard that is the right shape,
+  but it means a rate limit answers instantly and repeatedly if they keep hitting enter.
+
+### FOR DESIGN
+
+None new. The (b) entry's question stands — should a *closed* save restore the turn
+window — and is still my call rather than a ruling, still one boolean, still non-blocking.
+
+**Carried, all three still open and none blocking:** whether a GM should declare a change
+of mind before the character concedes it; whether the GM should voice player characters at
+all; whether a `blocked` line should cost the turn.
+
+### Recommended next task
+
+**P5.3 — recap on the utility tier.** "Previously on…" generated from the chronicle and the
+session's own canon, printed when a campaign is picked up again, read-only over the record.
+It is also where the stale-scene issue above wants to be solved: a job that reads the
+session back can *propose* where the party is standing, confirmed rather than assumed, the
+same way the sweep proposes canon.
+
+Then **P5.4** (session cost report), which finishes the phase.
+
+Still the only thing that needs a human: **an evening with Kelly and Sam at the Brakewater
+crossroads.**
 
 ---
 

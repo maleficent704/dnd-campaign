@@ -14,6 +14,14 @@ measurement would be of a session that did not happen.
 **A pending narration is not a turn.** Model calls log intent before the call (OD-9), so a
 crashed session leaves a `pending` row with no text. Replay takes terminal rows only.
 
+**One log can span a restart.** Since P5.1 a session that crashed is resumed into its own
+file and writes a second `session_meta` header there. The turns either side of it are one
+session and read as one, but the provenance is not interchangeable: the halves may have run
+at different commits, under a different billing seat, on a different seed. `commit_sha` is
+what the session *started* at, `commits` is everything that wrote into it, and `restarts`
+says how many times the process came back. A replay that quietly took the last header would
+attribute the whole evening to whichever code happened to finish it.
+
 **Character creation is not play.** P1.4 reuses `gm_narration` with `scene: "character
 creation"` rather than adding an event family, and the P1.4 handoff called that scene field
 "an adequate discriminator for Phase 7 filtering". This is that filtering: an interview
@@ -56,7 +64,20 @@ class ReplayedSession:
     turns: list[Turn] = field(default_factory=list)
     session_id: str | None = None
     campaign: str | None = None
+    #: The commit the session **started** at. A restart may have landed on another one;
+    #: see `commits`.
     commit_sha: str | None = None
+    #: Every distinct commit that wrote into this log, in the order they appeared. One
+    #: entry for a session that ran straight through, more when it was restarted onto
+    #: changed code — which a replay must not average away, because the whole point of
+    #: stamping the SHA is being able to say which code produced which turn.
+    commits: tuple[str, ...] = ()
+    #: Process restarts inside this one session (P5.1/P5.2): extra `session_meta` rows.
+    #: Zero for every log written before 2026-09-03.
+    restarts: int = 0
+    #: The session this one was picked up from, if it was. Self-referential when a
+    #: crashed session resumed into its own log.
+    resumed_from: str | None = None
     #: Facts the GM declared inline, in order, paired with the turn index they landed on.
     #: Empty for any session logged before P2.2 (2026-08-10) — which is what makes those
     #: logs the before-picture the drift test needs.
@@ -82,9 +103,18 @@ def replay(path: Path | str) -> ReplayedSession:
 
     for event in read_log(target):
         if event.type is EventType.SESSION_META:
-            session.session_id = event.session_id
-            session.campaign = event.campaign
-            session.commit_sha = event.commit_sha
+            # A resumed session writes a second header into the same file (D-008 item
+            # 27). The first row is the session's own provenance and later ones must not
+            # overwrite it: the turns before the restart really did run at that commit.
+            if session.session_id is None:
+                session.session_id = event.session_id
+                session.campaign = event.campaign
+                session.commit_sha = event.commit_sha
+                session.resumed_from = event.resumed_from
+            else:
+                session.restarts += 1
+            if event.commit_sha and event.commit_sha not in session.commits:
+                session.commits = session.commits + (event.commit_sha,)
         elif event.type is EventType.PLAYER_INPUT:
             pending_input = event.text
             speaker = (

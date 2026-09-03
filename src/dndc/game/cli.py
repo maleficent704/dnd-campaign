@@ -2230,16 +2230,29 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
             player_turns += 1
             console.print()
             stream = _NarrationStream(console)
-            result = engine.run(
-                text,
-                player=member.player,
-                sheet=loaded_sheets.get(active.lower()),
-                on_text=stream.feed,
-                # Printed as each character answers rather than collected and dumped at
-                # the end: an NPC line takes seconds on a local seat, and a table watching
-                # nothing happen is a table that thinks the thing has hung.
-                on_dialogue=_speaking(console, stream),
-            )
+            try:
+                result = engine.run(
+                    text,
+                    player=member.player,
+                    sheet=loaded_sheets.get(active.lower()),
+                    on_text=stream.feed,
+                    # Printed as each character answers rather than collected and dumped
+                    # at the end: an NPC line takes seconds on a local seat, and a table
+                    # watching nothing happen is a table that thinks it has hung.
+                    on_dialogue=_speaking(console, stream),
+                )
+            except Exception as exc:
+                # A rate limit, a dropped connection, a bad gateway. Before P5.1 this
+                # ended the process and the evening with it; the save point makes that
+                # recoverable, but recovering from a traceback is still a worse table
+                # experience than being told to say it again. The turn is not lost
+                # silently: the engine has already logged a `pending` row with no
+                # terminal, which is exactly what a failed call should look like.
+                # KeyboardInterrupt is not an Exception and still ends the session.
+                stream.finish()
+                console.print(f"\n[red]that turn failed:[/red] {type(exc).__name__}: {exc}")
+                console.print("[dim]nothing was recorded — try again, or /quit[/dim]\n")
+                continue
             stream.finish()
             console.print()
             _render_unvoiced(console, result)

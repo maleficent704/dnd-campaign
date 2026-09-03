@@ -1,4 +1,8 @@
-"""P5.1: the save point — where the party is standing, and nothing else."""
+"""P5.1: the save point — where the party is standing, and nothing else.
+
+P5.2 rides along at the bottom: the same thing driven through `dndc play`, across a
+process that dies mid-session.
+"""
 
 from __future__ import annotations
 
@@ -318,3 +322,176 @@ def test_a_fresh_session_claims_no_lineage(tmp_path, monkeypatch):
     meta = next(event for event in read_log(log.path) if event.type is EventType.SESSION_META)
     assert meta.resumed_from is None
     assert meta.resumed_turns == 0
+
+
+# --- P5.2: through the CLI, and through a crash ----------------------------
+
+FORD = "ford-crossing"
+
+
+def _party_sheet():
+    from dndc.schema.sheet import (
+        AbilityScores,
+        CharacterSheet,
+        HitPoints,
+        Proficiencies,
+    )
+
+    return CharacterSheet(
+        name="Brannoc",
+        player="Kelly",
+        species="Human",
+        character_class="Fighter",
+        level=2,
+        abilities=AbilityScores(str=16, dex=12, con=14, int=10, wis=11, cha=8),
+        proficiencies=Proficiencies(saving_throws=["str", "con"]),
+        hit_points=HitPoints(maximum=20, current=13),
+        armor_class=16,
+    )
+
+
+@pytest.fixture
+def table(tmp_path, monkeypatch):
+    """A campaign on disk, logs under tmp, and no seat that touches the network."""
+    from dndc.game import campaign as campaign_module
+    from dndc.game.campaign import campaign_dir, create_campaign
+
+    root = tmp_path / "campaigns"
+    monkeypatch.setattr(campaign_module, "default_campaigns_root", lambda: root)
+    monkeypatch.setattr(cli, "resolve_log_dir", lambda _: tmp_path / "logs")
+    create_campaign("Ford Crossing", players=["Kelly"], scaffolding="off")
+    _party_sheet().save(campaign_dir(FORD) / "characters" / "brannoc.yaml")
+    return tmp_path / "logs"
+
+
+def play(monkeypatch, backend, said, extra=()):
+    """One `dndc play` run over a scripted seat, ending when the input runs out."""
+    monkeypatch.setattr(cli, "build_gm_backend", lambda *args, **kwargs: backend)
+
+    remaining = iter(said)
+
+    class Feed:
+        @staticmethod
+        def ask(*args, **kwargs):
+            try:
+                return next(remaining)
+            except StopIteration:
+                raise EOFError
+
+    monkeypatch.setattr(cli, "Prompt", Feed)
+    return cli.main(
+        [
+            "play", "--campaign", FORD, "--no-prompt", "--no-npcs",
+            "--no-sweep", "--no-chronicle", "--scaffolding", "off",
+            *extra,
+        ]
+    )
+
+
+def _logs(log_dir):
+    return sorted(path.name for path in log_dir.glob("*.jsonl"))
+
+
+def test_a_session_that_dies_leaves_an_open_save(table, monkeypatch):
+    from dndc.game.campaign import campaign_dir
+    from dndc.models.mock import MockBackend
+
+    # Raised after the turn has been saved: a process that stops between one turn and
+    # the next prompt, which is what a crash actually looks like.
+    monkeypatch.setattr(cli, "should_hint_scaffolding", _explode)
+    with pytest.raises(RuntimeError, match="the process died"):
+        play(monkeypatch, MockBackend(["The ford is running high."]), ["I look at it."])
+
+    save = SavePoint.load(campaign_dir(FORD) / "saves" / SAVE_FILE)
+    assert save is not None
+    assert save.closed is False
+    assert len(save.turns) == 2  # the opening scene, and the turn that killed it
+    assert len(_logs(table)) == 1
+
+
+def _explode(*args, **kwargs):
+    raise RuntimeError("the process died")
+
+
+def test_resuming_writes_into_the_same_log_and_seq_carries_on(table, monkeypatch):
+    from dndc.logging import next_seq_for
+    from dndc.models.mock import MockBackend
+
+    monkeypatch.setattr(cli, "should_hint_scaffolding", _explode)
+    with pytest.raises(RuntimeError):
+        play(monkeypatch, MockBackend(["The ford is running high."]), ["I look at it."])
+
+    log = table / _logs(table)[0]
+    stopped = next_seq_for(log)
+
+    monkeypatch.setattr(cli, "should_hint_scaffolding", lambda *a, **k: False)
+    assert play(monkeypatch, MockBackend(["He hauls the boy out."]), ["I wade in."]) == 0
+
+    # One evening, one record: no second file, and the counter never restarted.
+    assert _logs(table) == [log.name]
+    seqs = [event.seq for event in read_log(log)]
+    assert seqs == list(range(len(seqs)))
+    assert len(seqs) > stopped
+
+
+def test_the_resumed_prompt_still_holds_the_turns_from_before_the_crash(table, monkeypatch):
+    from dndc.models.mock import MockBackend
+
+    monkeypatch.setattr(cli, "should_hint_scaffolding", _explode)
+    with pytest.raises(RuntimeError):
+        play(monkeypatch, MockBackend(["The ford is running high."]), ["I look at it."])
+
+    monkeypatch.setattr(cli, "should_hint_scaffolding", lambda *a, **k: False)
+    second = MockBackend(["He hauls the boy out."])
+    play(monkeypatch, second, ["I wade in."])
+
+    # The GM is handed the window it had before the process died — not a fresh scene.
+    sent = "\n".join(message.content for message in second.calls[0].messages)
+    assert "The ford is running high." in sent
+    assert "I look at it." in sent
+
+
+def test_a_finished_session_starts_a_new_log_next_time(table, monkeypatch):
+    from dndc.models.mock import MockBackend
+
+    assert play(monkeypatch, MockBackend(["The ford is running high."]), ["I look."]) == 0
+    assert play(monkeypatch, MockBackend(["Rain again."]), ["I look."]) == 0
+
+    # A bedtime is not a restart: two evenings, two session records.
+    assert len(_logs(table)) == 2
+
+
+def test_fresh_leaves_the_save_alone_and_opens_a_new_scene(table, monkeypatch):
+    from dndc.models.mock import MockBackend
+
+    monkeypatch.setattr(cli, "should_hint_scaffolding", _explode)
+    with pytest.raises(RuntimeError):
+        play(monkeypatch, MockBackend(["The ford is running high."]), ["I look at it."])
+
+    monkeypatch.setattr(cli, "should_hint_scaffolding", lambda *a, **k: False)
+    second = MockBackend(["A different road entirely."])
+    assert play(monkeypatch, second, ["I look."], extra=["--fresh"]) == 0
+
+    assert len(_logs(table)) == 2
+    sent = "\n".join(message.content for message in second.calls[0].messages)
+    assert "The ford is running high." not in sent
+
+
+def test_a_failed_turn_does_not_end_the_evening(table, monkeypatch, capsys):
+    """A rate limit is the likeliest interruption there is; it must not cost the table."""
+    from dndc.models.base import GMBackendError
+    from dndc.models.mock import MockBackend
+
+    class Flaky(MockBackend):
+        def generate(self, request, on_text=None):
+            if len(self.calls) == 1:  # the opening scene has been written; this is turn 1
+                self.calls.append(request)
+                raise GMBackendError("rate limited")
+            return super().generate(request, on_text=on_text)
+
+    backend = Flaky(["The ford is running high.", "He hauls the boy out."])
+    assert play(monkeypatch, backend, ["I wade in.", "I try again."]) == 0
+
+    out = capsys.readouterr().out
+    assert "that turn failed" in out
+    assert "He hauls the boy out." in out

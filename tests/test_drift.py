@@ -424,3 +424,57 @@ def test_a_creation_turn_does_not_leak_its_player_line_into_the_next_turn(tmp_pa
 
     turn = replay(log.path).turns[0]
     assert turn.player_input == "" and turn.opening
+
+
+# --- P5.2: a session that spanned a restart --------------------------------
+
+
+def restarted_log(tmp_path):
+    """One session log with a crash in the middle of it, as P5.1 leaves them."""
+    log = SessionLog.open(tmp_path, session_id="20260903-201500")
+    log.emit(SessionMeta, campaign="The Salt Road", dndc_version="0", billing="api",
+             commit_sha="aaa111", seed=1)
+    log.emit(PlayerInput, player="Kelly", character="Corin Vale", text="I look at it")
+    log.emit(GMNarration, text="", status=CallStatus.PENDING, call_id="c1")
+    log.emit(GMNarration, text=NARRATION, status=CallStatus.COMPLETE, call_id="c1")
+    # The process dies here: intent logged, nothing terminal after it.
+    log.emit(PlayerInput, player="Kelly", character="Corin Vale", text="I wade in")
+    log.emit(GMNarration, text="", status=CallStatus.PENDING, call_id="c2")
+    # ... and comes back, into the same file, on different code.
+    resumed = SessionLog.open(tmp_path, session_id="20260903-201500")
+    resumed.emit(SessionMeta, campaign="The Salt Road", dndc_version="0", billing="api",
+                 commit_sha="bbb222", seed=2, resumed_from="20260903-201500",
+                 resumed_turns=2)
+    resumed.emit(PlayerInput, player="Kelly", character="Corin Vale", text="I wade in")
+    resumed.emit(GMNarration, text="", status=CallStatus.PENDING, call_id="c3")
+    resumed.emit(GMNarration, text=NARRATION, status=CallStatus.COMPLETE, call_id="c3")
+    return log.path
+
+
+def test_a_restart_is_one_session_and_reads_as_one(tmp_path):
+    session = replay(restarted_log(tmp_path))
+
+    assert len(session.turns) == 2
+    assert session.session_id == "20260903-201500"
+    # The abandoned call left a pending row and nothing else; it is not a turn.
+    assert [turn.player_input for turn in session.turns] == ["I look at it", "I wade in"]
+
+
+def test_a_restart_does_not_overwrite_the_provenance_of_what_ran_before_it(tmp_path):
+    """The turns before the crash really did run at the first commit.
+
+    Taking the last header would attribute the whole evening to whichever code
+    happened to finish it, which is the opposite of what stamping the SHA is for.
+    """
+    session = replay(restarted_log(tmp_path))
+
+    assert session.commit_sha == "aaa111"
+    assert session.commits == ("aaa111", "bbb222")
+    assert session.restarts == 1
+
+
+def test_a_session_that_ran_straight_through_says_so(tmp_path):
+    session = replay(write_log(tmp_path, [("I go in", NARRATION)]))
+
+    assert session.restarts == 0
+    assert session.resumed_from is None

@@ -439,6 +439,21 @@ Task breakdown:
   save reopens *its own* log and the counter continues where it stopped, so a crash
   mid-evening leaves one session record rather than two halves. `session_meta` says it was
   resumed.
+  *(Done 2026-09-03 (c). The mechanism landed with P5.1; this task is the two places it
+  could still be wrong. **The analysis side now reads a restart honestly** — `replay()` was
+  letting the second `session_meta` overwrite the first, so an evening that spanned a crash
+  reported one `commit_sha` for turns that ran under two and nothing said a restart had
+  happened. `commit_sha` is now what the session *started* at, `commits` is everything that
+  wrote into it, `restarts` counts the comebacks. Attributing the whole evening to whichever
+  code happened to finish it is the opposite of what stamping the SHA is for. **And the
+  resume is now driven through `dndc play` rather than through the store**: a process killed
+  mid-session, then resumed, asserting one log file, `seq` unbroken, and the pre-crash turns
+  back in the GM's assembled prompt. Verified against last session's real crash log too —
+  `restarts 1`, `resumed_from` naming the previous evening, the abandoned `pending` call
+  correctly not a turn. **Deviation:** a failed model call mid-loop used to end the process
+  with a traceback; it now prints and hands the turn back, since a rate limit is the
+  likeliest interruption there is and the whole claim of P5.1/P5.2 is that an interruption
+  does not cost the evening.)*
 - **P5.3** Recap on the utility tier: "previously on…" generated from the chronicle and the
   session's own canon, printed when a campaign is picked up again. Read-only over the
   record — a recap that could write canon would be a fourth memory layer nobody ratified.
