@@ -457,6 +457,23 @@ Task breakdown:
 - **P5.3** Recap on the utility tier: "previously on…" generated from the chronicle and the
   session's own canon, printed when a campaign is picked up again. Read-only over the
   record — a recap that could write canon would be a fourth memory layer nobody ratified.
+  *(Done 2026-09-03 (d). `memory/recap.py` + `gm/prompts/recap.md`, on the batch seat;
+  D-008 amended first, item 28 — a `recap` family separate from `chronicle_write` because
+  they differ in audience, lifetime and authority, and counting recaps as chronicle entries
+  would corrupt the one measurement the third memory layer exists to support. **Read-only
+  by construction:** the recapper is handed no store and has nothing to write with, so the
+  rule is a fact about the object rather than a line in a prompt. **And it is never told
+  anything the players do not know** — chronicle plus `player_known` and `character` canon,
+  nothing else; `gm_only` and world canon never reach the call, because a recap is read
+  *aloud* and a leak there is an announcement rather than a slip a gate might catch. The
+  same grounding guard as the sweep and the chronicle, and the same fail-to-nothing posture.
+  **One call returns two things**: the prose, and a one-sentence proposal for where the
+  party is standing — which is what makes the recap worth its call rather than a reprint of
+  `chronicle.yaml`, since `campaign.scene` is otherwise written only by `--scene` and
+  `/scene` and goes stale the first time the party travels. The table confirms it; refusing
+  changes nothing. Live on toto-llm against a chronicle written from the real 11-turn
+  session-2 log: **10.6 s, one call, grounded, and it proposed "the crossroads in
+  Brakewater"**, which is exactly where that evening stopped.)*
 - **P5.4** Session cost report: per-seat totals, call counts and latency read back from the
   log's `cost` rows, printed at session end and available as `dndc cost`. The seat split
   (Fable, 2026-08-14) was made to be measurable; this is the thing that measures it.

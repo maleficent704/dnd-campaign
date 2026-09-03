@@ -39,6 +39,7 @@ class EventType(str, Enum):
     BELIEF_CHANGE = "belief_change"
     INVENTORY_CHANGE = "inventory_change"
     CHRONICLE_WRITE = "chronicle_write"
+    RECAP = "recap"
     BACKGROUND_WRITE = "background_write"
     COMBAT_START = "combat_start"
     COMBAT_TURN = "combat_turn"
@@ -358,6 +359,45 @@ class ChronicleWrite(_Event):
     token_estimate: int | None = Field(default=None, ge=0)
 
 
+class RecapStatus(str, Enum):
+    """How a "previously on..." pass ended (D-008 item 28)."""
+
+    #: Written and shown to the table.
+    WRITTEN = "written"
+    #: Rejected by the grounding check after a retry — it named people the record did
+    #: not. Nothing was shown; the same posture the chronicle takes, and for the same
+    #: reason: no recap is better than a confident wrong one.
+    UNGROUNDED = "ungrounded"
+    #: No call was made or none came back — no chronicle to read, the box asleep, the
+    #: table having passed --no-recap. The session plays on regardless.
+    SKIPPED = "skipped"
+
+
+class Recap(_Event):
+    """The "previously on..." the players were shown at pickup (D-008 item 28).
+
+    Deliberately not a `chronicle_write`: that is a stored layer of the campaign's
+    memory and this is a fresh read of it, shown to humans and kept nowhere. It writes
+    no canon — the recapper is handed no store and has nothing to write with.
+    """
+
+    type: Literal[EventType.RECAP] = EventType.RECAP
+    #: What the table was actually shown. The only generated text in the system that
+    #: reaches the players without passing through a prompt, so the log is the only
+    #: record of it.
+    text: str = ""
+    #: Where the recap thinks the party is standing. A proposal, never applied unheard.
+    scene: str | None = None
+    scene_accepted: bool = False
+    #: Chronicle entries read, by session id.
+    covers: tuple[str, ...] = ()
+    status: RecapStatus = RecapStatus.WRITTEN
+    #: Names the grounding check refused, when it refused.
+    invented: tuple[str, ...] = ()
+    model: str | None = None
+    call_id: str | None = None
+
+
 class BackgroundWrite(_Event):
     """An original background the GM proposed during co-creation (D-008, item 16).
 
@@ -570,6 +610,7 @@ Event = Annotated[
     | BeliefChange
     | InventoryChange
     | ChronicleWrite
+    | Recap
     | BackgroundWrite
     | CombatStart
     | CombatTurn
@@ -591,6 +632,7 @@ EVENT_MODELS: dict[EventType, type[_Event]] = {
     EventType.BELIEF_CHANGE: BeliefChange,
     EventType.INVENTORY_CHANGE: InventoryChange,
     EventType.CHRONICLE_WRITE: ChronicleWrite,
+    EventType.RECAP: Recap,
     EventType.BACKGROUND_WRITE: BackgroundWrite,
     EventType.COMBAT_START: CombatStart,
     EventType.COMBAT_TURN: CombatTurn,

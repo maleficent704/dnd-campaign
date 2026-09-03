@@ -20,10 +20,11 @@ and 2026-09-03. The GM directs, NPCs answer for themselves on toto-llm, their dr
 gated, changes of mind supersede the beliefs they replace, and the tier has been verified
 end to end against a real campaign (`docs/playtests/2026-09-02-npc-tier-verification.md`).
 
-**Phase 5 is underway** — P5.1 and P5.2 landed 2026-09-03 (b) and (c): a session that is
-interrupted now survives being interrupted, picks up in the same log where it stopped, and
-the analysis side reads the restart honestly rather than attributing the whole evening to
-whichever code finished it.
+**Phase 5 is underway** — P5.1, P5.2 and P5.3 landed 2026-09-03 (b), (c) and (d): a session
+that is interrupted now survives being interrupted, picks up in the same log where it
+stopped, the analysis side reads the restart honestly, and a campaign picked up again reads
+itself back to the table — including where the party is standing, which nothing else knew.
+**P5.4 (the cost report) is all that is left of Phase 5.**
 
 Three questions are open, none blocking:
 
@@ -414,6 +415,114 @@ the drift instrument's own log is a finding worth the two-line fix.
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-09-03 (d) — P5.3: the campaign read back to the people who played it (Claude Code, kelly-pc)
+
+**P5.3 done.** 1311 tests, suite still fully offline. Live on toto-llm against a chronicle
+written from the real session-2 log: **10.6 s, one call, grounded, and the scene it
+proposed was the right one.**
+
+### What a recap is, given the chronicle already exists
+
+They are not the same artifact and the difference is worth stating once. A **chronicle
+entry** is written for the GM's prompt: stored, phrased as a record, and read by a model in
+every later session. A **recap** is written for Kelly and Sam, out loud, in the half-minute
+before the first turn — and it is kept nowhere at all. It is generated fresh at pickup and
+thrown away when it has been read.
+
+So `recap` is its own event family (D-008 item 28) rather than another `chronicle_write`.
+They differ in audience, lifetime and authority, and counting recaps as chronicle entries
+would corrupt the one measurement the third memory layer exists to support: how much prose
+the GM is carrying, and from how many sessions.
+
+### Two properties, both structural rather than instructed
+
+**It writes no canon.** The recapper is handed no store and has nothing to write with, so
+the read-only rule in the task line is a fact about the object rather than a sentence in a
+prompt. A recap that could file canon would be a fourth memory layer nobody ratified — and
+the worst of the four, since it is the only one summarising summaries rather than play.
+
+**It is never told anything the players do not know.** It gets the chronicle plus
+`player_known` and `character` canon, and nothing else. `gm_only` never comes near it, and
+neither does world canon — *the ledger is the world, not the party's notes*, and a fact
+being true does not mean anybody has found it. This is the P4.1 discipline on a second
+surface, and the argument is sharper here than for an NPC: a leak into a character's line
+is a slip the gate might catch, but a leak into a recap is **announced to the table** by
+the person reading it out. Asserted on the assembled bytes, in a test and again in the live
+run (`secrets in the record handed to the recap: none`).
+
+### The scene proposal, which is what makes the call worth making
+
+Without it a recap is a slower reprint of `chronicle.yaml`. With it, the job answers the
+question the record could not: **where is everybody standing?** `campaign.scene` is written
+only by `--scene` and `/scene`, so it goes stale the first time the party travels and
+nobody remembers to type — the known issue from (b) and (c), now closed.
+
+One call returns both halves (`PREVIOUSLY:` / `WHERE:`), and the two degrade differently on
+purpose. An unlabelled reply is still shown as the recap; a scene sentence picked out of
+the wrong place is **not** used, because prose the table did not need costs them ten
+seconds and a wrong scene starts the whole evening in the wrong room. The prompt is told to
+answer `WHERE: unknown` rather than guess, and that is taken literally. The table confirms
+before it is used; refusing changes nothing.
+
+### Live
+
+Chronicle written from the real 11-turn session-2 log (81 s on the 70B), then the recap
+over it plus the campaign's six player-known facts:
+
+> **PREVIOUSLY:** You had just arrived in Brakewater, a waystation town on the edge of the
+> salt flats, where a commotion at the crossroads caught your attention — a caravan guard
+> was accusing a teamster of stealing a crate from one of the wagons. […] The situation was
+> left unresolved as the evening drew to a close.
+>
+> **WHERE:** You are standing at the crossroads in Brakewater.
+
+Which is exactly where that evening stopped. 10.6 s warm, one call, nothing invented.
+
+It also runs **before** the NPC tier is built, which means the 70B's cold load is paid by a
+call the table actually wanted rather than by `warm_up()`'s throwaway — same model, same
+host, so the warm-up that follows finds it resident. That is what the ordering is for; it
+was not separately measured tonight.
+
+### Known issues
+
+- **The recap inherits whatever the chronicle got wrong, and this run showed it.** The
+  chronicle called Corin Vale "he" ("before *he* could investigate further"); she is
+  referred to as "she" throughout the playtests. Grounding cannot catch that — every name
+  in the sentence is real — and it is the same class of failure that motivated putting the
+  chronicle on the 70B in the first place (Fable, 2026-08-14). The recap happened to avoid
+  pronouns and so did not repeat it, which is luck rather than design. **The fix belongs in
+  the chronicle prompt** (give it the party's pronouns, since the sheets have them), not
+  here, and it is worth doing before the chronicle is read aloud to the people whose
+  characters it is describing.
+- The recap's last sentence drifted a little into inferring intent ("You were still trying
+  to figure out…"). Harmless, arguably useful, but it is not in the record.
+- Nothing caches the recap. Starting a session twice in an evening pays for it twice; at
+  ten seconds that is not worth solving.
+
+### FOR DESIGN
+
+None new. The (b) question stands — should a *closed* save restore the turn window — still
+my call, still one boolean, still non-blocking.
+
+**Carried, all three still open and none blocking:** whether a GM should declare a change
+of mind before the character concedes it; whether the GM should voice player characters at
+all; whether a `blocked` line should cost the turn.
+
+### Recommended next task
+
+**P5.4 — the session cost report**, which finishes Phase 5: per-seat totals, call counts and
+latency read back from the log's `cost` rows, at session end and as `dndc cost`. The seat
+split was made to be measurable (Fable, 2026-08-14) and this is the thing that measures it.
+The `recap` and `belief_change` rows added this week both carry seat and latency already.
+
+Then **the chronicle pronoun fix** above, which is a prompt change and an evening's work,
+and is the sort of thing the table will notice before any instrument does.
+
+Still the only thing that needs a human: **an evening with Kelly and Sam at the Brakewater
+crossroads** — where, as of tonight, the machine now knows they are standing.
 
 ---
 

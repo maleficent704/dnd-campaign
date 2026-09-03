@@ -609,6 +609,38 @@ a system that has beliefs but no tier ladder.
     Two authorities for one fact drift the first time one path writes and the other does
     not.
 
+28. **New event family `recap`** (P5.3) — one row per "previously on…" shown to the table.
+    Fields: `text` (what the players were actually shown), `scene` (the one-sentence
+    proposal for where the party is standing, or absent), `scene_accepted`, `covers`
+    (the chronicle entries it read), `status` (`written` | `ungrounded` | `skipped`),
+    `invented` (names the grounding check rejected), `model`, `call_id`.
+
+    **Separate from `chronicle_write`, though both summarise.** They differ in audience,
+    lifetime and authority: a chronicle entry is written once, stored, and enters every
+    later GM prompt; a recap is generated fresh at pickup, shown to the humans, and kept
+    nowhere. Counting recaps as chronicle entries would corrupt the one measurement the
+    third memory layer exists to support — how much prose the GM is carrying, and from
+    how many sessions.
+
+    **The recap is read-only over the record and writes no canon.** It reads the
+    chronicle and the ledger and produces prose; nothing it says becomes a fact. That is
+    the boundary the task line names, and it is enforced by construction — the recapper
+    is handed no store and has nothing to write with. A recap that could file canon
+    would be a fourth memory layer nobody ratified, and it would be the *worst* of the
+    four, because it is the only one generated from summaries rather than from play.
+
+    The scene proposal is the one thing it hands back, and it is not canon either: the
+    scene is a field on the save point (item 27), it is confirmed by the table before it
+    is used, and rejecting it leaves the saved scene exactly as it was. It exists because
+    nothing else updates that field — `--scene` and `/scene` are the only writers, so a
+    party that travelled last session picks up in the place they left three sessions ago
+    unless a human remembers to say otherwise.
+
+    **This is the only generated text in the system shown to the players directly** rather
+    than entering a prompt, which is precisely why the row has to carry it: everything
+    else in the log can be checked against what a model was asked; this can only be
+    checked against what the table was told.
+
 **Rationale.** Same discipline as the mystery; the additions (canon_write provenance,
 cost, escalation) are what Phase 7's instruments — canon-drift measurement, ruling
 logs, cost-per-session — consume. Pending-state logging lesson from the mystery

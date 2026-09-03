@@ -7,6 +7,7 @@ from dndc.memory.chronicle import (
     Chronicler,
     ChronicleReport,
 )
+from dndc.memory.recap import RECAP_TEMPERATURE, Recapper, RecapReport
 from dndc.memory.sweep import (
     SIMILAR_ENOUGH,
     SWEEP_SCOPE,
@@ -24,10 +25,13 @@ __all__ = [
     "SIMILAR_ENOUGH",
     "SWEEP_SCOPE",
     "SWEEP_TEMPERATURE",
+    "RECAP_TEMPERATURE",
     "CanonStore",
     "CanonSweep",
     "ChronicleReport",
     "Chronicler",
+    "RecapReport",
+    "Recapper",
     "SweepProposal",
     "SweepReport",
     "cluster",

@@ -90,10 +90,12 @@ from dndc.gm import (
 from dndc.logging import SessionLog, git_commit_sha, resolve_log_dir
 from dndc.memory import (
     CHRONICLE_TEMPERATURE,
+    RECAP_TEMPERATURE,
     SWEEP_TEMPERATURE,
     CanonStore,
     CanonSweep,
     Chronicler,
+    Recapper,
     SweepProposal,
     cluster,
 )
@@ -1565,6 +1567,94 @@ def _run_chronicle(
         )
 
 
+def _player_known(ledger) -> list[str]:
+    """What the players already know, and only that.
+
+    `player_known` is what the sweep files from play, `character` is what co-creation
+    wrote about their own people. World canon is deliberately excluded even though it is
+    true: the ledger is the world, not the party's notes, and a fact being in it does not
+    mean anybody has discovered it. `gm_only` never comes near this call.
+    """
+    return [
+        entry.text
+        for entry in ledger.active()
+        if entry.scope in {CanonScope.PLAYER_KNOWN, CanonScope.CHARACTER}
+    ]
+
+
+def _run_recap(
+    console: Console, cfg, campaign, args: argparse.Namespace, log: SessionLog
+) -> None:
+    """"Previously on..." before the first turn (P5.3).
+
+    Best-effort like the sweep and the chronicle: an evening must not fail to start
+    because the GPU box is asleep. It runs before the NPC tier is built, which means the
+    cold load of the 70B is paid by a call the table wanted anyway rather than by the
+    throwaway warm-up — same model, same host.
+    """
+    if not len(campaign.chronicle):
+        return
+
+    backend = build_batch_backend(cfg, temperature=RECAP_TEMPERATURE)
+    recapper = Recapper(
+        backend=backend, log=log, party=[member.name for member in campaign.party]
+    )
+    console.print(
+        f"\n[dim]previously — {cfg.seats.utility_batch.model} reading the campaign "
+        f"back (a minute or two)...[/dim]"
+    )
+    try:
+        report = recapper.recap(
+            campaign.name, campaign.chronicle, known=_player_known(campaign.ledger)
+        )
+    finally:
+        backend.close()
+
+    if not report.shown:
+        if report.invented:
+            console.print(
+                f"[yellow]no recap[/yellow] — it invented {', '.join(report.invented)}"
+            )
+        elif report.error:
+            console.print(f"[yellow]no recap[/yellow] — {report.error}")
+        recapper.record(report)
+        return
+
+    console.print(f"\n[bold]Previously on {campaign.name}[/bold]")
+    console.print(f"  {report.text}\n")
+
+    if report.scene and report.scene.strip() != campaign.scene.strip():
+        report.scene_accepted = _confirm_scene(console, campaign, report.scene)
+    recapper.record(report)
+
+
+def _confirm_scene(console: Console, campaign, proposed: str) -> bool:
+    """Offer the recap's guess at where the party is standing. Silence keeps the old one.
+
+    Confirmed rather than applied, because it is a guess about the one field that decides
+    where the evening opens, and the two people who were actually there are sitting right
+    here. An interrupted or piped session keeps whatever was saved, which is what it did
+    before this existed.
+    """
+    if campaign.scene:
+        console.print(f"[dim]the scene on file: {campaign.scene}[/dim]")
+    console.print(f"[dim]where the recap thinks you are: {proposed}[/dim]")
+    try:
+        answer = Prompt.ask(
+            "  [cyan]open here?[/cyan] enter to accept, [dim]n[/dim] to keep the old "
+            "scene, or type a new one",
+            default="",
+        )
+    except (EOFError, KeyboardInterrupt):
+        return False
+
+    answer = (answer or "").strip()
+    if answer.casefold() in {"n", "no"}:
+        return False
+    campaign.scene = proposed if not answer else answer
+    return not answer
+
+
 def _canon_store(args: argparse.Namespace, campaign, log: SessionLog) -> CanonStore:
     """Where this session's canon gets filed.
 
@@ -2140,6 +2230,8 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
     log = start_session_log(
         cfg, campaign=campaign.name, seed=seed, billing=billing, resume=resume
     )
+    if not args.no_recap:
+        _run_recap(console, cfg, campaign, args, log)
     voice, stance, voice_closers = _build_voice(console, cfg, args, log)
     # The roster and the tier are the same switch: the GM is shown who speaks for
     # themselves only when somebody actually can. A roster with no seat behind it would
@@ -2886,6 +2978,10 @@ def build_parser() -> argparse.ArgumentParser:
     play.add_argument(
         "--no-chronicle", action="store_true",
         help="skip the end-of-session chronicle summary on the batch utility seat (P2.5)",
+    )
+    play.add_argument(
+        "--no-recap", action="store_true",
+        help="skip the \"previously on...\" at pickup on the batch utility seat (P5.3)",
     )
     play.add_argument("--max-tokens", type=int, default=1024)
     play.add_argument(
