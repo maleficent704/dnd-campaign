@@ -28,3 +28,79 @@ entries:
   text: Hammond now travels doing good deeds to atone for his years in the cult.
   scope: character
   subject: Brother Hammond
+- id: world-brakewater
+  text: Brakewater is a waystation town on the salt flats — low stone buildings crouched
+    around a well, with a well-house at one end and a crossroads at the other.
+  scope: world
+  session: '20260807-174124'
+  turn: 1
+  tags:
+  - common
+- id: world-caravan
+  text: A six-wagon salt caravan is stalled at the Brakewater crossroads with its
+    wheels sunk in the ruts.
+  scope: world
+  session: '20260807-174124'
+  turn: 1
+  tags:
+  - common
+  - caravan
+- id: world-missing-crate
+  text: A full crate went missing from the caravan's third wagon some time after the
+    noon stop.
+  scope: world
+  session: '20260807-174124'
+  turn: 1
+  tags:
+  - caravan
+- id: world-accusation
+  text: A caravan guard has accused one of the teamsters of taking the crate and is
+    holding him by the collar in front of a gathering crowd.
+  scope: world
+  session: '20260807-174124'
+  turn: 1
+  tags:
+  - caravan
+- id: world-third-wagon
+  text: The third wagon's load has a crate-sized gap in the packing straw, with no
+    forced entry and no tool marks on the boards.
+  scope: world
+  session: '20260807-174124'
+  turn: 4
+  tags:
+  - caravan
+  - wagon
+- id: world-caravan-master
+  text: The caravan master is away at the well-house and has not yet been told about
+    the missing crate.
+  scope: world
+  session: '20260807-174124'
+  turn: 1
+  tags:
+  - caravan
+- id: belief-guard-teamster
+  text: The caravan guard is certain the accused teamster took the crate, and is not
+    interested in other explanations.
+  scope: npc_belief
+  subject: the caravan guard
+  session: '20260807-174124'
+  turn: 1
+  tags:
+  - caravan
+- id: belief-guard-corin
+  text: The caravan guard believes the stranger who was at his canvas is lying to him
+    and is mixed up in the theft.
+  scope: npc_belief
+  subject: the caravan guard
+  session: '20260807-174124'
+  turn: 8
+  tags:
+  - caravan
+- id: belief-teamster-innocent
+  text: The accused teamster knows he did not take the crate and cannot prove it.
+  scope: npc_belief
+  subject: the accused teamster
+  session: '20260807-174124'
+  turn: 1
+  tags:
+  - caravan

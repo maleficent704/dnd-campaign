@@ -252,3 +252,55 @@ def test_a_dead_checker_scores_as_untrustworthy_rather_than_perfect(ledger):
     report = run_control(Gatekeeper(backend=Dead()), maren(), ledger, CASES)
     assert report.caught == 0
     assert not report.trustworthy
+
+
+# --- who the character is (P4.7) -------------------------------------------
+
+
+def test_the_checker_is_told_who_the_character_is_and_not_only_what_they_know(ledger):
+    """Found live 2026-09-02 (g). The checker held the guard's canon and not his job, so
+    "my cargo, from my wagon" — a phrase from his own sample lines — was revised away as an
+    invention. A character's identity is a source of truth for them, and a checker without
+    it flattens exactly the details that make a voice sound like a person."""
+    npc = NPC.create(
+        "the caravan guard",
+        voice=VoiceCard(
+            role="the man whose wagon the crate went missing from",
+            persona="Broad-shouldered, and used to being the biggest man in the room.",
+            demeanour="Has a hand on somebody's shoulder and is not taking it off.",
+        ),
+    )
+    backend = MockBackend(['{"verdict": "pass", "reason": "", "rewrite": null}'])
+
+    Gatekeeper(backend=backend).check(npc, ledger, "My cargo went off my wagon.")
+
+    assembled = backend.calls[-1].system
+    assert "the man whose wagon the crate went missing from" in assembled
+    assert "biggest man in the room" in assembled
+    assert "not taking it off" in assembled
+
+
+def test_the_checker_is_never_told_the_authors_notes(ledger):
+    """`notes` is what the author knows and the character must not. A second model call is
+    not a reason to move a secret one step closer to the model that would say it."""
+    npc = NPC.create(
+        "the caravan guard",
+        voice=VoiceCard(role="a guard on the caravan"),
+        notes="He needs somebody to answer for the crate before the master gets back.",
+    )
+    backend = MockBackend(['{"verdict": "pass", "reason": "", "rewrite": null}'])
+
+    Gatekeeper(backend=backend).check(npc, ledger, "Crate's gone.")
+
+    request = backend.calls[-1]
+    assert "answer for the crate" not in request.system + request.system_volatile
+
+
+def test_a_character_with_no_voice_card_still_checks(ledger):
+    """A hand-authored NPC may be a name and a knowledge scope. The section says so rather
+    than rendering an empty heading the checker has to interpret."""
+    backend = MockBackend(['{"verdict": "pass", "reason": "", "rewrite": null}'])
+
+    Gatekeeper(backend=backend).check(NPC.create("a passing carter"), ledger, "Aye.")
+
+    assert "nothing written down about a passing carter" in backend.calls[-1].system

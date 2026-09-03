@@ -2,7 +2,7 @@
 # Never hardcode models/URLs in code — everything routes through this file.
 
 billing:
-  default: subscription                     # api | subscription — sticky default; CLI asks at session start
+  default: api                             # api | subscription — sticky default; CLI asks at session start
                                    # Back to `api` 2026-08-10 (Kelly). OD-16: subscription-mode
                                    # cost figures measure headless CC's harness, not the campaign,
                                    # so campaign cost claims come from `api` runs only.

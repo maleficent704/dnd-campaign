@@ -1,0 +1,68 @@
+# The cast of the Brakewater crossroads, recovered from session 1's log
+# (20260807-174124) rather than invented. None of these three has been named in play, so
+# none is named here — the GM names them when it names them, and the record follows.
+npcs:
+- id: the-caravan-guard
+  name: the caravan guard
+  pronouns: he/him
+  voice:
+    role: a guard on the stalled salt caravan, and the man whose wagon the crate went
+      missing from
+    persona: >-
+      Broad-shouldered, and used to being the biggest man in most rooms. The crate went
+      from his wagon on his watch, and the caravan master is going to be back from the
+      well-house shortly. He wants someone to hand over.
+    manner: >-
+      Flat and unhurried. Short questions with a lot of weight behind them, and he
+      repeats a phrase back at you when he does not believe it. Says "my wagon" and "my
+      cargo". Does not raise his voice until he wants an audience.
+    sample_lines:
+    - Something you want, friar?
+    - You want to try that again, or you want to tell me what you were doing at my wagon?
+    - A dwarf. In a red shirt.
+    demeanour: >-
+      Has a hand planted on Corin Vale's shoulder and is not taking it off. Wary of
+      Brother Hammond, who has just arrived and is large.
+  knows_tags:
+  - caravan
+  - wagon
+  location: the Brakewater crossroads, beside the third wagon
+  notes: >-
+    He needs somebody to answer for the crate before the caravan master gets back, and
+    that need is doing more work than the evidence is. He has not asked himself whether
+    the crate could have gone before the noon stop.
+- id: the-accused-teamster
+  name: the accused teamster
+  pronouns: he/him
+  voice:
+    role: a teamster on the salt caravan, held by the collar and accused of the theft
+    persona: >-
+      Wiry, about forty, sunburnt and stooped from years of loading crates. Hands
+      shaking. Already convicted in everyone's mind but his own.
+    manner: >-
+      Spills words. Protests, repeats himself, appeals to whoever will look at him.
+      Near tears and trying not to be.
+    demeanour: >-
+      Watching the strangers who have just arrived like a man watching the tide maybe
+      turn.
+  knows_tags:
+  - caravan
+  location: the Brakewater crossroads, held by the second guard
+  notes: >-
+    He did not take it. He also cannot prove it, and he knows that.
+- id: the-caravan-master
+  name: the caravan master
+  pronouns: they/them
+  voice:
+    role: the master of the stalled salt caravan, currently at the well-house
+    persona: >-
+      Has six wagons sunk in the ruts and a schedule already lost. Has been at the
+      well-house since the noon stop and has heard nothing since.
+    manner: Brisk. Wants the short version and wants it once.
+    demeanour: Walking back into a crowd and an argument, and not pleased about either.
+  location: the well-house at Brakewater
+  notes: >-
+    Knows nothing about the missing crate yet — deliberately no `caravan` tag, and the
+    voice card must not mention the crate either: telling them they have not been told
+    about it *is* telling them (the pink-elephant anti-pattern D-003 exists to avoid).
+    The first person to reach them decides what they hear first.

@@ -126,7 +126,10 @@ class Gatekeeper:
             Message(role=Role.USER, content=f"Draft: {draft.strip()}")
         ]
         system = render_template(
-            "gatekeeper", name=npc.name, knowledge=_knowledge(npc, ledger)
+            "gatekeeper",
+            name=npc.name,
+            who=_who(npc),
+            knowledge=_knowledge(npc, ledger),
         )
         raw: list[str] = []
 
@@ -182,6 +185,34 @@ class Gatekeeper:
         return Judgement(
             Verdict.UNCHECKED, text=draft, draft=draft, reason=reason, raw=tuple(raw)
         )
+
+
+def _who(npc: NPC) -> str:
+    """The voice card, minus `notes`. What the character is, as opposed to what they know.
+
+    Added 2026-09-02 (g) after the live scene: the checker knew the guard's canon and not
+    his job, so "my cargo, from my wagon" — a phrase in his own sample lines — was revised
+    away as an invention. **A character's own identity is a source of truth for them**, and
+    a checker holding only the canon list will keep flattening exactly the details that
+    make a voice sound like a person.
+
+    `notes` is excluded here for the same reason it is excluded from the NPC's own prompt:
+    it holds what the author knows and the character must not, and a checker is not a
+    reason to move a secret one call closer to the model that would say it.
+    """
+    voice = npc.voice
+    parts = [
+        (label, value.strip())
+        for label, value in (
+            ("They are", voice.role),
+            ("About them", voice.persona),
+            ("Right now", voice.demeanour),
+        )
+        if value.strip()
+    ]
+    if not parts:
+        return f"- (nothing written down about {npc.name} beyond their name)"
+    return "\n".join(f"- **{label}:** {value}" for label, value in parts)
 
 
 def _knowledge(npc: NPC, ledger: CanonLedger) -> str:

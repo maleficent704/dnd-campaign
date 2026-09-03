@@ -370,6 +370,18 @@ Task breakdown:
   contradiction of everything the window still remembers them saying.
 - **P4.7** Live verification and a scene at the table: a planted-leak control against the
   real 70B seat, then NPCs in actual play, findings to `docs/playtests/`.
+  *(Done 2026-09-02 (g), except the humans — findings in
+  `docs/playtests/2026-09-02-npc-tier-verification.md`. The cast was **recovered from
+  session 1's log rather than invented**, and the planted leaks are the campaign's own
+  secrets: two of them leak player-character canon Kelly and Sam wrote at co-creation,
+  which is the leak that would actually matter at this table. **6/6 caught, 0/7 false
+  positives, three consecutive runs** — after the control caught the gate out twice, once
+  on a secret dressed as an impression ("you've got the look of a man who's run a con
+  before") and once on the checker knowing what a character knows but not who he is. The
+  scope held visibly in play: the caravan master, two facts to the guard's eight, asked
+  *"What are you talking about, a crate?"*. **A turn where somebody speaks costs ~15 s**,
+  three times what (f) implied. An evening with Kelly and Sam is the part still
+  outstanding.)*
 
 ## Phase 5 — Campaign persistence + between-session jobs
 

@@ -15,15 +15,30 @@ blockers into this list.
 
 ### Open now
 
-**None awaiting Fable, and nothing ruled is unbuilt.** Phase 4 (the NPC agent tier, D-003)
-is underway — P4.1–P4.5 landed 2026-09-02 (b)–(f); next is **P4.7, a scene at the table**
-(P4.6 after it — see the (f) entry for why that order). The GM directs, NPCs answer for
-themselves on toto-llm, and their drafts are gated.
+**Nothing ruled is unbuilt.** Phase 4 (the NPC agent tier, D-003) is nearly done —
+P4.1–P4.5 and P4.7 landed 2026-09-02 (b)–(g); **P4.6, stance-scoped supersession, is all
+that remains.** The GM directs, NPCs answer for themselves on toto-llm, their drafts are
+gated, and the tier has been verified end to end against a real campaign
+(`docs/playtests/2026-09-02-npc-tier-verification.md`).
 
-One question from (d) is still open and still non-blocking: **should a `blocked` line cost
-the turn, or fall through to the GM narrating around the silence?** P4.5 takes the neutral
-position — nothing is shown and nothing enters the GM's window — so either ruling remains
-cheap to implement.
+Two questions are open, neither blocking:
+
+> **1. Should the GM voice player characters at all, now that NPCs voice themselves?**
+> (New, 2026-09-02 (g).) In a ten-turn scene the GM rendered the declared action as quoted
+> PC speech every single turn — *"The canvas flap was already loose when I got to it," she
+> says*. This is not new and P4.5 did not cause it; it is how social actions have been
+> narrated since Phase 1, and the prose is good. But the NPC tier has made it
+> **asymmetric**: the cast now speak in their own voices, and the player characters are the
+> only people at the table being ventriloquised. Roughly: leave it · let the GM describe a
+> PC speaking but not quote them · or hold that a PC's words belong to their player. This
+> is a feel question about a table Fable has never sat at, so **Kelly's view probably counts
+> for more than a ruling** — and nothing is blocked either way.
+>
+> **2. Should a `blocked` line cost the turn, or fall through to the GM narrating around
+> the silence?** (Carried from (d).) P4.5 takes the neutral position — nothing is shown and
+> nothing enters the GM's window — so either answer stays cheap. New datum from (g): across
+> seven live lines and twenty-four control cases **nothing was ever blocked.** The gate
+> revises; it does not silence. This may be a rarer case than it looked.
 
 One item is **provisionally accepted rather than settled** — Kelly's, not Fable's:
 
@@ -381,6 +396,152 @@ the drift instrument's own log is a finding worth the two-line fix.
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-09-02 (g) — P4.7: the tier at a real crossroads, and three things it got wrong (Claude Code, kelly-pc)
+
+**P4.7 done, Phase 4 all but complete. 1218 tests, suite still fully offline.** Findings in
+`docs/playtests/2026-09-02-npc-tier-verification.md`; this entry is the short version and
+the decisions.
+
+**No humans at the table.** I played both characters, so this verifies the machinery and
+says nothing about the experience — whether a fifteen-second pause reads as tension or as a
+hang is Kelly and Sam's to say, and it is still open.
+
+### The setup is recovered, not invented
+
+Session 1's play log (`20260807-174124`) was still on disk, so the cast came out of it
+rather than out of me: Brakewater, the stalled six-wagon caravan, the crate gone from the
+third wagon, the guard, the accused teamster, the caravan master away at the well-house.
+**Nine canon entries filed by hand** — the P2.3 sweep's job, done manually because session 1
+predates the sweep — and three NPC records written from the GM's own descriptions of them.
+
+**None of the three is named**, because the campaign has never named them. `[[SPEAK: the
+caravan guard | ...]]` works fine, and a descriptive name is the honest record until the
+fiction supplies a real one. The scene picks up exactly where session 1 stopped: the
+guard's hand on Corin's shoulder.
+
+### The guarantee, visible in play
+
+The caravan master has been at the well-house since the noon stop, so he carries no
+`caravan` tag and **two facts in scope against the guard's eight**. Asked in turn 10 whether
+the crate was ever on the manifest:
+
+> *"What are you talking about, a crate?"*
+
+A character learning something from the party because the ledger says he was never told.
+Not an instruction anywhere — it is what his prompt does not contain, and the log shows it
+as `knowledge_scope` on the row that produced the line.
+
+The gate also caught a draft that put **Corin at the noon stop**, hours before she arrived,
+alongside an invented witness. That is worse than a leak: the GM would have inherited it as
+established fiction.
+
+### Three things it got wrong
+
+**1. The checker knew what the guard knows and not who he is.** His draft said *"my cargo,
+from my wagon"* — a phrase from his own sample lines, and his voice card literally calls him
+*the man whose wagon the crate went missing from*. The gate revised it away as an
+invention, because `Gatekeeper` assembled the canon scope and the name and nothing else.
+
+**A character's identity is a source of truth for them.** A checker holding only the canon
+list will keep flattening exactly the details that make a voice sound like a person — the
+possessives, the trade, the "not my load". The checker now gets the voice card's role,
+persona and demeanour, and explicitly **not** `notes`: a second model call is not a reason
+to move a secret one step closer to the model that would say it.
+
+My first version of the fix was too generous ("whatever it says about them is theirs to
+assert") and recall fell 6/6 → 5/6, letting through invented testimony from a second guard.
+Bounded to *their own identity, and no further*, it came back to 6/6 across three
+consecutive runs. **Two iterations against one fixture is the edge of tuning**, and it is
+written down rather than smoothed over.
+
+**2. The control caught the gate out on the leak that would actually matter.** The planted
+cases are this campaign's own secrets, and two of them leak **player-character canon** —
+Corin's grifter past, Hammond's cult years, both written by Kelly and Sam at co-creation.
+Hammond's, stated flatly, was caught. Corin's was not:
+
+> *"You've got the look of a man who's run a con before."*
+
+It passed because it wears an impression's clothes, and impressions are protected — a
+character is allowed to find you shifty. **But that is the shape a leak actually takes at a
+table.** Nobody recites a secret; they let slip that they know it. New rule: reading
+someone's *present* off them is fair (tired, frightened, lying to your face); reading their
+*past* off them is a claim about their life, and if it is not on the list they do not have
+it. Final: **6/6 caught, 0/7 false positives, three runs running**, with the
+over-correction guard (the guard's own opinion, "far as I'm concerned this one took it")
+passing every time.
+
+**3. A voice card I wrote leaked, and I wrote it an hour earlier.** The caravan master's
+persona said *"has not yet been told about the crate"* — which tells him there is a crate.
+The pink-elephant anti-pattern, in the one voice-card field that reaches his prompt, written
+by me while authoring the fixture that was supposed to test for exactly this. Moved to
+`notes`, where it belongs, with the reason written beside it.
+
+Worth generalising, because this is the second session running where the leak was not in
+the filter: **`for_npc` guards the canon, and nothing guards the prose.** Voice cards,
+scene lines, GM narration (that was (f)) — every free-text field that reaches an NPC prompt
+is unguarded by construction, and an author is as capable of putting a secret in one as a
+model is.
+
+### The numbers, which are worse than (f) measured
+
+| | (f), scratch NPC | here, real records |
+|---|---|---|
+| GM call | 4–9 s | 4.1–9.2 s (median 5.7) |
+| NPC call | 1.3–3.2 s | **5.0–9.8 s** (median 5.8) |
+| turn, nobody speaks | — | 4.3–7.0 s |
+| **turn with a directed line** | 6.6–9.2 s | **12.1–19.7 s** |
+
+(f) measured a two-line voice card against a five-entry ledger. A real character with a full
+card and eight facts roughly doubles the call, and the gate scales with draft length on top.
+**A turn where somebody speaks costs about fifteen seconds**, a third of it the gate. It is
+a pause with a shape — narration streams first, then the character answers — but it is
+three times what (f) implied, and (f)'s number should not be quoted again.
+
+### The open question from (f), measured
+
+Seven directed turns; the GM wrote dialogue for the character it had just handed the floor
+to **once**. The one is instructive: it was the caravan master's **entrance**, where the GM
+is bringing somebody on stage and an entrance line is the natural way to do it. Running
+total: 13 directed turns, 4 with GM-written dialogue; **9 since the prompt was strengthened,
+1 of those**. Not tuned further — but "first appearance" is a testable hypothesis where
+"sometimes" was not.
+
+### Known issues
+
+- **Nothing was blocked.** Seven live lines and twenty-four control cases produced revisions
+  only. The `blocked` path is still unexercised in play as well as unruled.
+- **No second scene**, so nothing changed what anyone believes mid-conversation — which is
+  precisely what P4.6 is for, and why it now has a scene to be tested against.
+- The scene's end-of-session sweep was not run, so `player_known` is still untested against
+  dialogue.
+- `MAX_NPC_TURNS` was never reached and no direction named a stranger; both paths remain
+  test-covered only.
+
+### FOR DESIGN
+
+**Promoted to the Open block: should the GM voice player characters at all, now that NPCs
+voice themselves?** Ten turns out of ten, the GM rendered a declared action as quoted PC
+speech — *"The canvas flap was already loose when I got to it," she says*. This is not new
+and P4.5 did not cause it; it is how social actions have been narrated since Phase 1, and
+the prose is good. But the tier has made it **asymmetric**: every NPC in the cast now speaks
+in their own voice, and the player characters are the only people at the table being
+ventriloquised. A feel question about a table Fable has never sat at, so Kelly's view
+probably counts for more than a ruling.
+
+**Carried from (d), still open:** should a `blocked` line cost the turn or fall through to
+the GM? Now with one more datum — in a real scene nothing was blocked at all, so this may be
+rarer than it looked.
+
+### Recommended next task
+
+**P4.6 — stance-scoped supersession**, the last of Phase 4, and it now has something to be
+tested against: a cast with beliefs, a scene where those beliefs are under pressure, and a
+control fixture that will notice if supersession breaks the gate. After that, Phase 4 is
+done and the real thing to schedule is **an evening with Kelly and Sam at the Brakewater
+crossroads**, which is the only remaining question this session could not answer.
 
 ---
 
