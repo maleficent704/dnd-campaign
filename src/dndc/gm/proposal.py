@@ -76,6 +76,8 @@ _KEY_ALIASES = {
     "items": "equipment",
     "allocation": "method",
     "backstory_summary": "backstory",
+    "pronoun": "pronouns",
+    "gender": "pronouns",
 }
 
 _REQUIRED = ("name", "species", "class", "priority")
@@ -83,7 +85,8 @@ _REQUIRED = ("name", "species", "class", "priority")
 #: Every field the parser understands. A `key:` outside this set is prose, not a field.
 _KNOWN_KEYS = frozenset(
     {*_REQUIRED, "skills", "background", "method", "shape", "armor", "shield",
-     "equipment", "spells", "backstory", "ability_bonuses", "expertise", "languages"}
+     "equipment", "spells", "backstory", "ability_bonuses", "expertise", "languages",
+     "pronouns"}
 )
 
 _TRUE = {"yes", "true", "y", "1", "shield"}
@@ -175,6 +178,7 @@ def _parse_body(body: str, player: str, raw: str) -> Concept:
         equipment=_items(fields.get("equipment", "")),
         spells=_items(fields.get("spells", "")),
         backstory=fields.get("backstory", ""),
+        pronouns=fields.get("pronouns", ""),
     )
 
 

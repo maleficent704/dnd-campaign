@@ -50,6 +50,10 @@ where everybody is standing is worse than no answer, because the evening starts 
 
 {{ party }}
 
+Where a name is followed by pronouns, **use those and no others** — they come from the
+character's sheet. Where a name has none, repeat the name instead of choosing for them.
+This is read out loud to the people who play these characters.
+
 ## How to answer
 
 The two labelled lines and nothing else. No preamble, no closing remark, no explanation of

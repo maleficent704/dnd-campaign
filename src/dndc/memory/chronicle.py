@@ -42,7 +42,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
-from typing import Sequence
+from typing import Mapping, Sequence
 
 from dndc.gm.chronicle import Chronicle, ChronicleEntry
 from dndc.gm.context import Turn, render_transcript
@@ -118,6 +118,7 @@ class Chronicler:
         max_tokens: int = 1024,
         billing: str = LOCAL_BILLING,
         party: Sequence[str] = (),
+        pronouns: Mapping[str, str] | None = None,
         max_entries: int = MAX_ENTRIES,
         fold_oldest: int = FOLD_OLDEST,
     ) -> None:
@@ -130,6 +131,7 @@ class Chronicler:
         self.max_tokens = max_tokens
         self.billing = billing
         self.party = tuple(party)
+        self.pronouns = dict(pronouns or {})
         self.max_entries = max(1, max_entries)
         self.fold_oldest = max(2, fold_oldest)
 
@@ -232,7 +234,10 @@ class Chronicler:
     ) -> str | None:
         request = GMRequest(
             system=render_template(
-                template, party=self._party(), correction=_correction(correction)
+                template,
+                party=self._party(),
+                others=self._others(source),
+                correction=_correction(correction),
             ),
             messages=(Message(role=Role.USER, content=source),),
             max_tokens=self.max_tokens,
@@ -270,7 +275,28 @@ class Chronicler:
     def _party(self) -> str:
         if not self.party:
             return _NO_PARTY
-        return "\n".join(f"- {name}" for name in self.party)
+        return "\n".join(f"- {self._named(name)}" for name in self.party)
+
+    def _others(self, source: str) -> str:
+        """Pronouns for anyone else the session actually named.
+
+        Filtered against the source rather than handed over whole, and the filter is the
+        point. The vocabulary this summary is checked against is built from the
+        transcript, so a cast list rendered here would quietly widen what the chronicler
+        is permitted to name — the grounding check granting its own exception. Nobody new
+        is introduced by this block: it only says how to refer to people the evening
+        already mentioned.
+        """
+        lines = []
+        known = vocabulary(source)
+        for name, pronouns in self.pronouns.items():
+            if pronouns and name not in self.party and vocabulary(name) <= known:
+                lines.append(f"- {name} ({pronouns})")
+        return "\n".join(lines)
+
+    def _named(self, name: str) -> str:
+        pronouns = self.pronouns.get(name, "")
+        return f"{name} ({pronouns})" if pronouns else name
 
     # --- filing -------------------------------------------------------------
 

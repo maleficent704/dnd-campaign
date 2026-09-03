@@ -103,6 +103,9 @@ class Concept:
     #: All six abilities, most important first. The engine turns this into scores.
     priority: tuple[Ability, ...]
     skills: tuple[Skill, ...] = ()
+    #: How this character is referred to. Free text; empty is a legitimate answer and
+    #: means nothing downstream will guess on their behalf.
+    pronouns: str = ""
     background: str | None = None
     method: str = STANDARD_ARRAY_METHOD
     shape: str = DEFAULT_SHAPE
@@ -224,6 +227,7 @@ def build_character(
     return CharacterSheet(
         name=concept.name,
         player=concept.player,
+        pronouns=concept.pronouns,
         species=species.name,
         character_class=character_class.name,
         level=1,

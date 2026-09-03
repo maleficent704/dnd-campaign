@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Sequence
+from typing import Mapping, Sequence
 
 from dndc.gm.chronicle import Chronicle
 from dndc.gm.templates import render_template
@@ -94,12 +94,14 @@ class Recapper:
         backend: GMBackend,
         log: SessionLog | None = None,
         party: Sequence[str] = (),
+        pronouns: Mapping[str, str] | None = None,
         max_tokens: int = MAX_TOKENS,
         seat: str = BATCH_SEAT,
     ) -> None:
         self.backend = backend
         self.log = log
         self.party = list(party)
+        self.pronouns = dict(pronouns or {})
         self.max_tokens = max_tokens
         self.seat = seat
 
@@ -221,7 +223,18 @@ class Recapper:
         return known
 
     def _party(self) -> str:
-        return "\n".join(f"- {name}" for name in self.party) or "- (unnamed)"
+        """The party, with pronouns where the sheets record them.
+
+        This one is read out loud. Everything else the recap could get wrong is a
+        sentence a player corrects and forgets; getting a person wrong in front of them
+        is not, and it is the one error here that no amount of grounding can catch —
+        every word of "he crossed the ford" comes from the transcript.
+        """
+        lines = []
+        for name in self.party:
+            pronouns = self.pronouns.get(name, "")
+            lines.append(f"- {name} ({pronouns})" if pronouns else f"- {name}")
+        return "\n".join(lines) or "- (unnamed)"
 
     def _emit_cost(self, response) -> None:
         if self.log is None:

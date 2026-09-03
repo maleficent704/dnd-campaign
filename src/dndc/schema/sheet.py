@@ -172,6 +172,12 @@ class CharacterSheet(_Model):
 
     name: str = Field(min_length=1)
     player: str = Field(min_length=1)
+    #: Free text, carried verbatim wherever this character is written about. Empty means
+    #: every layer downstream says nothing rather than guessing. It is here because a
+    #: guess is not evenly distributed: "Brother Hammond" was referred to correctly ten
+    #: times out of ten and "Corin Vale" was not, because one name carries the signal a
+    #: guess is made from and the other does not. Recorded once, it stops being a guess.
+    pronouns: str = ""
     species: str = Field(min_length=1)
     character_class: str = Field(min_length=1)
     level: int = Field(default=1, ge=MIN_LEVEL, le=MAX_LEVEL)

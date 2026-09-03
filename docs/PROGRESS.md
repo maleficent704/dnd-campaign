@@ -29,6 +29,12 @@ date, and one 65-second wait for a cold 70B.**
 
 **Phases 0–5 are built. Phase 6 (the LAN GUI) is next, and nothing ruled is unbuilt.**
 
+P5.5 (2026-09-03 (f)) closed the one defect Phase 5 found in itself: nothing recorded a
+player character's pronouns, so every layer re-derived them from prose and the chronicler
+— which reads a transcript with no roster — got Corin Vale wrong 3 times in 4. It is
+recorded on the sheet now. **Kelly and Sam: the two Salt Road sheets were backfilled from
+the logs rather than asked about, and either is one line to change.**
+
 Three questions are open, none blocking:
 
 > **1. Should a GM declare a change of mind before the character has conceded it out
@@ -418,6 +424,127 @@ the drift instrument's own log is a finding worth the two-line fix.
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-09-03 (f) — P5.5: a name is not evidence (Claude Code, kelly-pc)
+
+**P5.5 done.** 1364 tests, suite still fully offline. The second task running needing **no
+D-008 amendment** — no new event family, no new fields, nothing about the log changed.
+
+The (e) handoff recommended Phase 6 and flagged the chronicle pronoun bug as worth doing
+first. I measured it before starting, and both halves of what that handoff said about it
+were wrong in ways that changed the work.
+
+### What the logs actually say
+
+Across all fourteen logs, restricted to sentences naming exactly one player character and
+no other person:
+
+| | she/her | he/him | they/them |
+|---|---|---|---|
+| Corin Vale | **5** | 0 | 0 |
+| Brother Hammond | 0 | **10** | 0 |
+
+**The GM was never the problem.** In play it has been right every time. My first pass at
+this measurement said otherwise — 7 masculine references to Corin — and that number was an
+artifact of a 120-character window that swept up the guard's pronouns from the same
+sentence. Worth recording because the corrected number is the one that identified the real
+culprit, and the wrong one would have sent me to the GM prompt.
+
+The chronicler is the problem, and its position explains why: it reads a transcript with no
+roster, so **the name is the only evidence it has.** That is also why the failure is uneven
+rather than random. "Brother Hammond" carries the signal a guess is made from; "Corin Vale"
+does not. A guess that works on one name and fails on another does not look like a bug — it
+looks like reliability, right up until the person it fails on is the one at the table.
+
+### The handoff's other claim was simply false
+
+It said "the sheets carry pronouns; the prompt does not get them." `NPCProfile.pronouns`
+has existed since P4.1. **`CharacterSheet` never had the field at all.** So co-creation
+never asked, nothing was ever recorded, and no prompt change could have fixed it — the fix
+was not plumbing, it was that the answer did not exist anywhere in the system. Every layer
+was re-deriving it from prose, which works exactly as well as the prose it is given.
+
+### What changed
+
+`pronouns` is now free text on `CharacterSheet` and `Concept`, asked for in co-creation
+(`pronouns` / `pronoun` / `gender` all parse), and carried on `PartyMember` into the GM's
+party block every turn. The **cast** block gained it too, which was an unrelated find of the
+same shape: `npcs.yaml` has recorded pronouns since P4.1 and the GM was never shown them,
+so it has been directing a they/them caravan master with nothing but the name to go on.
+Chronicle, fold and recap prompts all now say to use what they are given and, where a name
+has none, to repeat the name rather than choose.
+
+**Blank stays blank the whole way down.** A default of "they/them" would be a guess wearing
+a safer coat, and the point is to stop guessing, not to guess more politely.
+
+**NPC pronouns reach the chronicler only for names the session already said.** The
+grounding vocabulary is built from the transcript, so a cast list rendered into that prompt
+would widen what the chronicler is permitted to name — the check writing its own permission
+slip. This is the P4.1 discipline on a fourth surface, and the test asserts the excluded
+name appears nowhere in the assembled prompt, not merely that it was filtered.
+
+### Verified live, four runs each way
+
+Replayed the real 11-turn session-2 log through the chronicler on toto-llm, with the field
+and without, and **read all eight paragraphs by hand rather than trusting a regex.**
+
+- **Without: 3 of 4 misgendered her.** *"He found a gap in the load of one wagon"*, *"he
+  attempted to deflect the guard's suspicion"*, *"When the guard didn't believe him"*.
+- **With: 0 of 4.** *"She found a gap… her investigation was cut short by the guard, who
+  became suspicious of her actions… the guard saw through the lie and confronted her"* —
+  and *"Corin Vale attempted to deflect **his** attention"*, which is the guard, correctly.
+
+The hand-reading was not ceremony. My first detector reported **4/4** because it flagged any
+masculine pronoun in a sentence containing "Corin", and in this scene almost every such
+sentence also contains a he/him guard: *"confronted Corin, who tried to brush him off"* is
+correct English about the guard and was scored as a failure. 3 of 4 is the number that
+survived reading. The instrument that overcounts in the direction of the finding you want is
+the one to distrust hardest, and P5.4 spent a whole task on that principle for money.
+
+### Known issues
+
+- **The two Salt Road sheets were backfilled from the logs, not from the names** — Corin
+  she/her (5 clean references, none contrary), Hammond he/him (10, none contrary). That is
+  evidence rather than inference, but it is still me deciding for two characters I do not
+  play. **Kelly and Sam should confirm or change both**; it is one line each in
+  `campaigns/the-salt-road/characters/*.yaml` and `dndc sheet show` prints it.
+- **Existing chronicle entries are not rewritten.** `chronicle.yaml` is hand-editable data
+  and any entry that already misgenders somebody stays wrong until edited or regenerated. I
+  did not touch the campaign's own file — nothing this session wrote into
+  `campaigns/the-salt-road/` except the two pronoun lines.
+- **The fold inherits whatever the entries already say.** A pre-fix paragraph compressed
+  after the fix carries its old pronouns in as source text, and the prompt's instruction can
+  only fight that so far.
+- **Nothing checks pronoun consistency automatically.** The measurement above was a
+  throwaway script. As a Phase 7 instrument it would be a genuine one — a per-character
+  pronoun-consistency rate over a campaign's logs is exactly the kind of number this project
+  exists to produce, and it now has a clean before/after to calibrate against.
+
+### FOR DESIGN
+
+None new. Nothing ruled is unbuilt.
+
+**Carried, all four still open and none blocking:** whether a GM should declare a change of
+mind before the character concedes it; whether the GM should voice player characters at all;
+whether a `blocked` line should cost the turn; and my own (b) question, whether a closed save
+should restore the turn window.
+
+### Recommended next task
+
+**Phase 6 — the LAN web GUI**, per TASKS.md: FastAPI over the same engine, two-device play
+from the couch, hot-seat CLI still supported. Phase 6 has no task breakdown yet; the session
+that starts it should write one first, as Phase 5's did.
+
+Still worth doing alongside it: **a playtest doc for Phase 5**, if the next session is a real
+one — `docs/playtests/` has nothing about persistence, the recap, or the cost report,
+because none of it has been through a real evening.
+
+And the thing that has been top of this list for five sessions: **an evening with Kelly and
+Sam at the Brakewater crossroads.** Nothing is blocked, nothing ruled is unbuilt, and the
+one question this session answered was answered by measuring an evening that already
+happened — which is a poor substitute for another one.
 
 ---
 

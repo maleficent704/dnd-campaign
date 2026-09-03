@@ -62,6 +62,9 @@ class PartyMember:
 
     name: str
     player: str
+    #: How to refer to them. Blank means the prompt says nothing, and the GM is left to
+    #: its own devices — which is the state this field exists to end.
+    pronouns: str = ""
     descriptor: str = ""
     hp_current: int | None = None
     hp_max: int | None = None
@@ -72,6 +75,7 @@ class PartyMember:
         return cls(
             name=sheet.name,
             player=sheet.player,
+            pronouns=sheet.pronouns,
             descriptor=f"level {sheet.level} {sheet.species} {sheet.character_class}",
             hp_current=sheet.hit_points.current,
             hp_max=sheet.hit_points.maximum,
@@ -79,6 +83,8 @@ class PartyMember:
 
     def render(self) -> str:
         parts = [f"- **{self.name}** (played by {self.player})"]
+        if self.pronouns:
+            parts.append(f", {self.pronouns}")
         if self.descriptor:
             parts.append(f", {self.descriptor}")
         if self.hp_current is not None and self.hp_max is not None:
@@ -346,6 +352,8 @@ def _cast_block(cast: Sequence[NPC]) -> str:
     lines = []
     for npc in cast:
         parts = [f"- **{npc.name}**"]
+        if npc.pronouns:
+            parts.append(f" ({npc.pronouns})")
         if npc.voice.role:
             parts.append(f" — {npc.voice.role}")
         if npc.location:

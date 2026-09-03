@@ -494,6 +494,30 @@ Task breakdown:
   **The Salt Road to date: 41 GM calls, $0.2428 actually billed, $1.66 that would have
   cost, one 65 s NPC call.**)*
 
+- **P5.5** Pronouns recorded on the sheet and carried to every layer that writes about a
+  person. Raised by P5.3's live run, which had the chronicle call Corin Vale "he" in text
+  the recap now reads out loud.
+  *(Done 2026-09-03 (f). Measured before it was fixed: across all fourteen logs, in
+  sentences naming exactly one PC and nobody else, **Brother Hammond took masculine
+  pronouns 10/10 and Corin Vale feminine ones 5/5 in play** — the GM was never the problem.
+  The chronicler was, because it reads a transcript with no roster, and a name is the only
+  evidence it has. That is why the failure is uneven rather than random: "Brother Hammond"
+  carries the signal a guess is made from and "Corin Vale" does not. Replayed live against
+  the real 11-turn session-2 log, four runs each way: **3 of 4 misgendered her without the
+  field, 0 of 4 with it** — "He found a gap in the load" became "She found a gap… her
+  investigation… the guard saw through the lie and confronted her", with "his attention"
+  still correctly the guard's. The handoff's own premise was wrong: the sheets did **not**
+  have pronouns. `NPCProfile` has carried them since P4.1 and `CharacterSheet` never did,
+  so co-creation never asked and nothing downstream could have known. Now: asked for in
+  co-creation, on the sheet, on `PartyMember`, in the GM's party **and cast** blocks (the
+  GM was directing a they/them caravan master on nothing but the name), and in the
+  chronicle, fold and recap prompts. Blank stays blank the whole way down — the prompts say
+  to repeat the name rather than choose, because a default of "they/them" is a guess in a
+  safer coat. NPC pronouns reach the chronicler **only for names the session already
+  said**: a roster there would widen the vocabulary the grounding check is built from,
+  which is the check writing its own permission slip (P4.1, fourth surface). No D-008
+  change — no new family, no new fields.)*
+
 ## Phase 6 — LAN web GUI
 
 FastAPI backend over the same engine; two-device play from the couch; hot-seat CLI

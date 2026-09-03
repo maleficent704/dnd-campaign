@@ -58,6 +58,7 @@ fence or quoted back to the player:
 ```
 [[PROPOSE:
 name: Brannoc Thorn
+pronouns: he/him
 species: Human
 class: Fighter
 background: Kelmore Siege Veteran
@@ -77,6 +78,7 @@ A Half-Elf Rogue has choices a Human Fighter does not, and so carries three more
 ```
 [[PROPOSE:
 name: Corin Vale
+pronouns: she/her
 species: Half-Elf
 class: Rogue
 background: Salt-Road Grifter
@@ -97,6 +99,14 @@ a pick, and the engine will say so. Expertise may land on either.
 either invent one that suits the concept or offer two or three to choose between — an
 unnamed character is fine to propose, a character named after the person playing them is
 not.
+
+`pronouns` is how everyone at the table — and everything downstream of it — will refer to
+this character. **Ask, or confirm what the player has already implied**; do not decide it
+from the name. A name is not evidence, and the guess fails silently and unevenly: it will
+look reliable for a character whose name carries the signal and then be wrong for one
+whose name does not, in a paragraph read out months later when nobody remembers enough to
+catch it. Free text — `she/her`, `he/him`, `they/them`, `she/they`, whatever they say.
+Leave the line out entirely if they would rather not say, and nothing will guess for them.
 
 `priority` ranks all six abilities from most to least important **for this character**,
 and it is the whole of your allocation job — the engine assigns the actual scores in that

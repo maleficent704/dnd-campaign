@@ -1525,6 +1525,7 @@ def _run_chronicle(
             campaign_dir(slug),
             log=log,
             party=[member.name for member in campaign.party],
+            pronouns=_pronouns(campaign),
         )
         if slug
         else Chronicler(
@@ -1532,6 +1533,7 @@ def _run_chronicle(
             chronicle=campaign.chronicle,
             log=log,
             party=[member.name for member in campaign.party],
+            pronouns=_pronouns(campaign),
         )
     )
     # Says "a minute or two" because it is: the batch seat is a 70B, chosen for
@@ -1572,6 +1574,20 @@ def _run_chronicle(
         )
 
 
+def _pronouns(campaign) -> dict[str, str]:
+    """How to refer to everyone this campaign has recorded pronouns for.
+
+    Party and cast together, because the layers that read this write about both. Only
+    names with an actual entry appear — a blank stays blank all the way down, and the
+    prompts say to write around a name rather than choose for it. The cast is filtered
+    again downstream against what the session named; handing over a roster and handing
+    over a vocabulary are not the same thing (P4.1).
+    """
+    people = [(member.name, member.pronouns) for member in campaign.party]
+    people += [(npc.name, npc.pronouns) for npc in campaign.cast]
+    return {name: pronouns for name, pronouns in people if pronouns}
+
+
 def _player_known(ledger) -> list[str]:
     """What the players already know, and only that.
 
@@ -1602,7 +1618,10 @@ def _run_recap(
 
     backend = build_batch_backend(cfg, temperature=RECAP_TEMPERATURE)
     recapper = Recapper(
-        backend=backend, log=log, party=[member.name for member in campaign.party]
+        backend=backend,
+        log=log,
+        party=[member.name for member in campaign.party],
+        pronouns=_pronouns(campaign),
     )
     console.print(
         f"\n[dim]previously — {cfg.seats.utility_batch.model} reading the campaign "
@@ -2823,7 +2842,9 @@ def _render_sheet(console: Console, sheet: CharacterSheet) -> None:
     letting the GM recite scores it may have got wrong (OD-11's principle, applied to
     the sheet: one place the numbers come from, and it is the engine)."""
     console.print(
-        f"[bold]{sheet.name}[/bold] — level {sheet.level} {sheet.species} {sheet.character_class}"
+        f"[bold]{sheet.name}[/bold]"
+        + (f" [dim]({sheet.pronouns})[/dim]" if sheet.pronouns else "")
+        + f" — level {sheet.level} {sheet.species} {sheet.character_class}"
         + (f"  ([dim]{sheet.player}[/dim])" if sheet.player else "")
     )
     console.print(

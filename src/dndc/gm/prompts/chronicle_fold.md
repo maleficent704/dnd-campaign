@@ -35,6 +35,15 @@ prose — no headings, no bullet points, no bold.
 
 {{ party }}
 
+## How to refer to people
+
+Where a name above or below is followed by pronouns, **use those and no others** — they
+are recorded on the character's sheet and are not yours to choose. Where a name has none,
+repeat the name rather than deciding. Compressing several paragraphs into one is exactly
+where a pronoun gets picked up from the wrong sentence.
+
+{{ others }}
+
 ## How to answer
 
 Write the paragraph and nothing else. No heading, no preamble, no closing remark.
