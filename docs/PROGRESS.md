@@ -16,8 +16,14 @@ blockers into this list.
 ### Open now
 
 **None awaiting Fable, and nothing ruled is unbuilt.** Phase 4 (the NPC agent tier, D-003)
-is underway — P4.1–P4.4 landed 2026-09-02 (b)–(d); next is **P4.5, wiring into the turn
-loop**. NPCs speak on toto-llm and their drafts are gated.
+is underway — P4.1–P4.5 landed 2026-09-02 (b)–(f); next is **P4.7, a scene at the table**
+(P4.6 after it — see the (f) entry for why that order). The GM directs, NPCs answer for
+themselves on toto-llm, and their drafts are gated.
+
+One question from (d) is still open and still non-blocking: **should a `blocked` line cost
+the turn, or fall through to the GM narrating around the silence?** P4.5 takes the neutral
+position — nothing is shown and nothing enters the GM's window — so either ruling remains
+cheap to implement.
 
 One item is **provisionally accepted rather than settled** — Kelly's, not Fable's:
 
@@ -375,6 +381,145 @@ the drift instrument's own log is a finding worth the two-line fix.
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-09-02 (f) — P4.5: the GM stops voicing the innkeeper, and a leak I put in myself (Claude Code, kelly-pc)
+
+**P4.5 done. 1215 tests, suite still fully offline.** D-008 amended first (items 21–23).
+The tier is wired: the GM directs, the character answers on the local 70B, the gate checks
+the draft, and the line comes back as established dialogue. The part of this entry worth
+reading is not the wiring — it is that the live run found a leak vector I had built into it
+an hour earlier, and the fix was one line.
+
+### What it does
+
+`[[SPEAK: Maren | asked outright about the sheds]]` — the eighth use of the tag convention
+and the first that causes a *second model call* rather than an engine action. The GM sets
+the moment up, hands over the floor, and stops. The engine runs that character's own call
+against their own knowledge scope, the P4.4 gate checks the draft, and what she actually
+said is printed in her name.
+
+The direction may be omitted (`[[SPEAK: Maren]]` means "answer what was just said", and she
+is handed the player's own words), the separator may be a pipe or any arrow a model reaches
+for, and a name with no record in `npcs.yaml` is **dropped and reported** rather than
+improvised. The tier is for characters whose knowledge is worth scoping; passers-by stay
+the GM's to voice in prose, as they have been since Phase 1.
+
+### The property this turns on: an NPC line never enters the assistant slot
+
+Maren's line has to reach the GM — a director who cannot hear what its cast said is not
+directing. But if it arrives as an *assistant* message, the GM reads her dialogue back as
+its own past output, and a model that reads itself writing Maren's lines writes Maren's
+lines. **A GM writing her dialogue directly is a GM holding `gm_only` canon speaking with
+her mouth**, which is the exact leak D-003 exists to prevent.
+
+So dialogue rides one turn forward: what a character said after turn *n*'s narration
+arrives attached to turn *n+1*'s player input, in the same slot engine resolutions already
+arrive in and for the same reason — both are things that happened between the GM's turns and
+neither is the GM's own output. That also keeps the message roles strictly alternating,
+which matters with two backends and a third coming.
+
+Protection by construction rather than by instruction, again. The instruction is there too,
+but it is the belt.
+
+### The leak I built, and the live run that found it
+
+The NPC prompt takes a `setting`. I passed it **the GM's narration for the turn**, which
+seemed obviously right: the character should know what just happened in the room.
+
+It is not right, on two counts, and the second is serious.
+
+First, **it parrots.** Turn two of the first live run: Maren's reply came back as a
+near-verbatim copy of the dialogue the GM had written for her a second earlier. Shown a
+guess at her own words, she repeated it. The table would have heard the same line twice.
+
+Second — and this is the one — **GM prose is written by a model holding `gm_only` canon.**
+Piping it wholesale into an NPC prompt routes around the substitution rule with a
+convenience argument. It does not matter that the leak did not fire in these six turns;
+`for_npc` exists precisely so that no path into an NPC prompt has to be trusted, and I had
+opened one that was.
+
+The fix is `setting=self.campaign.scene` — the stable scene line, authored by a human. What
+just happened reaches the character through the GM's **direction**, which is a summary the
+GM chose to write for her, knowing what she may hear. That is the whole design, and I had
+quietly bypassed it. There is a test on the assembled bytes now.
+
+**The general lesson, since this project collects them:** the leak was not in the filter. It
+was in a *field I passed to something downstream of the filter*, which is where the next one
+will be too. `for_npc` guards the canon; nothing guarded the prose.
+
+### The warm-up, which is the thing that makes the tier usable
+
+`NPCVoice.warm_up()` — one four-token call at session start, before anybody is waiting.
+
+| | measured |
+|---|---|
+| cold (model not resident) | **62,296 ms** |
+| warm, same call | **311 / 516 / 563 ms** |
+
+That is the (e) finding paid off: unwarmed, a minute of dead air lands on whichever player
+happens to speak to somebody first. Warmed, it lands on a spinner at session start with an
+honest label, and the CLI prints the elapsed time and says *(it was cold)* or *(already
+resident)* — so the difference is a measurement rather than an inference, which is the whole
+of what (e) got wrong.
+
+**`cost.latency_ms` (D-008 item 23)** closes the same hole permanently. Every backend has
+measured call duration since Phase 1 and *nothing has ever written it down* — it went to a
+console line and was thrown away, which is how a timing question came to be answered from
+memory of a console line, wrongly. It is now on every cost row, GM and NPC alike.
+
+### At the table
+
+Three live runs on the real seats (Sonnet GM, `llama3.3:70b` NPC and gate on toto-llm):
+
+| | warm |
+|---|---|
+| session-start warm-up | 0.3–0.6 s |
+| NPC call | 1.3–3.2 s |
+| **whole turn, GM narration + directed line + gate** | **6.6–9.2 s** |
+
+Most of that is the GM writing 150 words, which is a cost the loop already had. The tier
+adds roughly **3–5 s** to a turn where somebody speaks.
+
+**The gate earned itself again, live and unprompted.** Maren's first draft ended *"Quay
+watch comes by regular, even at night"* — a patrol and its schedule, neither in her scope,
+invented under no pressure at all. Revised to drop exactly that clause and keep the rest,
+and the draft is in the log beside it.
+
+### Known issues
+
+- **The GM still sometimes writes a fragment of her dialogue anyway.** Across six live
+  turns: two wrote a full reply for her, one threw a question back in her voice, three were
+  clean. The instruction was strengthened twice (once in `system_core.md`, once in the
+  volatile roster block, which is closer to the live exchange) and the last two turns were
+  clean — but **two turns prove nothing**, and tuning a prompt until the sample looks good
+  is the sin P2.6 avoided. Recorded as a rate, not fixed. Watch it at P4.7; if it persists,
+  the honest repairs are ordering (direct *before* narrating) or a structural one, not more
+  prose.
+- **`MAX_NPC_TURNS = 2`** is a latency judgement, not a design one. Directions past it are
+  reported, never silently dropped.
+- The per-turn roster is every NPC in the campaign. Fine for a village, wrong for a city —
+  scoping it by location is Phase 5's, when a campaign has enough cast to need it.
+- No campaign in the repo has an `npcs.yaml` yet; the live runs built their cast in memory.
+  P4.7 should author one properly and check it in.
+
+### FOR DESIGN
+
+Nothing blocking, and **the open question from (d) is still open and still non-blocking**:
+whether a `blocked` line should cost the turn or fall through to the GM narrating around
+the silence. P4.5 takes the neutral position — a blocked line shows the interception and
+enters nothing, neither the screen nor the GM's window — which forecloses neither answer.
+The GM is deliberately *not* told that a character was about to say something and then did
+not, because that is itself a fact about the plot.
+
+### Recommended next task
+
+**P4.6 — stance-scoped supersession** (mystery OD-13), or **P4.7 — live verification and a
+scene at the table**, and I would take P4.7 first. The tier now runs end to end and the one
+open behavioural question (how often the GM voices a character it just directed) is a
+*measurement* question that only a real scene answers. P4.6 is a correctness feature with
+no observed failure behind it yet; P4.7 would tell us whether it has one.
 
 ---
 

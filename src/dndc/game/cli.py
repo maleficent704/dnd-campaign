@@ -68,7 +68,7 @@ from dndc.game.combatturn import (
 )
 from dndc.game.inventory import InventoryStore, describe_change, proposals_for
 from dndc.game.party import resolve_member
-from dndc.game.turn import TurnEngine
+from dndc.game.turn import MAX_NPC_TURNS, TurnEngine
 from dndc.gm.canon import npc_issues
 from dndc.gm.gatekeeper import ControlCase, Gatekeeper, Verdict, run_control
 from dndc.game.npcturn import NPCVoice
@@ -973,6 +973,116 @@ class _NarrationStream:
         self.console.print(text, end="", markup=False, highlight=False)
 
 
+def _build_voice(console: Console, cfg, args, log) -> tuple[object | None, list]:
+    """The NPC seat for a play session, or None if nobody is speaking for themselves.
+
+    **Fails open the whole way down.** No cast, a routing failure, a host that has gone
+    away — every one of them returns None and the session plays on with the GM voicing
+    everyone in its own prose, which is what it did for three phases. A local box being
+    off is not a reason a table cannot play, and the alternative (refusing to start) would
+    make the NPC tier a single point of failure for the entire game.
+    """
+    if getattr(args, "no_npcs", False) or not getattr(args, "campaign", None):
+        return None, []
+    book = load_campaign_npcs(args.campaign)
+    if not len(book):
+        return None, []
+
+    try:
+        backend, route = build_npc_backend(cfg, OllamaRouter.for_config(cfg))
+    except RoutingError as exc:
+        console.print(f"[yellow]NPC seat unavailable:[/yellow] {exc}")
+        console.print("[dim]the GM will voice everyone in its own prose[/dim]")
+        return None, []
+
+    closers = [backend]
+    gate, gate_backend = _build_gate(cfg, args)
+    if gate_backend is not None:
+        closers.append(gate_backend)
+    voice = NPCVoice(backend=backend, log=log, route=route, gate=gate)
+
+    where = route.endpoint.name if route else backend.endpoint
+    gated = "gated" if gate is not None else "[yellow]ungated[/yellow]"
+    console.print(
+        f"[dim]{len(book)} NPC(s) speaking for themselves · {backend.model} on {where} ·[/dim] "
+        f"{gated}"
+    )
+    if route is not None and route.fell_back:
+        console.print(f"[yellow]fell back[/yellow] [dim]— {route.reason}[/dim]")
+
+    # The warm-up (P4.5). A 70B that is not resident costs ~68 s on its first call, and
+    # unpaid that lands on whichever player speaks to somebody first. Paying it here moves
+    # it to the one moment nobody is waiting, and printing the elapsed time makes the
+    # difference between "already loaded" and "just loaded 40 GB" a measurement rather
+    # than an inference — the 2026-09-02 (e) lesson, wired in.
+    try:
+        with console.status("[dim]warming the NPC seat…[/dim]"):
+            elapsed = voice.warm_up()
+    except Exception as exc:
+        console.print(f"[yellow]warm-up failed:[/yellow] {type(exc).__name__}: {exc}")
+        console.print("[dim]NPCs stay on; the first line will pay the load instead[/dim]")
+        return voice, closers
+    console.print(f"[dim]seat warm in {elapsed} ms{_warmth(elapsed)}[/dim]")
+    return voice, closers
+
+
+#: Above this, the warm-up call clearly loaded the model rather than merely answering.
+#: Not a threshold anything branches on — it decides one word of console text.
+COLD_LOAD_MS = 10_000
+
+
+def _warmth(elapsed_ms: int) -> str:
+    return " (it was cold)" if elapsed_ms >= COLD_LOAD_MS else " (already resident)"
+
+
+def _speaking(console: Console, stream: "_NarrationStream"):
+    """An `on_dialogue` callback that flushes the narration before another voice starts.
+
+    The GM's reply may still be holding a character back (the stream withholds anything
+    that could be the start of a `[[` tag). Letting an NPC speak over the tail of that
+    would put half a word of GM prose after the innkeeper's line. `finish` is idempotent,
+    so calling it per line is free.
+    """
+
+    def speak(reply) -> None:
+        stream.finish()
+        _render_dialogue(console, reply)
+
+    return speak
+
+
+def _render_unvoiced(console: Console, result) -> None:
+    """Say when a direction produced no line. Never silent.
+
+    A GM directing somebody with no record means the prose and the roster disagree, and
+    that is a fixable authoring bug — but only if somebody is told about it. The same goes
+    for a local seat that died mid-session: the session keeps going, and it should be
+    obvious *why* the innkeeper stopped answering.
+    """
+    for direction in result.unvoiced:
+        console.print(
+            f"[dim]— {direction.name} was given the floor but did not speak "
+            f"(not in this campaign's cast, or past the {MAX_NPC_TURNS}-per-turn limit)[/dim]"
+        )
+    for error in result.voice_errors:
+        console.print(f"[yellow]NPC call failed:[/yellow] [dim]{error}[/dim]")
+
+
+def _render_dialogue(console: Console, reply) -> None:
+    """One NPC line at the table, in their name and their own voice.
+
+    A blocked line prints the interception and nothing else. The alternative — inventing
+    "she says nothing" — would put words in a character's mouth on the engine's authority,
+    which is the one thing this whole tier exists to stop.
+    """
+    console.print(f"\n[bold cyan]{reply.npc.name}[/bold cyan]")
+    if reply.text:
+        console.print(reply.text, markup=False, highlight=False, soft_wrap=True)
+    else:
+        console.print("[dim](says nothing the gate would let stand)[/dim]")
+    _render_verdict(console, reply)
+
+
 def _render_mechanics(console: Console, results) -> None:
     """OD-11: the numbers are rendered here, from state — never quoted by the GM."""
     if not results:
@@ -1801,6 +1911,12 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
 
     seed = args.seed if args.seed is not None else random.randrange(MAX_SEED)
     log = start_session_log(cfg, campaign=campaign.name, seed=seed, billing=billing)
+    voice, voice_closers = _build_voice(console, cfg, args, log)
+    # The roster and the tier are the same switch: the GM is shown who speaks for
+    # themselves only when somebody actually can. A roster with no seat behind it would
+    # have the GM directing characters into silence all session.
+    if voice is not None:
+        campaign.cast = list(load_campaign_npcs(args.campaign))
     engine = TurnEngine(
         backend=backend,
         campaign=campaign,
@@ -1811,6 +1927,7 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
         billing=billing.value,
         prices=load_prices(cfg.pricing),
         canon=_canon_store(args, campaign, log),
+        voice=voice,
     )
 
     # The dataset is what gives a picked-up item its weight (P2.4's known gap, closed
@@ -1837,7 +1954,10 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
         if not campaign.history:
             stream = _NarrationStream(console)
             try:
-                opened = engine.open_scene(on_text=stream.feed)
+                opened = engine.open_scene(
+                    on_text=stream.feed,
+                    on_dialogue=_speaking(console, stream),
+                )
             except GMBackendError as exc:
                 console.print(f"[red]error:[/red] {exc}")
                 return 1
@@ -1883,9 +2003,14 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
                 player=member.player,
                 sheet=loaded_sheets.get(active.lower()),
                 on_text=stream.feed,
+                # Printed as each character answers rather than collected and dumped at
+                # the end: an NPC line takes seconds on a local seat, and a table watching
+                # nothing happen is a table that thinks the thing has hung.
+                on_dialogue=_speaking(console, stream),
             )
             stream.finish()
             console.print()
+            _render_unvoiced(console, result)
             if result.refused:
                 console.print("[yellow]the model declined that turn[/yellow]")
             _render_mechanics(console, result.mechanics)
@@ -1901,6 +2026,8 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
             console.print()
     finally:
         backend.close()
+        for closer in voice_closers:
+            closer.close()
 
     if not args.no_sweep:
         _run_sweep(console, cfg, campaign, engine.canon, log)
@@ -2491,6 +2618,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="skip the end-of-session chronicle summary on the batch utility seat (P2.5)",
     )
     play.add_argument("--max-tokens", type=int, default=1024)
+    play.add_argument(
+        "--no-npcs", action="store_true",
+        help="don't voice NPCs on the local seat; the GM narrates everyone (P4.5)",
+    )
+    play.add_argument(
+        "--ungated", action="store_true",
+        help="run NPC lines without the output gate — raw drafts reach the table (P4.4)",
+    )
+    _add_gate_flags(play)
 
     combat = commands.add_parser(
         "combat", help="run a fight against SRD monsters (P3.4 demo runner)"

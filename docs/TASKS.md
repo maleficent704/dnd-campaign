@@ -355,6 +355,16 @@ Task breakdown:
   the convention), the engine runs that NPC's own call, the gatekeeper gates it, and what
   the NPC said comes back to the GM as established dialogue. Cost and latency at the table
   are the thing to measure here.
+  *(Done 2026-09-02 (f). `gm/speaktag.py` + the `[[SPEAK:]]` section in `system_core.md`;
+  D-008 amended first, items 21-23. **The line comes back as engine input, never in the
+  assistant slot** — dialogue rides one turn forward into the following user message, so a
+  GM can read what a character said and can never read it back as something it wrote. A GM
+  that learns to write Maren's lines is a GM holding `gm_only` canon speaking with her
+  mouth, which is the leak the tier exists to stop, so the protection is structural rather
+  than a standing instruction. `NPCVoice.warm_up()` pays the cold load at session start —
+  **62 s cold, 0.3-0.6 s warm, measured** — and `cost.latency_ms` now records what every
+  backend has always measured and thrown away. Live-verified: the gate caught an invented
+  quay watch mid-scene, and the run found a **leak vector of its own** — see the handoff.)*
 - **P4.6** Stance-scoped supersession (mystery OD-13): when the GM changes what an NPC
   knows or believes, the change is *decisive* in the next prompt rather than a quiet
   contradiction of everything the window still remembers them saying.

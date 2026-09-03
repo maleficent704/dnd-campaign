@@ -35,7 +35,9 @@ from dndc.gm.canon import CanonEntry
 from dndc.gm.canontag import find_canon_tags, strip_canon_tags
 from dndc.gm.checkrequest import CheckRequest, CheckRequestError, find_check_request, strip_check_requests
 from dndc.gm.inventorytag import InventoryTag, find_inventory_tags, strip_inventory_tags
-from dndc.gm.context import CampaignContext, GMPromptBuilder, Turn
+from dndc.gm.context import CampaignContext, GMPromptBuilder, SpokenLine, Turn
+from dndc.gm.speaktag import SpeakDirection, find_speak_directions, strip_speak_directions
+from dndc.game.npcturn import NPCReply, NPCVoice
 from dndc.logging import SessionLog
 from dndc.memory.canon_store import CanonStore
 from dndc.models.base import GMBackend, GMResponse, new_call_id
@@ -51,6 +53,7 @@ from dndc.schema.events import (
     PlayerInput,
     RulesResolution,
 )
+from dndc.schema.npc import NPC
 from dndc.schema.sheet import CharacterSheet, Proficiency
 
 def _clean(text: str) -> str:
@@ -59,13 +62,31 @@ def _clean(text: str) -> str:
     Every stripper, always. A tag left in the window comes back to the GM as its own past
     voice, and it learns to narrate in tags.
     """
-    return strip_inventory_tags(strip_canon_tags(strip_check_requests(text)))
+    return strip_speak_directions(
+        strip_inventory_tags(strip_canon_tags(strip_check_requests(text)))
+    )
+
+
+def _spoken(dialogue: list[NPCReply]) -> tuple[SpokenLine, ...]:
+    """Replies as window lines. A blocked line has no text and enters nothing — the GM is
+    not told that a character was going to say something and then did not."""
+    return tuple(
+        SpokenLine(speaker=reply.npc.name, text=reply.text)
+        for reply in dialogue
+        if reply.text
+    )
 
 
 #: Max GM calls per turn: one to consider the action, one to narrate the outcome. A
 #: second check request is ignored rather than looped on — a turn that keeps asking for
 #: rolls is a prompt bug, and an unbounded loop would spend real money discovering it.
 MAX_GM_CALLS = 2
+
+#: Max NPCs voiced in one turn (P4.5). Two people answering a question is a conversation;
+#: five is a crowd scene nobody can follow, and on a local 70B it is also half a minute of
+#: the table watching a spinner. The GM prompt asks for one or two; this is the backstop
+#: for when it does not listen, and the excess is surfaced rather than dropped in silence.
+MAX_NPC_TURNS = 2
 
 
 @dataclass
@@ -113,6 +134,16 @@ class TurnResult:
     #: confirmation is an interface act rather than an engine one (D-008 amended
     #: 2026-08-13; the 2026-08-05 ruling this implements).
     inventory: list[InventoryTag] = field(default_factory=list)
+    #: What the NPCs the GM directed actually said, post-gate, in the order they spoke.
+    dialogue: list[NPCReply] = field(default_factory=list)
+    #: Directions that produced no line: a name with no record in the campaign's cast, or
+    #: one past `MAX_NPC_TURNS`. Surfaced rather than dropped — a GM directing somebody who
+    #: does not exist means the roster and the prose disagree, and that is worth seeing.
+    unvoiced: list[SpeakDirection] = field(default_factory=list)
+    #: NPC calls that failed outright (the host went away mid-session). The turn still
+    #: lands: the GM has already narrated and the players are mid-scene, so a dead local
+    #: seat costs a line of dialogue, never the turn it was part of.
+    voice_errors: list[str] = field(default_factory=list)
 
     @property
     def total_usd(self) -> float:
@@ -133,6 +164,7 @@ class TurnEngine:
         billing: str = "api",
         prices: dict | None = None,
         canon: CanonStore | None = None,
+        voice: NPCVoice | None = None,
     ) -> None:
         self.backend = backend
         self.campaign = campaign
@@ -142,6 +174,9 @@ class TurnEngine:
         self.max_tokens = max_tokens
         self.billing = billing
         self.prices = prices or {}
+        # The NPC tier (P4.5). None means the GM voices everyone in its own prose, which
+        # is what it did for three phases and still does for anyone off the roster.
+        self.voice = voice
         self.canon = canon if canon is not None else CanonStore(campaign.ledger, log=log)
         # The store and the prompt must read the *same* ledger object, or a fact
         # established this turn is filed to disk and still missing from next turn's
@@ -151,7 +186,11 @@ class TurnEngine:
 
     # --- the loop ----------------------------------------------------------
 
-    def open_scene(self, on_text: Callable[[str], None] | None = None) -> TurnResult:
+    def open_scene(
+        self,
+        on_text: Callable[[str], None] | None = None,
+        on_dialogue: Callable[[NPCReply], None] | None = None,
+    ) -> TurnResult:
         """The GM's opening narration, before anyone has typed anything.
 
         At a table the GM speaks first; the loop used to sit waiting for a player who had
@@ -163,10 +202,7 @@ class TurnEngine:
             "", speaker="", resolutions=(), interim="", on_text=on_text, opening=True
         )
         narration = _clean(response.text)
-        self.campaign.record(
-            Turn(player_input="", narration=narration, speaker="", opening=True)
-        )
-        return TurnResult(
+        result = TurnResult(
             narration=narration,
             player="",
             responses=[response],
@@ -174,6 +210,19 @@ class TurnEngine:
             canon=established,
             inventory=items,
         )
+        # An opening scene may hand somebody the floor — an innkeeper greeting the party
+        # as they come through the door is the most natural first beat there is.
+        self._speak(result, find_speak_directions(response.text), "", on_dialogue)
+        self.campaign.record(
+            Turn(
+                player_input="",
+                narration=narration,
+                speaker="",
+                opening=True,
+                dialogue=_spoken(result.dialogue),
+            )
+        )
+        return result
 
     def run(
         self,
@@ -181,6 +230,7 @@ class TurnEngine:
         player: str,
         sheet: CharacterSheet | None = None,
         on_text: Callable[[str], None] | None = None,
+        on_dialogue: Callable[[NPCReply], None] | None = None,
     ) -> TurnResult:
         character = sheet.name if sheet is not None else None
         speaker = f"{player} ({character})" if character else player
@@ -190,6 +240,7 @@ class TurnEngine:
         resolutions: tuple[str, ...] = ()
         interim = ""
         narrations: list[str] = []
+        directions: list[SpeakDirection] = []
 
         for call_index in range(MAX_GM_CALLS):
             response, established, items = self._call(
@@ -208,6 +259,7 @@ class TurnEngine:
             if narration:
                 narrations.append(narration)
             result.narration = "\n\n".join(narrations)
+            directions.extend(find_speak_directions(response.text))
 
             request = self._check_request(response.text)
             last_call = call_index == MAX_GM_CALLS - 1
@@ -222,8 +274,17 @@ class TurnEngine:
             resolutions = (description,)
             interim = narration
 
+        # After the dice, not between the GM's two calls: at a table the innkeeper answers
+        # once the moment has resolved, and collecting the directions until the end means
+        # there is exactly one place a character can be voiced from.
+        self._speak(result, directions, player_input, on_dialogue)
         self.campaign.record(
-            Turn(player_input=player_input, narration=result.narration, speaker=speaker)
+            Turn(
+                player_input=player_input,
+                narration=result.narration,
+                speaker=speaker,
+                dialogue=_spoken(result.dialogue),
+            )
         )
         return result
 
@@ -281,6 +342,71 @@ class TurnEngine:
         # Canon is filed on the spot; item changes are only *collected*, because the
         # sheet does not move until the table says so.
         return response, self._record_canon(response), self._item_proposals(response)
+
+    def _speak(
+        self,
+        result: TurnResult,
+        directions: list[SpeakDirection],
+        said: str,
+        on_dialogue: Callable[[NPCReply], None] | None,
+    ) -> None:
+        """Run the characters the GM handed the floor to, in the order it named them.
+
+        Three ways a direction produces no line, and all three are recorded rather than
+        swallowed: nobody of that name in the campaign's cast, more directions than
+        `MAX_NPC_TURNS`, and the seat failing outright. The last one is the reason this
+        catches: the GM has already narrated and the players are mid-scene, so a local host
+        that went away costs a line of dialogue and never the turn around it.
+
+        A **blocked** line is not an error and not a failure — it is the gate working, and
+        it produces an empty `text`, which lands nowhere: no dialogue on screen, nothing
+        carried into the GM's window. Whether the GM should then be given a chance to
+        narrate around the silence is an open design question (2026-09-02 (d)); doing
+        nothing forecloses neither answer.
+        """
+        if not directions:
+            return
+        if self.voice is None:
+            result.unvoiced.extend(directions)
+            return
+        for index, direction in enumerate(directions):
+            npc = self._cast(direction.name)
+            if npc is None or index >= MAX_NPC_TURNS:
+                result.unvoiced.append(direction)
+                continue
+            try:
+                reply = self.voice.speak(
+                    npc,
+                    self.campaign.ledger,
+                    # A bare `[[SPEAK: Maren]]` means "answer what was just said", so the
+                    # character is handed the player's own words. Better than a manufactured
+                    # prompt: the GM declined to summarise, and inventing a summary here
+                    # would put the engine's paraphrase where its judgment should be.
+                    direction.direction or said,
+                    # The campaign's scene, deliberately, and **never the GM's narration
+                    # for this turn.** Handing an NPC the GM's prose would pipe text
+                    # written by a model holding `gm_only` canon straight into a prompt
+                    # that D-003 keeps clean by construction — the substitution rule
+                    # defeated by a convenience argument. It also parrots: shown the GM's
+                    # guess at her own dialogue, a character repeats it back nearly
+                    # verbatim, and the table hears the same line twice (measured live,
+                    # 2026-09-02 (f)). What just happened reaches her through the GM's
+                    # *direction*, which is a summary the GM chose to write.
+                    setting=self.campaign.scene,
+                    direction=direction.direction,
+                )
+            except Exception as exc:  # a local host that went away mid-scene
+                result.voice_errors.append(f"{npc.name}: {type(exc).__name__}: {exc}")
+                continue
+            result.dialogue.append(reply)
+            if on_dialogue is not None:
+                on_dialogue(reply)
+
+    def _cast(self, name: str) -> NPC | None:
+        for npc in self.campaign.cast:
+            if npc.name.casefold() == name.casefold() or npc.id == name.casefold():
+                return npc
+        return None
 
     def _record_canon(self, response: GMResponse) -> list[CanonEntry]:
         """File whatever the GM declared. A refusal declares nothing."""
@@ -426,4 +552,5 @@ class TurnEngine:
             usd=response.reported_usd if response.reported_usd is not None else estimated,
             would_have_cost=subscription,
             call_id=response.call_id,
+            latency_ms=response.duration_ms,
         )

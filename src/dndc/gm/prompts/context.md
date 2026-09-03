@@ -25,6 +25,15 @@ wins**, and where it is silent you are free.
 
 {{ scene }}
 
+## Characters who speak for themselves
+
+These people answer in their own voices, in their own call, straight after your reply.
+Hand one the floor with `[[SPEAK: ...]]` and write **none** of their dialogue yourself —
+not a line, not a fragment, not a question they throw back. Whatever you put in their
+mouth, the table will hear them say something else a moment later.
+
+{{ npcs }}
+
 ## Established canon
 
 {{ canon }}

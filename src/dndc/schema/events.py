@@ -201,6 +201,11 @@ class NPCTurn(_Event):
     #: observable, and the difference between "the 70B answered" and "the 70B on the box
     #: we expected answered".
     endpoint: str | None = None
+    #: What the GM asked this character to address, verbatim from the `[[SPEAK:]]` tag
+    #: (D-008 item 22). The stimulus beside the response: an NPC that names the tunnel
+    #: unprompted and one that was *told to talk about the tunnel* by a GM holding
+    #: `gm_only` canon are different failures, and `text` alone cannot tell them apart.
+    direction: str | None = None
 
 
 class CanonOperation(str, Enum):
@@ -490,6 +495,12 @@ class Cost(_Event):
     #: The model call this cost belongs to (OD-9) — same id as its gm_narration /
     #: npc_turn pair, so cost attribution survives interleaved calls.
     call_id: str | None = None
+    #: Wall-clock milliseconds (D-008 item 23). Every backend has measured this since
+    #: Phase 1 and nothing wrote it down — it went to a console and was thrown away, which
+    #: is how a timing question came to be answered from memory, wrongly (2026-09-02 (e)).
+    #: On a local seat the latency *is* a finding: model eviction, a fallback to a second
+    #: endpoint and a cold load all announce themselves here and nowhere in a token count.
+    latency_ms: int | None = None
 
 
 Event = Annotated[

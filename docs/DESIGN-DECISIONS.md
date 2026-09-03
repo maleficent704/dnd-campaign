@@ -490,6 +490,44 @@ July ruling named the field without fixing its values.
     and it is never told the secret — so unlike the mystery's director-gatekeeper, there is
     no withheld truth in this call to leak into a log in the first place.
 
+**Amended 2026-09-02 (P4.5, doc-first).** The GM starts directing NPCs instead of voicing
+them, which needs a wire format and two fields the log has been missing.
+
+21. **`[[SPEAK: <name> | <what they are answering>]]`** — the GM's direction to a character
+    who speaks for themselves. The eighth use of the `[[TAG:]]` convention, and the first
+    one that causes a *second model call* rather than an engine action, which is what makes
+    it worth writing down carefully.
+
+    The separator may be `|` or an arrow, and the second half may be omitted — a bare
+    `[[SPEAK: Maren]]` means "answer what was just said", and the engine hands the
+    character the player's own words. Forgiving on purpose: the producer is a language
+    model, and refusing to let an innkeeper answer because the GM used an en dash would be
+    a bad trade.
+
+    **The direction is a stage direction, not a script.** It says what the character is
+    being asked, never what they should reply — a GM that could dictate the line would have
+    routed around the whole tier, since the GM holds `gm_only` canon and the character does
+    not. Nothing enforces this in code (it is prose in a tag), so it is stated in the GM
+    prompt and visible in `npc_turn.direction`, where a Phase 7 reader can check it.
+
+    Named characters only: a `SPEAK` naming somebody with no record in `npcs.yaml` is
+    dropped, and the GM voices passers-by in its own prose as it always has. The tier is
+    for characters whose knowledge is worth scoping.
+
+22. **`npc_turn.direction`** — what the GM asked this character to address, verbatim from
+    the tag. Without it a leak in the log is unattributable: an NPC that names the tunnel
+    unprompted and one that was *told to talk about the tunnel by a GM holding `gm_only`
+    canon* are different failures with different fixes, and `text` alone cannot tell them
+    apart. The stimulus belongs in the record beside the response.
+
+23. **`cost.latency_ms`** — wall-clock milliseconds for the call. Every backend has
+    measured this since Phase 1 and nothing has ever written it down; it was printed to a
+    console and thrown away. The 2026-09-02 (e) correction is the argument: a timing
+    question was answered from memory of a console line, wrongly, because the log could not
+    answer it. A local seat's latency also *is* a finding — it is how model eviction, a
+    fallback to a second endpoint, and a cold load announce themselves — and none of those
+    are visible in a token count.
+
 **Rationale.** Same discipline as the mystery; the additions (canon_write provenance,
 cost, escalation) are what Phase 7's instruments — canon-drift measurement, ruling
 logs, cost-per-session — consume. Pending-state logging lesson from the mystery
