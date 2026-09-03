@@ -586,6 +586,29 @@ a system that has beliefs but no tier ladder.
     only way to tell a conservative judge from an absent one — the same measurement the
     mystery bought by splitting `claim_superseded.source` into `stance` and `reply`.
 
+27. **`session_meta.resumed_from` and `session_meta.resumed_turns`** (P5.1) — the session
+    id a save point was picked up from, and how many turns were already behind it. A field
+    rather than a new family, deliberately: resuming is not an event that happens during a
+    session, it is a fact about how the session started, and that is what `session_meta`
+    is for.
+
+    Two things read this. An analysis that counts turns per session needs to know that a
+    log opening at turn fifteen is not a log with fourteen missing turns — otherwise the
+    first restart shows up as a canon-drift anomaly. And when an *open* save is resumed
+    into its own log, the row is what distinguishes the second `session_meta` in a file
+    from a duplicate: same `session_id`, continued `seq`, and possibly a different commit,
+    billing seat or master seed, because the process was restarted and may have been
+    restarted onto other code. Each row governs the calls that follow it, and two rows
+    saying so is more honest than one row that has quietly stopped being true.
+
+    **The save point itself emits nothing.** It is state, not history: the log already
+    holds every turn it summarises, and a save write is a rewrite of the same file, which
+    is precisely what the append-only rule exists to keep out of the record. What the save
+    stores is only what no other file owns — scene, turn window, acting player, lineage —
+    and never canon, sheets, backgrounds or chronicle, each of which has its own writer.
+    Two authorities for one fact drift the first time one path writes and the other does
+    not.
+
 **Rationale.** Same discipline as the mystery; the additions (canon_write provenance,
 cost, escalation) are what Phase 7's instruments — canon-drift measurement, ruling
 logs, cost-per-session — consume. Pending-state logging lesson from the mystery

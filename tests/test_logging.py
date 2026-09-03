@@ -222,3 +222,21 @@ def test_absolute_import_of_logging_resolves_to_the_stdlib_after_importing_ours(
     assert module_path.endswith("logging/__init__.py") or module_path.endswith(
         "logging\\__init__.py"
     )
+
+
+def test_a_new_session_never_lands_inside_an_existing_log(tmp_path, monkeypatch):
+    """Ids are second-resolution, so two runs in one second would share a file.
+
+    P5.1 made this matter: a *resumed* session deliberately reopens its own log, so a
+    new one arriving in an old file would be indistinguishable from a restart that
+    never happened.
+    """
+    monkeypatch.setattr("dndc.logging.emitter.new_session_id", lambda: "20260903-201500")
+
+    first = SessionLog.open(tmp_path)
+    first.emit(PlayerInput, player="Kelly", text="hi")
+    second = SessionLog.open(tmp_path)
+
+    assert second.session_id == "20260903-201500-2"
+    assert second.path != first.path
+    assert second.seq == 0

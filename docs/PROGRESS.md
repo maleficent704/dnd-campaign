@@ -20,6 +20,9 @@ and 2026-09-03. The GM directs, NPCs answer for themselves on toto-llm, their dr
 gated, changes of mind supersede the beliefs they replace, and the tier has been verified
 end to end against a real campaign (`docs/playtests/2026-09-02-npc-tier-verification.md`).
 
+**Phase 5 is underway** — P5.1 landed 2026-09-03 (b): a session that is interrupted now
+survives being interrupted, and picks up in the same log where it stopped.
+
 Three questions are open, none blocking:
 
 > **1. Should a GM declare a change of mind before the character has conceded it out
@@ -409,6 +412,125 @@ the drift instrument's own log is a finding worth the two-line fix.
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-09-03 (b) — P5.1: the evening that stops rather than ends (Claude Code, kelly-pc)
+
+**Phase 5 opens.** It had no task breakdown, so it has one now (P5.1–P5.4 in TASKS.md),
+and the first of them is done. 1281 tests, suite still fully offline.
+
+### What Phase 5 turned out to be about
+
+Everything durable already had a file and a writer — canon in `canon.yaml`, sheets in
+`characters/`, backgrounds in `backgrounds.yaml`, past sessions in `chronicle.yaml`. What
+was lost at the end of every session was the part nobody had named: **where the party is
+standing.** The scene, the turns still inside the prompt window, whose seat it is. Quit
+mid-scene and the campaign remembered every fact about the world and nothing about the
+moment.
+
+So the phase's governing rule is that **a save point stores only what nothing else owns.**
+Canon, sheets and chronicle are deliberately absent, and the absence is asserted on the
+written bytes rather than trusted — the same test shape the NPC prompt uses. A copy of the
+ledger in here would be a second authority for the same fact, and two authorities drift
+the first time one path writes and the other does not.
+
+### What was built
+
+`schema/save.py` + `game/saves.py`, written to `campaigns/<slug>/saves/state.yaml`
+(gitignored, hand-editable, atomic like a character sheet). D-008 amended first, item 27:
+`session_meta.resumed_from` and `resumed_turns`. A **field, not a family** — resuming is
+not something that happens during a session, it is a fact about how the session started,
+and that is what `session_meta` is for. The save itself emits nothing at all: it is state,
+not history, and it is the one file in this project that gets rewritten rather than
+appended to, which is precisely why it holds nothing the append-only log is the record of.
+
+### The design call, and it is the whole task
+
+**`closed` is the difference between a crash and a bedtime.**
+
+An **open** save is a session that stopped. The window comes back whole, and the run
+continues *that session's own log* — `SessionLog.open` picks `seq` up from the highest
+already on disk, which is the npc-village rider finally doing the job it was ported for.
+An evening interrupted by a crash lands in the record as one session, not two halves.
+
+A **closed** save is a session that ended properly: the sweep and the chronicle have run.
+It restores the scene and **not** the turns. D-002 is explicit that a past session reaches
+the prompt as chronicle prose, and replaying its raw turns on top of the summary of those
+same turns is the growing-transcript failure the three layers exist to prevent. It also
+lets the GM open a new session properly, which is what a table would expect after a week
+away.
+
+Two smaller calls fell out of it. An explicit `--scene` beats whatever the save remembers,
+because somebody typing one is deliberately moving the party. And the acting player is
+checked against the party rather than trusted: a save can outlive the character it names.
+
+### Live, and what the crash actually showed
+
+Verified end to end on the API seat against a scratch campaign, deleted afterwards.
+
+- **Bedtime path:** session one ended normally; session two announced *"picking up where
+  the last session left off (2 turns)"*, opened a fresh scene at the same ford with no
+  `--scene` given, and its `session_meta` carried `resumed_from` and `resumed_turns=2`.
+- **Crash path:** a session was killed with `taskkill` mid-scene, leaving an open save.
+  The next run announced *"resuming session 20260903-060842 — 1 turns"*, wrote into the
+  **same log file**, and the GM's reply continued the ford scene a dead process had
+  written — the boy in the water, the carter with his rope. One record, `seq` 0 to 14
+  unbroken, with a second `session_meta` at seq 6 naming its own resume and its own seed.
+- The killed turn is still in that log as `player_input` at seq 4 and a `gm_narration`
+  **`pending`** at seq 5 with nothing resolving it. That is D-008's log-intent-before-the-
+  call discipline showing a crash exactly as it was designed to: the hole is visible and
+  reconstructable rather than silent.
+
+**One bug found on the way, and it was pre-existing.** Session ids are second-resolution,
+so two runs started inside the same second shared a log file. Harmless before this task;
+after it, a *new* session landing inside an old one is indistinguishable from a restart
+that never happened, which is the exact confusion P5.1 exists to remove. `SessionLog.open`
+now suffixes (`-2`, `-3`) when it is asked for a new session and the file is taken. A test
+caught it, by starting two logs faster than a human could.
+
+### Known issues
+
+- **Nothing updates `campaign.scene` as play moves.** It is only ever what `--scene` or
+  `/scene` last set, so a restored scene can be a session out of date — the save persists
+  a field the table has to maintain by hand. It works (the ford came back correctly), but
+  "where the party is standing" is currently a human's job. **P5.3's recap is the natural
+  place to fix it**: a job that reads the session back could propose the new scene the
+  same way the sweep proposes canon, confirmed rather than assumed.
+- **A crash *during* the sweep or chronicle leaves the save open**, so the next run
+  resumes and will offer to sweep the same session again at its end. Confirmation-gated,
+  so a human sees it; not worth code before it happens once.
+- The save is per-campaign and singular. No "save as", no branch, no undo. Deliberate for
+  a two-player home table, and a bad thing to guess at.
+
+### FOR DESIGN
+
+**Non-blocking, and it is my call rather than a ruling — flagged for the record.** Should
+a closed save restore the turn window? I have said no, straight off D-002: the chronicle
+is the layer that carries a past session, and restoring the raw turns it summarises would
+put the same evening into the prompt twice, in two forms, which is what the three layers
+were designed to stop. The cost is that a campaign picked up a week later opens on a fresh
+GM scene rather than continuing mid-conversation — better fiction most of the time, but if
+the table stops mid-sentence and comes back the next night, they will notice. It is one
+boolean if Fable disagrees.
+
+**Carried, all three still open and none blocking:** whether a GM should declare a change
+of mind before the character concedes it (from the entry below); whether the GM should
+voice player characters at all (from (g)); whether a `blocked` line should cost the turn
+(from (d)).
+
+### Recommended next task
+
+**P5.2** is mostly proved already — the seq rider is implemented, exercised and
+live-verified above — so it is a short task: assert it through the CLI rather than the
+store, and check the analysis side reads a two-`session_meta` log without double-counting.
+
+Then **P5.3** (recap on the utility tier), which is where the stale-scene issue above
+wants to be solved.
+
+Still true, and still the only thing that needs a human: **an evening with Kelly and Sam
+at the Brakewater crossroads.** Phase 4 is complete, and now a session that gets
+interrupted survives being interrupted, which makes a real evening cheaper to attempt.
 
 ---
 

@@ -103,6 +103,13 @@ class SessionMeta(_Event):
     srd_pin: str | None = None
     #: Master seed. Recorded so the whole session's randomness is reconstructable.
     seed: int | None = None
+    #: The session a save point was picked up from (P5.1). When a session is resumed into
+    #: its own log this names that same session, and the second row is what says the
+    #: process restarted — possibly onto a different commit, seat or seed.
+    resumed_from: str | None = None
+    #: Turns already behind the resume. Without it a log that opens at turn fifteen reads
+    #: like a log with fourteen turns missing.
+    resumed_turns: int = 0
     note: str | None = None
 
 

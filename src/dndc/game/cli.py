@@ -68,6 +68,7 @@ from dndc.game.combatturn import (
 )
 from dndc.game.inventory import InventoryStore, describe_change, proposals_for
 from dndc.game.party import resolve_member
+from dndc.game.saves import Resume, SaveError, SaveStore, restore
 from dndc.game.turn import MAX_NPC_TURNS, TurnEngine
 from dndc.gm.canon import npc_issues
 from dndc.gm.gatekeeper import ControlCase, Gatekeeper, Verdict, run_control
@@ -174,9 +175,20 @@ def start_session_log(
     campaign: str | None = None,
     seed: int | None = None,
     billing: Billing | None = None,
+    resume: Resume | None = None,
 ) -> SessionLog:
-    """Open a session log and write its `session_meta` header (D-008)."""
-    log = SessionLog.open(resolve_log_dir(cfg.logging.dir))
+    """Open a session log and write its `session_meta` header (D-008).
+
+    A `resume` that is *continuing* reopens the save point's own log rather than starting
+    a new one, and `SessionLog.open` picks `seq` up from the highest already on disk — the
+    npc-village rider, doing the job it was ported for. The second `session_meta` row in
+    that file is not a duplicate: the process restarted, and the commit, the seat and the
+    seed it restarted on are all free to have changed (D-008 item 27).
+    """
+    if resume is not None and resume.continuing and resume.log_path is not None:
+        log = SessionLog.open(resume.log_path.parent, session_id=resume.log_path.stem)
+    else:
+        log = SessionLog.open(resolve_log_dir(cfg.logging.dir))
     sha, dirty = git_commit_sha() if cfg.logging.stamp_commit_sha else (None, False)
     log.emit(
         SessionMeta,
@@ -191,6 +203,8 @@ def start_session_log(
             "play_mode": cfg.gameplay.play_mode,
         },
         seed=seed,
+        resumed_from=resume.session_id if resume is not None else None,
+        resumed_turns=resume.played if resume is not None else 0,
     )
     return log
 
@@ -2046,6 +2060,45 @@ def _report_stability(console: Console, path, report, args: argparse.Namespace) 
             console.print(f"    [dim]missed: {text}[/dim]")
 
 
+def _acting(campaign, resume: Resume | None) -> str:
+    """Whose seat it is. A resumed save names them; otherwise the party's first member.
+
+    Checked against the party rather than trusted: a save can outlive the character it
+    names (a sheet renamed, a player retiring somebody), and handing the prompt to a
+    character who is not in the room would end the session before it started.
+    """
+    if resume is not None and resume.acting:
+        for member in campaign.party:
+            if member.name.casefold() == resume.acting.casefold():
+                return member.name
+    return campaign.party[0].name
+
+
+def _announce_resume(console: Console, resume: Resume) -> None:
+    """Say what was picked up, in the terms the table would use."""
+    when = resume.save.saved_at.strftime("%Y-%m-%d %H:%M")
+    if resume.continuing:
+        console.print(
+            f"[green]resuming[/green] session {resume.session_id} — "
+            f"{resume.turns} turns, saved {when} UTC"
+        )
+        return
+    if not resume.save.closed:
+        # An open save whose log has been cleaned away: the scene and the window are
+        # still good, but this run cannot honestly claim to continue that session's
+        # record, so it starts its own and says where it came from.
+        console.print(
+            f"[yellow]resuming[/yellow] {resume.turns} turns — the previous log is gone, "
+            f"so this is a new session record"
+        )
+        return
+    console.print(
+        f"[green]picking up[/green] where the last session left off "
+        f"({resume.played} turns, ended {when} UTC) — the scene is remembered; what "
+        f"happened is the chronicle's now"
+    )
+
+
 def _cmd_play(console: Console, args: argparse.Namespace) -> int:
     """The hot-seat turn loop (P1.3, OD-4)."""
     cfg = load_config()
@@ -2060,6 +2113,22 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
         )
         return 1
 
+    saves = SaveStore.for_campaign(args.campaign) if args.campaign else None
+    resume: Resume | None = None
+    if saves is not None and not args.fresh:
+        try:
+            save = saves.load()
+        except SaveError as exc:
+            console.print(f"[red]error:[/red] {exc}")
+            return 1
+        if save is not None:
+            resume = restore(save, campaign)
+            # An explicit --scene is somebody deliberately moving the party; it beats
+            # whatever the save remembers about where they were standing.
+            if args.scene:
+                campaign.scene = args.scene
+            _announce_resume(console, resume)
+
     billing = resolve_billing(cfg, console, requested=args.billing, ask=not args.no_prompt)
     try:
         backend = build_gm_backend(cfg, billing, threshold=args.threshold)
@@ -2068,7 +2137,9 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
         return 1
 
     seed = args.seed if args.seed is not None else random.randrange(MAX_SEED)
-    log = start_session_log(cfg, campaign=campaign.name, seed=seed, billing=billing)
+    log = start_session_log(
+        cfg, campaign=campaign.name, seed=seed, billing=billing, resume=resume
+    )
     voice, stance, voice_closers = _build_voice(console, cfg, args, log)
     # The roster and the tier are the same switch: the GM is shown who speaks for
     # themselves only when somebody actually can. A roster with no seat behind it would
@@ -2101,7 +2172,7 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
         items.add(sheet, path=loaded.paths.get(key))
 
     sheets = {member.name.lower(): member for member in campaign.party}
-    active = campaign.party[0].name
+    active = _acting(campaign, resume)
     player_turns = 0
 
     console.print(f"[bold]{campaign.name}[/bold] — {backend.name}, seed {seed}")
@@ -2131,6 +2202,8 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
             confirm_inventory(
                 console, opened.inventory, items, acting=active, turn=len(campaign.history)
             )
+            if saves is not None:
+                saves.record(campaign, acting=active, log=log)
             console.print("\n")
 
         while True:
@@ -2178,6 +2251,10 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
             confirm_inventory(
                 console, result.inventory, items, acting=active, turn=len(campaign.history)
             )
+            # Written before the next prompt rather than at session end: the point of a
+            # save point is that an evening does not end, it stops.
+            if saves is not None:
+                saves.record(campaign, acting=active, log=log)
             if should_hint_scaffolding(player_turns, engine.builder.scaffolding):
                 console.print(
                     f"\n[dim]— GM offering you options more than you want? "
@@ -2198,6 +2275,12 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
         # summary rather than the canon.
         _run_chronicle(console, cfg, campaign, args, log)
 
+    if saves is not None:
+        # Closing is what tells the next run this was a bedtime and not a crash: the
+        # scene survives, the turn window does not, and the chronicle just written is
+        # what carries this session into the next one (D-002).
+        saves.close(campaign, acting=active, log=log)
+        console.print(f"[dim]saved -> {saves.path}[/dim]")
     console.print(f"[dim]logged -> {log.path}[/dim]")
     return 0
 
@@ -2778,6 +2861,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     play.add_argument(
         "--seed", type=int, help="master seed (one is generated and logged if omitted)"
+    )
+    play.add_argument(
+        "--fresh", action="store_true",
+        help="ignore the campaign's save point and start the scene over (P5.1)",
     )
     play.add_argument(
         "--no-sweep", action="store_true",

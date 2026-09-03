@@ -402,6 +402,50 @@ Task breakdown:
 Save/load full campaign state; `seq` continuity across process restarts (npc-village
 rider); recap generation ("previously on…") on utility tier; session cost report.
 
+**What already survives a session, and what does not.** The ledger is in `canon.yaml`, the
+sheets in `characters/`, the chronicle in `chronicle.yaml`, and each is written as it
+changes. What is lost at the end of every session is the part nobody thought to name:
+*where the party is standing*. The scene, the turn window, whose seat it is. This phase
+closes that hole and then makes the between-session jobs read the log rather than the room.
+
+One rule governs the phase: **a save point stores only what nothing else owns.** Canon,
+sheets, backgrounds and chronicle already have files and already have writers; copying
+them into a save would create a second authority, and two authorities for one fact drift
+the first time one path writes and the other does not.
+
+Task breakdown:
+
+- **P5.1** The save point: scene, turn window (with the dialogue that rode with it), the
+  acting player, and the session lineage, written atomically after every turn and closed
+  at session end. `dndc play --campaign SLUG` resumes it; `--fresh` ignores it. No model
+  calls.
+  *(Done 2026-09-03 (b). `schema/save.py` + `game/saves.py`; D-008 amended first, item 27
+  — `session_meta.resumed_from` / `resumed_turns`, a field rather than a family, because
+  resuming is a fact about how a session **started** and not an event inside it. The save
+  emits nothing: it is state, and it is the one file in the project that is rewritten
+  rather than appended to, which is exactly why it holds nothing the log is the record of.
+  **`closed` is the whole design.** An open save is a crash — the window comes back whole
+  and the run continues the same log, so `seq` carries on and the evening is one record
+  instead of two halves. A closed save is a bedtime — the scene comes back and the turns
+  do **not**, because D-002 says a past session reaches the prompt as chronicle prose and
+  replaying the turns the chronicle summarises is the growing-transcript failure the three
+  layers exist to prevent. Live-verified end to end on the API seat, including a session
+  killed mid-scene: one log, `seq` 0→14 unbroken across the restart, a second
+  `session_meta` at seq 6 naming its own resume and its own seed, and the GM's next reply
+  continuing the ford scene a dead process had written. Found and fixed on the way: two
+  runs starting in the same second shared a log file, which after this task would read as
+  a session that had inexplicably restarted.)*
+- **P5.2** `seq` continuity across process restarts, made real by P5.1's lineage: an open
+  save reopens *its own* log and the counter continues where it stopped, so a crash
+  mid-evening leaves one session record rather than two halves. `session_meta` says it was
+  resumed.
+- **P5.3** Recap on the utility tier: "previously on…" generated from the chronicle and the
+  session's own canon, printed when a campaign is picked up again. Read-only over the
+  record — a recap that could write canon would be a fourth memory layer nobody ratified.
+- **P5.4** Session cost report: per-seat totals, call counts and latency read back from the
+  log's `cost` rows, printed at session end and available as `dndc cost`. The seat split
+  (Fable, 2026-08-14) was made to be measurable; this is the thing that measures it.
+
 ## Phase 6 — LAN web GUI
 
 FastAPI backend over the same engine; two-device play from the couch; hot-seat CLI

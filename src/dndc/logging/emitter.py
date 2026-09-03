@@ -73,8 +73,17 @@ class SessionLog:
 
     @classmethod
     def open(cls, log_dir: Path, session_id: str | None = None) -> SessionLog:
-        """Open (or resume) a session log under `log_dir`."""
-        session_id = session_id or new_session_id()
+        """Open a session log under `log_dir`, or resume a named one.
+
+        Naming a `session_id` means *resume that session*: the file is reopened and `seq`
+        continues from the highest already in it (P5.1 does this when a save point is
+        picked up after a crash). Not naming one means a new session, and a new session
+        must never land inside an existing file — ids are second-resolution, so two runs
+        started in the same second would otherwise silently share a record and the log
+        would show one session that had inexplicably restarted.
+        """
+        if session_id is None:
+            session_id = _free_session_id(Path(log_dir))
         path = Path(log_dir) / f"{session_id}.jsonl"
         return cls(path, session_id, start_seq=next_seq_for(path))
 
@@ -104,6 +113,17 @@ class SessionLog:
 
     def __repr__(self) -> str:
         return f"SessionLog(path={self.path.name!r}, session={self.session_id!r}, seq={self._seq})"
+
+
+def _free_session_id(log_dir: Path) -> str:
+    """A session id with no file already under it. Suffixed rather than timestamped
+    finer, because the id is read by humans and `-2` says what happened."""
+    base = new_session_id()
+    candidate, attempt = base, 1
+    while (log_dir / f"{candidate}.jsonl").exists():
+        attempt += 1
+        candidate = f"{base}-{attempt}"
+    return candidate
 
 
 def next_seq_for(path: Path) -> int:
