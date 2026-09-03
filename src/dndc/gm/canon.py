@@ -203,6 +203,33 @@ class CanonLedger(BaseModel):
         )
         return replacement
 
+    def retire(self, entry_id: str, replacement_id: str) -> CanonEntry:
+        """Point an entry at a replacement that is **already** in the ledger (P4.6).
+
+        `supersede` files a new fact and retires one, which is the right shape when the
+        world changes once. A change of mind is the other shape: one new belief can retire
+        several older ones, and minting a fresh copy of the same sentence per retirement
+        would put three identical beliefs in the ledger and leave Phase 7 counting them as
+        three separate things this character came to think.
+        """
+        existing = self.get(entry_id)
+        if existing is None:
+            raise KeyError(f"no canon entry {entry_id!r} to retire")
+        if not existing.active:
+            raise ValueError(
+                f"canon entry {entry_id!r} was already superseded by "
+                f"{existing.superseded_by!r}"
+            )
+        replacement = self.get(replacement_id)
+        if replacement is None:
+            raise KeyError(f"no canon entry {replacement_id!r} to retire {entry_id!r} in favour of")
+        if replacement.id == entry_id:
+            raise ValueError(f"canon entry {entry_id!r} cannot supersede itself")
+        self.entries[self.entries.index(existing)] = existing.model_copy(
+            update={"superseded_by": replacement.id}
+        )
+        return replacement
+
     # --- persistence -------------------------------------------------------
 
     @classmethod

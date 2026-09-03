@@ -15,15 +15,28 @@ blockers into this list.
 
 ### Open now
 
-**Nothing ruled is unbuilt.** Phase 4 (the NPC agent tier, D-003) is nearly done —
-P4.1–P4.5 and P4.7 landed 2026-09-02 (b)–(g); **P4.6, stance-scoped supersession, is all
-that remains.** The GM directs, NPCs answer for themselves on toto-llm, their drafts are
-gated, and the tier has been verified end to end against a real campaign
-(`docs/playtests/2026-09-02-npc-tier-verification.md`).
+**Nothing ruled is unbuilt. Phase 4 is complete** — P4.1–P4.7 landed 2026-09-02 (b)–(g)
+and 2026-09-03. The GM directs, NPCs answer for themselves on toto-llm, their drafts are
+gated, changes of mind supersede the beliefs they replace, and the tier has been verified
+end to end against a real campaign (`docs/playtests/2026-09-02-npc-tier-verification.md`).
 
-Two questions are open, neither blocking:
+Three questions are open, none blocking:
 
-> **1. Should the GM voice player characters at all, now that NPCs voice themselves?**
+> **1. Should a GM declare a change of mind before the character has conceded it out
+> loud?** (New, 2026-09-03.) P4.6 works and the GM never used it: across nine turns built
+> to force it — the frayed tie, the dry boots, the recovered crate, Hammond asking him
+> point-blank — it narrated the guard's certainty cracking beautifully and tagged nothing,
+> and the guard said *"Yes, I still think Vale here took my crate."* I think it was right
+> every time: a man wavering has not changed his mind. But the loop is self-stabilising in
+> a way worth ruling on — the belief says he "is not interested in other explanations", so
+> the 70B plays him stubborn, his stubborn line rides into the GM's window, and the GM
+> declines to declare a change it can see has not happened. A character can be
+> *structurally* unable to be talked round. Roughly: leave it and let changes be rare · tell
+> the GM that narrating somebody as convinced **is** the moment to tag · or move the trigger
+> to the character, so the tag follows an NPC line that concedes. Nothing is blocked either
+> way; the machinery is built, tested and controlled.
+
+> **2. Should the GM voice player characters at all, now that NPCs voice themselves?**
 > (New, 2026-09-02 (g).) In a ten-turn scene the GM rendered the declared action as quoted
 > PC speech every single turn — *"The canvas flap was already loose when I got to it," she
 > says*. This is not new and P4.5 did not cause it; it is how social actions have been
@@ -34,7 +47,7 @@ Two questions are open, neither blocking:
 > is a feel question about a table Fable has never sat at, so **Kelly's view probably counts
 > for more than a ruling** — and nothing is blocked either way.
 >
-> **2. Should a `blocked` line cost the turn, or fall through to the GM narrating around
+> **3. Should a `blocked` line cost the turn, or fall through to the GM narrating around
 > the silence?** (Carried from (d).) P4.5 takes the neutral position — nothing is shown and
 > nothing enters the GM's window — so either answer stays cheap. New datum from (g): across
 > seven live lines and twenty-four control cases **nothing was ever blocked.** The gate
@@ -396,6 +409,159 @@ the drift instrument's own log is a finding worth the two-line fix.
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-09-03 — P4.6: minds change decisively, and the GM would not change one (Claude Code, kelly-pc)
+
+**P4.6 done. Phase 4 complete.** 1259 tests, suite still fully offline. The machinery works
+end to end on the real seats; the finding is that the GM never asked it to.
+
+### What was built
+
+`[[BELIEF: <name> | <what they now believe>]]` — the ninth use of the tag convention, and
+the second that costs a second model call. It declares a **change of mind**, as against
+`[[CANON: npc_belief (...)]]`, which declares that somebody **learned something**.
+
+Two tags rather than one flag, on the `[[GAIN/LOSE]]` precedent. Which of the two a
+sentence describes is not recoverable from the sentence — *"he now believes the crate never
+left the wagon"* reads identically either way — and a character can perfectly well acquire
+a belief without abandoning any. Guessing wrong in one direction loses canon; in the other
+it leaves a character holding two contradictory stories and saying whichever the sampler
+reaches first, which is the exact failure P4.6 exists to remove.
+
+The tag establishes the belief on the GM's own authority. What it **retires** is judged
+separately: every standing belief of that character goes to a second call on the gate's
+seat, and each one the new belief replaces is superseded through the ledger with
+`source: stance`. `retire()` was added beside `supersede()` because one change of mind can
+retire several beliefs, and minting a copy of the same sentence per retirement would file
+one thought three times.
+
+**Why a second call at all**, when the GM is right there having just written the change:
+the canon block in the GM prompt renders facts as prose, without ids — `- [the caravan
+guard believes] The teamster took the crate.` The GM has no handle to name. Putting ids in
+front of it would rebuild the most load-bearing block in the system so a narrator could do
+bookkeeping.
+
+**The pass runs before anyone speaks.** A guard turned around in the same reply that hands
+him the floor has to answer from the new mind; retiring the old belief after he has spoken
+means the table hears the contradiction first and the correction a turn later.
+
+**It fails open by retiring nothing** — the behaviour every phase before this had — and a
+`belief_change` row keeps *ran and retired nothing* distinct from *never ran*, which is the
+`unchecked` argument again. `considered` minus `retired` is what the judge saw and left
+standing.
+
+### The control caught three things, and only one of them was the judge
+
+`dndc npc stance <name> --campaign the-salt-road`, against the campaign's own standing
+beliefs. Final: **4/4 retired that should be, 0/13 retired that should not**, over six runs
+(one run scored 3/4 — recall wobbles at temperature 0, worth knowing).
+
+**1. The judge retired on relatedness, not conflict.** First run: "the teamster is
+frightened" retired "certain the teamster took the crate". Frightened and guilty are
+perfectly compatible. Rules added: a reason to doubt is not a change of mind, an
+intensification is not a replacement, and the length of the list is not evidence.
+
+**2. The control caught the author, for the third session running.** A clean case —
+"the flap was already loose before the stranger touched it" — was retired, and the judge
+was **right**. The loose flap is precisely what Corin is accused of lying about, so
+believing it *is* accepting her account, and "she is lying to me" cannot stand beside it.
+The fixture was wrong and was replaced (the reason is written into the file beside it).
+(f) was my leak vector, (g) was my voice card, this is my control case. **The machinery has
+been right and the authored material wrong three times in a row**, which is starting to
+look like the shape of this project rather than a run of luck.
+
+**3. Four prompt revisions could not fix the last false retirement; a structural change
+fixed it in one.** The teamster's only belief ("he did not take it and cannot prove it")
+was retired by "the guard will not listen to him whatever he says" — reproducibly, three
+runs, with the judge's own reason reading *"he no longer thinks proving it is an option"*.
+Four increasingly explicit prompt rules did nothing. What worked: **every retirement must
+quote the words in the old belief that the new one contradicts, and an unquoted retirement
+is dropped.** "When unsure, keep" is unenforceable advice — a model that is vaguely unsure
+retires anyway — but a judge that has to point at the contradicted words cannot retire on
+relatedness, because there are no words to point at. It is the gatekeeper's *read every
+sentence* discipline moved out of the prose and into the output contract, and it is also
+self-policing: a judge that stops quoting stops retiring, and the control notices on the
+next run rather than the ledger quietly emptying over a campaign.
+
+**Five prompt iterations against one fixture is well past what (g) called the edge of
+tuning.** Recorded rather than smoothed over. Two things make me think it is not simply
+overfitting: each revision addressed a *distinct, reproducible* failure the control named,
+and the guard's eight-case score held at 4/4 0/12 across all of them. But the next person
+to touch `stance.md` should re-run both controls before believing it, not after.
+
+### Live, and the finding
+
+Downstream of the tag, everything works. Real 70B judge, real ledger, real voice: the tag
+retires `belief-guard-teamster` in **4.0 s**, quoting *"the accused teamster took the
+crate"*, keeps his separate suspicion of Corin, and the guard's next prompt no longer
+contains the belief he abandoned. A change of mind costs about four seconds on top of the
+~15 s a speaking turn already costs, and only on the turns where one happens.
+
+**But the GM did not emit the tag once in nine turns of designed pressure**, across two
+scenes built to force it — the frayed tie, the dry boots, the cart tracks, the recovered
+crate, and finally Hammond asking him point-blank to say out loud whether he still believed
+it. Zero tags. The tag is in the prompt (verified in the assembled bytes, in both the
+static and the volatile block).
+
+Reading the prose, I think **the GM was right every time.** It narrated doubt precisely —
+*"something in his certainty catches like a wheel finding a rut it didn't expect"*, *"the
+pieces not yet fitting, but no longer sitting easy"* — and a man wavering has not changed
+his mind. The guard, asked directly, said *"Yes, I still think Vale here took my crate."*
+That is a correct scene.
+
+There is a second effect underneath it, and it is more interesting: **the tier stabilises
+against its own change mechanism.** The guard's belief says he "is not interested in other
+explanations", so the 70B plays him stubborn; his stubborn line rides into the GM's window;
+the GM reads a character who has not budged and declines to declare that he has. Each layer
+is behaving correctly and the loop as a whole cannot turn a corner.
+
+One targeted prompt fix was made and re-probed — naming the tension with P4.5's rule
+("declaring it is not writing their line; the tag is what lets *them* say it") — because
+the GM appeared to be deferring the concession to the character's own mouth. It did not
+change the outcome, and I stopped there rather than tune the GM against a scene I wrote
+myself.
+
+### Known issues
+
+- **The pass has never been triggered by a GM in play.** Verified with a scripted tag. The
+  same shape of gap as `blocked` after (d) — machinery proved, willingness unproved.
+- **A change of mind moves the ledger and leaves the voice card exactly where it was.** The
+  guard's persona still reads *"He wants someone to hand over"* after his belief has been
+  retired, and that text is in his prompt. `for_npc` guards the canon; nothing guards the
+  prose — **and now nothing supersedes it either.** Third session running that this
+  sentence has had to be written down.
+- Recall wobbled 4/4 → 3/4 once in six control runs at temperature 0.
+- The judge's quote is checked for presence, not for actually appearing in the belief. A
+  fabricated quote would pass. Cheap to tighten if it ever matters.
+
+### FOR DESIGN
+
+**Should a GM declare a change of mind before the character has conceded it out loud?**
+This is the P4.6 question and it is a real fork, not a bug report. The GM's current
+behaviour — narrate the doubt, let the character keep their position until they abandon it
+themselves — is good fiction and produced a better scene than a compliant GM would have.
+But it means the supersession pass may effectively never fire, and a character with
+"not interested in other explanations" on their ledger is *structurally* unable to be
+talked round: the belief keeps them stubborn, the stubbornness keeps the belief. Roughly:
+leave it and let changes of mind be rare · tell the GM plainly that narrating a character
+as convinced *is* the moment to tag it · or move the trigger to the character, so a
+`[[BELIEF]]` follows an NPC line that concedes something. The third is the most faithful to
+D-003 and the most work.
+
+**Carried, both still open:** should the GM voice player characters at all (from (g)); and
+should a `blocked` line cost the turn (from (d)). Neither is blocking.
+
+### Recommended next task
+
+**Phase 5 — campaign persistence and between-session jobs.** Save/load full campaign state,
+`seq` continuity across restarts, recap generation on the utility tier, session cost report.
+
+The thing worth scheduling ahead of it is still **an evening with Kelly and Sam at the
+Brakewater crossroads**, which is now the only way to answer three of the open questions at
+once — and Phase 4 is complete, so there is nothing left to build before that table
+happens.
 
 ---
 

@@ -528,6 +528,64 @@ them, which needs a wire format and two fields the log has been missing.
     fallback to a second endpoint, and a cold load announce themselves — and none of those
     are visible in a token count.
 
+**Amended 2026-09-03 (P4.6, doc-first).** The GM gets a way to change a character's mind,
+and the ledger gets a second supersession route — the mystery's OD-13 machinery, ported to
+a system that has beliefs but no tier ladder.
+
+24. **`[[BELIEF: <name> | <what they now believe>]]`** — the ninth use of the `[[TAG:]]`
+    convention, and the second one that costs a second model call. It declares that a
+    character has **changed their mind**, as against `[[CANON: npc_belief (<name>) — ...]]`,
+    which declares that they have **learned something**.
+
+    Two tags rather than one, on the `[[GAIN/LOSE]]` precedent: whether a new belief sits
+    beside the old ones or replaces them is not guessable from the sentence, and a character
+    can perfectly well acquire a belief without abandoning any — the guard hears the caravan
+    master is back at the wagons, and still thinks the teamster took the crate. Guessing
+    wrong in one direction loses canon and in the other leaves a character holding two
+    contradictory stories, so the direction is declared rather than inferred, and only the
+    declared change pays for a judgement call.
+
+    Same separator tolerance and the same cast discipline as `[[SPEAK]]`: pipe, arrow or
+    dash, and a name with no record in `npcs.yaml` is dropped rather than improvised.
+
+25. **The supersession pass, and `CanonSource.stance`.** A `[[BELIEF]]` establishes the new
+    belief on the GM's own authority — `create`, `gm_tag`, its tag like any other. What it
+    **retires** is judged separately: every standing `npc_belief` of that character is put to
+    a second call which says which of them the new one replaces, and each of those is
+    superseded by the new entry. Those retirement rows carry **`source: stance`**, a fifth
+    `CanonSource`.
+
+    Why a second call, rather than letting the GM name what it retires: the canon block in
+    the GM prompt renders facts as prose, without ids — `- [the caravan guard believes] The
+    teamster took the crate.` The GM has no handle to name. Putting ids in front of it would
+    rebuild the most load-bearing block in the system so that a narrator could do
+    bookkeeping, and the mystery's own argument (OD-13) lands here unchanged: the call that
+    authors a change of mind is not the call to audit it against.
+
+    **The pass runs before the character speaks**, not at the end of the turn. A guard whose
+    mind the GM just changed, and who is handed the floor in the same reply, has to answer
+    from the new mind; retiring the old belief a turn later means the table hears the
+    contradiction first and the correction second, which is the failure this task exists to
+    remove.
+
+    **It fails open by retiring nothing.** An unreachable host or an unparseable verdict
+    leaves the ledger exactly as it was — the behaviour every phase up to now has had, so a
+    broken judge costs the improvement and never the campaign. The two directions are not
+    symmetric: a wrongly retired belief quietly removes something a character thinks from
+    every future prompt, and nobody would ever notice.
+
+26. **New event family `belief_change`** — one row per applied tag. Fields: `npc`, `belief`
+    (the new text), `entry_id` (the new canon entry), `considered` (the belief ids in force
+    when the pass ran, comma-joined), `retired` (the ids it superseded), `status`
+    (`judged` | `unjudged`), `reason`, `model`, `call_id`, `established_by` (the raw tag),
+    `turn_seq`.
+
+    Separate from the `canon_write` rows it produces, for the same reason `unchecked` exists
+    on the gate: **a pass that ran and retired nothing must not look like a pass that never
+    ran.** `considered` minus `retired` is what the judge saw and left standing, which is the
+    only way to tell a conservative judge from an absent one — the same measurement the
+    mystery bought by splitting `claim_superseded.source` into `stance` and `reply`.
+
 **Rationale.** Same discipline as the mystery; the additions (canon_write provenance,
 cost, escalation) are what Phase 7's instruments — canon-drift measurement, ruling
 logs, cost-per-session — consume. Pending-state logging lesson from the mystery

@@ -368,6 +368,20 @@ Task breakdown:
 - **P4.6** Stance-scoped supersession (mystery OD-13): when the GM changes what an NPC
   knows or believes, the change is *decisive* in the next prompt rather than a quiet
   contradiction of everything the window still remembers them saying.
+  *(Done 2026-09-03. `[[BELIEF: <name> | <what they now believe>]]` — the ninth tag and the
+  second that costs a second call — declares a **change of mind**, distinct from
+  `[[CANON: npc_belief]]` which adds one; the direction is not guessable from the sentence,
+  so it is declared (`[[GAIN/LOSE]]` precedent). A judge on the gate's seat weighs every
+  standing belief against the new one, each retirement is superseded through the ledger
+  with `source: stance`, and the pass runs **before** anyone speaks so a character turned
+  around in the same reply answers from the new mind. Fails open by retiring nothing; a
+  `belief_change` row keeps "ran and retired nothing" distinct from "never ran".
+  **Control: 4/4 retired, 0/13 in error**, stable over six runs — but it took four prompt
+  revisions and then a **structural** fix that four revisions could not manage: every
+  retirement must **quote the words it contradicts**, and an unquoted one is dropped. The
+  control also caught the author again, not the judge. Live: the pass works end to end on
+  the 70B in ~4 s, **but the GM did not emit the tag once in nine turns of designed
+  pressure** — see the handoff, it is the open question.)*
 - **P4.7** Live verification and a scene at the table: a planted-leak control against the
   real 70B seat, then NPCs in actual play, findings to `docs/playtests/`.
   *(Done 2026-09-02 (g), except the humans — findings in

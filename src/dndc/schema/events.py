@@ -1,6 +1,6 @@
 """The D-008 event vocabulary, typed.
 
-Every event the engine emits is one of these nine families. The vocabulary is
+Every event the engine emits is one of these families. The vocabulary is
 specified in `docs/DESIGN-DECISIONS.md` D-008 and extended *there first*, then here —
 Phase 7's instruments (canon-drift measurement, ruling-fairness analysis,
 cost-per-session) read this stream, so an ad-hoc field invented in code is a silently
@@ -36,6 +36,7 @@ class EventType(str, Enum):
     GM_NARRATION = "gm_narration"
     NPC_TURN = "npc_turn"
     CANON_WRITE = "canon_write"
+    BELIEF_CHANGE = "belief_change"
     INVENTORY_CHANGE = "inventory_change"
     CHRONICLE_WRITE = "chronicle_write"
     BACKGROUND_WRITE = "background_write"
@@ -237,6 +238,11 @@ class CanonSource(str, Enum):
     CO_CREATION = "co_creation"
     #: Hand-written into `canon.yaml` by a human. No model involved.
     AUTHORED = "authored"
+    #: The supersession pass (P4.6, D-008 item 25). Only ever on a `supersede` row: a
+    #: second call judged that a character's new belief replaced an older one. Never
+    #: writes a fact, only retires one — which is why it is worth telling apart from
+    #: `gm_tag`, the seat that authored the change it is acting on.
+    STANCE = "stance"
 
 
 class CanonWrite(_Event):
@@ -256,6 +262,49 @@ class CanonWrite(_Event):
     #: model proposed and the humans rejected measures the proposer, and only exists as a
     #: measurement if the rejection is written down.
     confirmed: bool = True
+
+
+class StanceStatus(str, Enum):
+    """Whether the supersession pass reached a verdict (D-008 item 26)."""
+
+    #: A judge was asked and answered. `retired` is its decision, empty or not.
+    JUDGED = "judged"
+    #: No judge was configured, or it could not answer. Nothing was retired, which is
+    #: exactly what happened before P4.6 existed — the fail-open direction.
+    UNJUDGED = "unjudged"
+
+
+class BeliefChange(_Event):
+    """A character changed their mind, and what that retired (P4.6, D-003's OD-13 port).
+
+    Separate from the `canon_write` rows it produces, for the same reason `unchecked`
+    exists on the gate: **a pass that ran and retired nothing must not look like a pass
+    that never ran.** `considered` minus `retired` is what the judge saw and left standing,
+    which is the only way to tell a conservative judge from an absent one.
+    """
+
+    type: Literal[EventType.BELIEF_CHANGE] = EventType.BELIEF_CHANGE
+    npc: str
+    #: What they now believe, verbatim from the tag.
+    belief: str
+    #: The new canon entry. `None` when the ledger already held this belief word for word,
+    #: which establishes nothing and is not an error — the pass still runs, because a
+    #: restated belief can still retire an older one.
+    entry_id: str | None = None
+    #: The belief ids in force when the pass ran, comma-joined. Ids and not a count, for
+    #: the same reason as `npc_turn.knowledge_scope`: what was standing at the time is
+    #: what the decision was made against, and it moves during a session.
+    considered: str | None = None
+    #: The ids this change superseded, comma-joined. Empty means nothing was retired.
+    retired: str | None = None
+    status: StanceStatus = StanceStatus.JUDGED
+    #: Why, when `unjudged` — an unreachable host, an unparseable verdict, no judge.
+    reason: str | None = None
+    model: str | None = None
+    call_id: str | None = None
+    #: The raw `[[BELIEF: ...]]` tag that declared it.
+    established_by: str | None = None
+    turn_seq: int | None = Field(default=None, ge=0)
 
 
 class InventoryDirection(str, Enum):
@@ -511,6 +560,7 @@ Event = Annotated[
     | GMNarration
     | NPCTurn
     | CanonWrite
+    | BeliefChange
     | InventoryChange
     | ChronicleWrite
     | BackgroundWrite
@@ -531,6 +581,7 @@ EVENT_MODELS: dict[EventType, type[_Event]] = {
     EventType.GM_NARRATION: GMNarration,
     EventType.NPC_TURN: NPCTurn,
     EventType.CANON_WRITE: CanonWrite,
+    EventType.BELIEF_CHANGE: BeliefChange,
     EventType.INVENTORY_CHANGE: InventoryChange,
     EventType.CHRONICLE_WRITE: ChronicleWrite,
     EventType.BACKGROUND_WRITE: BackgroundWrite,

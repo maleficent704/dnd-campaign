@@ -31,12 +31,14 @@ import random
 from dataclasses import dataclass, field
 from typing import Callable
 
+from dndc.gm.belieftag import BeliefTag, find_belief_tags, strip_belief_tags
 from dndc.gm.canon import CanonEntry
 from dndc.gm.canontag import find_canon_tags, strip_canon_tags
 from dndc.gm.checkrequest import CheckRequest, CheckRequestError, find_check_request, strip_check_requests
 from dndc.gm.inventorytag import InventoryTag, find_inventory_tags, strip_inventory_tags
 from dndc.gm.context import CampaignContext, GMPromptBuilder, SpokenLine, Turn
 from dndc.gm.speaktag import SpeakDirection, find_speak_directions, strip_speak_directions
+from dndc.game.beliefturn import BeliefUpdate, StanceKeeper
 from dndc.game.npcturn import NPCReply, NPCVoice
 from dndc.logging import SessionLog
 from dndc.memory.canon_store import CanonStore
@@ -62,8 +64,10 @@ def _clean(text: str) -> str:
     Every stripper, always. A tag left in the window comes back to the GM as its own past
     voice, and it learns to narrate in tags.
     """
-    return strip_speak_directions(
-        strip_inventory_tags(strip_canon_tags(strip_check_requests(text)))
+    return strip_belief_tags(
+        strip_speak_directions(
+            strip_inventory_tags(strip_canon_tags(strip_check_requests(text)))
+        )
     )
 
 
@@ -140,6 +144,13 @@ class TurnResult:
     #: one past `MAX_NPC_TURNS`. Surfaced rather than dropped — a GM directing somebody who
     #: does not exist means the roster and the prose disagree, and that is worth seeing.
     unvoiced: list[SpeakDirection] = field(default_factory=list)
+    #: Changes of mind applied this turn (P4.6) — the new belief, and what it retired.
+    beliefs: list[BeliefUpdate] = field(default_factory=list)
+    #: `[[BELIEF]]` tags that changed nothing: a name with no record in the campaign's
+    #: cast. Surfaced for the same reason `unvoiced` is — the GM believing it just changed
+    #: somebody's mind when the ledger has no such person is worth seeing, and it is the
+    #: one failure here that leaves no row anywhere else.
+    unchanged: list[BeliefTag] = field(default_factory=list)
     #: NPC calls that failed outright (the host went away mid-session). The turn still
     #: lands: the GM has already narrated and the players are mid-scene, so a dead local
     #: seat costs a line of dialogue, never the turn it was part of.
@@ -165,6 +176,7 @@ class TurnEngine:
         prices: dict | None = None,
         canon: CanonStore | None = None,
         voice: NPCVoice | None = None,
+        stance: StanceKeeper | None = None,
     ) -> None:
         self.backend = backend
         self.campaign = campaign
@@ -177,6 +189,10 @@ class TurnEngine:
         # The NPC tier (P4.5). None means the GM voices everyone in its own prose, which
         # is what it did for three phases and still does for anyone off the roster.
         self.voice = voice
+        # Supersession (P4.6). A keeper with no judge still files the new belief and logs
+        # the pass as `unjudged`, which is what an ungated `--no-npcs` session gets: the
+        # GM can still change a character's mind, nothing is retired, and the row says so.
+        self.stance = stance if stance is not None else StanceKeeper(log=log)
         self.canon = canon if canon is not None else CanonStore(campaign.ledger, log=log)
         # The store and the prompt must read the *same* ledger object, or a fact
         # established this turn is filed to disk and still missing from next turn's
@@ -212,6 +228,7 @@ class TurnEngine:
         )
         # An opening scene may hand somebody the floor — an innkeeper greeting the party
         # as they come through the door is the most natural first beat there is.
+        self._shift(result, find_belief_tags(response.text))
         self._speak(result, find_speak_directions(response.text), "", on_dialogue)
         self.campaign.record(
             Turn(
@@ -241,6 +258,7 @@ class TurnEngine:
         interim = ""
         narrations: list[str] = []
         directions: list[SpeakDirection] = []
+        shifts: list[BeliefTag] = []
 
         for call_index in range(MAX_GM_CALLS):
             response, established, items = self._call(
@@ -260,6 +278,7 @@ class TurnEngine:
                 narrations.append(narration)
             result.narration = "\n\n".join(narrations)
             directions.extend(find_speak_directions(response.text))
+            shifts.extend(find_belief_tags(response.text))
 
             request = self._check_request(response.text)
             last_call = call_index == MAX_GM_CALLS - 1
@@ -277,6 +296,12 @@ class TurnEngine:
         # After the dice, not between the GM's two calls: at a table the innkeeper answers
         # once the moment has resolved, and collecting the directions until the end means
         # there is exactly one place a character can be voiced from.
+        #
+        # Minds change **before** anyone speaks (P4.6). A guard the GM has just turned
+        # around, and handed the floor to in the same reply, has to answer from the new
+        # mind: retiring the old belief after he has spoken means the table hears the
+        # contradiction first and the correction a turn later, which is the whole failure.
+        self._shift(result, shifts)
         self._speak(result, directions, player_input, on_dialogue)
         self.campaign.record(
             Turn(
@@ -401,6 +426,34 @@ class TurnEngine:
             result.dialogue.append(reply)
             if on_dialogue is not None:
                 on_dialogue(reply)
+
+    def _shift(self, result: TurnResult, tags: list[BeliefTag]) -> None:
+        """Apply the changes of mind the GM declared, in the order it declared them.
+
+        A tag naming somebody off the roster changes nothing and is surfaced, exactly as an
+        unmatched `[[SPEAK]]` is — but it is the more serious of the two. A direction to a
+        stranger costs a line of dialogue the GM can write itself; a change of mind for a
+        stranger is the GM believing it has moved the world when it has not, and it will go
+        on narrating from a belief no character holds.
+
+        The pass itself never raises: `StanceKeeper` fails open at the judge, and the only
+        thing left that can go wrong is the ledger file. That would already have broken the
+        turn's own canon writes, so it is not caught here.
+        """
+        for tag in tags:
+            npc = self._cast(tag.name)
+            if npc is None:
+                result.unchanged.append(tag)
+                continue
+            result.beliefs.append(
+                self.stance.apply(
+                    npc,
+                    tag,
+                    self.canon,
+                    session=self.log.session_id if self.log is not None else None,
+                    turn=len(self.campaign.history) + 1,
+                )
+            )
 
     def _cast(self, name: str) -> NPC | None:
         for npc in self.campaign.cast:

@@ -183,6 +183,33 @@ class CanonStore:
         self.save()
         return replacement
 
+    def retire(
+        self,
+        entry_id: str,
+        replacement: CanonEntry,
+        established_by: str | None = None,
+        source: CanonSource = CanonSource.STANCE,
+    ) -> CanonWrite | None:
+        """Retire an entry in favour of one already filed (P4.6, D-008 item 25).
+
+        The supersession pass's only write. It never establishes anything — the new belief
+        arrived through `establish()` on the GM's own authority, like any other tag — so
+        this path can only ever *remove* something from a future prompt. That asymmetry is
+        why it carries its own `source`: a row that took a belief out of circulation was
+        decided by a second call on a different seat, and "how much of this ledger did the
+        judge retire?" is not answerable if that row looks like the GM's own.
+        """
+        self.ledger.retire(entry_id, replacement.id)
+        event = self._emit(
+            replacement,
+            CanonOperation.SUPERSEDE,
+            established_by=established_by,
+            supersedes=entry_id,
+            source=source,
+        )
+        self.save()
+        return event
+
     def note_conflict(self, entry_id: str, contradiction: str) -> CanonWrite | None:
         """Narration contradicted an entry. Log it; change nothing.
 

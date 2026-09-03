@@ -28,17 +28,11 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from dndc.gm.tagsyntax import split_directive, tidy
+
 #: `[[SPEAK: Maren | about the sheds]]`. Same shape as the other tags, same tolerance for
 #: whatever spacing and casing a language model feels like producing.
 SPEAK_PATTERN = re.compile(r"\[\[\s*SPEAK\s*:(?P<body>.*?)\]\]", re.IGNORECASE | re.DOTALL)
-
-#: Pipe first, because it is what the prompt asks for; the arrows are here for the same
-#: reason `TARGET` accepts them — rejecting a turn over an en dash would be a bad trade.
-_SEPARATOR = re.compile(r"\s*(?:\||->|-->|→|=>|—|–)\s*")
-
-#: Collapses "Maren:" and "Maren -" back to a name. Models punctuate a name they are
-#: about to explain, and the punctuation is not part of who they meant.
-_TRAILING = re.compile(r"[\s:,;.\-]+$")
 
 
 @dataclass(frozen=True)
@@ -62,15 +56,13 @@ def find_speak_directions(text: str) -> list[SpeakDirection]:
     found: list[SpeakDirection] = []
     seen: set[str] = set()
     for match in SPEAK_PATTERN.finditer(text):
-        parts = _SEPARATOR.split(match.group("body").strip(), maxsplit=1)
-        name = _TRAILING.sub("", parts[0].strip())
+        name, direction = split_directive(match.group("body"))
         if not name:
             continue
         key = name.casefold()
         if key in seen:
             continue
         seen.add(key)
-        direction = parts[1].strip() if len(parts) > 1 else ""
         found.append(
             SpeakDirection(name=name, direction=direction, raw=match.group(0))
         )
@@ -85,12 +77,7 @@ def strip_speak_directions(text: str) -> str:
     anywhere — a GM reading its own `[[SPEAK:]]` beside the line that followed it is one
     short step from writing both halves itself.
     """
-    return _tidy(SPEAK_PATTERN.sub("", text))
-
-
-def _tidy(text: str) -> str:
-    text = re.sub(r"(?<=\S)[ \t]{2,}", " ", text)
-    return re.sub(r"\n{3,}", "\n\n", text).strip()
+    return tidy(SPEAK_PATTERN.sub("", text))
 
 
 __all__ = [

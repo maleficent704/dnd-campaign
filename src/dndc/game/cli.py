@@ -71,6 +71,8 @@ from dndc.game.party import resolve_member
 from dndc.game.turn import MAX_NPC_TURNS, TurnEngine
 from dndc.gm.canon import npc_issues
 from dndc.gm.gatekeeper import ControlCase, Gatekeeper, Verdict, run_control
+from dndc.gm.stance import StanceCase, StanceJudge, run_stance_control
+from dndc.game.beliefturn import StanceKeeper
 from dndc.game.npcturn import NPCVoice
 from dndc.gm.npcprompt import NPCPromptBuilder, NPCScene
 from dndc.gm.inventorytag import InventoryTag
@@ -451,6 +453,10 @@ def _cmd_npc_show(console: Console, args: argparse.Namespace) -> int:
 #: be about this campaign's own secrets to be worth planting.
 CONTROL_FILE = "gatekeeper-control.yaml"
 
+#: The supersession control (P4.6). Per-campaign like the gate's, and for the same
+#: reason: a change of mind only means something against a cast that holds beliefs.
+STANCE_CONTROL_FILE = "stance-control.yaml"
+
 #: Judgement wants no creativity: the same draft should get the same verdict twice.
 GATEKEEPER_TEMPERATURE = 0.0
 
@@ -478,10 +484,20 @@ def _build_gate(cfg, args) -> tuple[Gatekeeper | None, object | None]:
     """
     if getattr(args, "ungated", False):
         return None, None
-    build = build_batch_backend if args.gate_seat == BATCH_SEAT else build_interactive_backend
-    backend = build(cfg, temperature=GATEKEEPER_TEMPERATURE)
+    backend = _utility_backend(cfg, args)
     _warn_if_thrashing(cfg, backend)
     return Gatekeeper(backend=backend), backend
+
+
+def _utility_backend(cfg, args):
+    """The utility seat the tier's second calls run on — the gate, and the P4.6 judge.
+
+    One function because they must land on the same seat: two different models on one host
+    evict each other, and the whole point of `_warn_if_thrashing` is that the tier's extra
+    calls are cheap only while everything stays resident.
+    """
+    build = build_batch_backend if args.gate_seat == BATCH_SEAT else build_interactive_backend
+    return build(cfg, temperature=GATEKEEPER_TEMPERATURE)
 
 
 def _warn_if_thrashing(cfg, gate_backend) -> None:
@@ -578,6 +594,105 @@ def _cmd_npc_control(console: Console, args: argparse.Namespace) -> int:
         console.print(
             "[dim]a zero from this gate does not yet mean anything — fix the prompt or "
             "the seat before trusting it[/dim]"
+        )
+    return 0
+
+
+def _cmd_npc_stance(console: Console, args: argparse.Namespace) -> int:
+    """Run the supersession control (P4.6) — planted changes of mind, scored.
+
+    The P2.6 rule where it is easiest to break: this pass **fails open**, so "nothing was
+    retired tonight" is what a correct conservative judge, a wrong one, and an unreachable
+    host all look like from the log. Two numbers come out, and the second is the one that
+    would hurt — a belief retired in error leaves a character's head for the rest of the
+    campaign and nobody ever notices it went.
+    """
+    cfg = load_config()
+    book = load_campaign_npcs(args.campaign)
+    npc = book.get(args.name)
+    if npc is None:
+        console.print(f"[red]error:[/red] no NPC called {args.name!r} in {args.campaign}")
+        if book.names():
+            console.print(f"[dim]have: {', '.join(book.names())}[/dim]")
+        return 1
+
+    path = (
+        Path(args.cases) if args.cases
+        else campaign_dir(args.campaign) / STANCE_CONTROL_FILE
+    )
+    if not path.exists():
+        console.print(
+            f"[red]error:[/red] no control cases at {path}. They are per-campaign by "
+            f"nature — a change of mind is only incompatible with a belief this character "
+            f"actually holds."
+        )
+        return 1
+    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    cases = [
+        StanceCase(
+            belief=case["belief"],
+            retires=tuple(case.get("retires", ()) or ()),
+            note=case.get("note", ""),
+        )
+        for case in raw.get("cases", [])
+        # A change of mind is only incompatible with a belief somebody actually holds, so
+        # unlike the gate's drafts a case belongs to one character. An unlabelled case runs
+        # against whoever is named on the command line.
+        if not case.get("npc") or case["npc"].casefold() == npc.name.casefold()
+    ]
+    if not cases:
+        console.print(
+            f"[red]error:[/red] {path} has no cases for {npc.name}"
+        )
+        return 1
+
+    ledger = load_campaign_canon(args.campaign)
+    standing = [
+        entry
+        for entry in ledger.for_npc(npc)
+        if entry.scope is CanonScope.NPC_BELIEF
+    ]
+    if not standing:
+        console.print(
+            f"[red]error:[/red] {npc.name} holds no beliefs, so there is nothing a change "
+            f"of mind could retire. Add `npc_belief` entries to the campaign's canon."
+        )
+        return 1
+
+    backend = _utility_backend(cfg, args)
+    _warn_if_thrashing(cfg, backend)
+    console.print(
+        f"[bold]{npc.name}[/bold] · {len(cases)} case(s) against "
+        f"{len(standing)} standing belief(s) · "
+        f"[dim]{backend.model} on {backend.endpoint}[/dim]\n"
+    )
+    try:
+        report = run_stance_control(
+            StanceJudge(backend=backend), npc.name, standing, cases
+        )
+    finally:
+        backend.close()
+
+    for case, text in report.misses:
+        console.print(f"  [red]kept[/red] {text}")
+        console.print(f"    [dim]after: {case.belief}[/dim]")
+        if case.note:
+            console.print(f"    [dim]{case.note}[/dim]")
+    for case, text in report.overreach:
+        console.print(f"  [yellow]retired in error[/yellow] {text}")
+        console.print(f"    [dim]after: {case.belief}[/dim]")
+    if report.unjudged:
+        console.print(
+            f"  [yellow]{report.unjudged} case(s) went unjudged[/yellow] "
+            f"[dim]— the pass failed open, which is not a result[/dim]"
+        )
+
+    colour = "green" if report.trustworthy else "yellow"
+    console.print(f"\n[{colour}]{report.summary()}[/{colour}]")
+    if not report.trustworthy:
+        console.print(
+            "[dim]a quiet supersession pass does not yet mean anything — fix the prompt "
+            "or the seat before trusting it[/dim]"
         )
     return 0
 
@@ -973,8 +1088,8 @@ class _NarrationStream:
         self.console.print(text, end="", markup=False, highlight=False)
 
 
-def _build_voice(console: Console, cfg, args, log) -> tuple[object | None, list]:
-    """The NPC seat for a play session, or None if nobody is speaking for themselves.
+def _build_voice(console: Console, cfg, args, log) -> tuple[object | None, object, list]:
+    """The NPC tier for a play session: the voice, the supersession keeper, and closers.
 
     **Fails open the whole way down.** No cast, a routing failure, a host that has gone
     away — every one of them returns None and the session plays on with the GM voicing
@@ -983,23 +1098,34 @@ def _build_voice(console: Console, cfg, args, log) -> tuple[object | None, list]
     make the NPC tier a single point of failure for the entire game.
     """
     if getattr(args, "no_npcs", False) or not getattr(args, "campaign", None):
-        return None, []
+        return None, StanceKeeper(log=log), []
     book = load_campaign_npcs(args.campaign)
     if not len(book):
-        return None, []
+        return None, StanceKeeper(log=log), []
 
     try:
         backend, route = build_npc_backend(cfg, OllamaRouter.for_config(cfg))
     except RoutingError as exc:
         console.print(f"[yellow]NPC seat unavailable:[/yellow] {exc}")
         console.print("[dim]the GM will voice everyone in its own prose[/dim]")
-        return None, []
+        return None, StanceKeeper(log=log), []
 
     closers = [backend]
     gate, gate_backend = _build_gate(cfg, args)
     if gate_backend is not None:
         closers.append(gate_backend)
     voice = NPCVoice(backend=backend, log=log, route=route, gate=gate)
+
+    # The supersession judge shares the gate's seat when there is one. `--ungated` turns
+    # off the *output* gate — what the table sees — and says nothing about whether a
+    # character may hold two contradictory beliefs at once, so the judge is built either
+    # way. It is the same seat and the same temperature; sharing the backend keeps the
+    # host holding one model.
+    judge_backend = gate_backend
+    if judge_backend is None:
+        judge_backend = _utility_backend(cfg, args)
+        closers.append(judge_backend)
+    stance = StanceKeeper(judge=StanceJudge(backend=judge_backend), log=log)
 
     where = route.endpoint.name if route else backend.endpoint
     gated = "gated" if gate is not None else "[yellow]ungated[/yellow]"
@@ -1021,9 +1147,9 @@ def _build_voice(console: Console, cfg, args, log) -> tuple[object | None, list]
     except Exception as exc:
         console.print(f"[yellow]warm-up failed:[/yellow] {type(exc).__name__}: {exc}")
         console.print("[dim]NPCs stay on; the first line will pay the load instead[/dim]")
-        return voice, closers
+        return voice, stance, closers
     console.print(f"[dim]seat warm in {elapsed} ms{_warmth(elapsed)}[/dim]")
-    return voice, closers
+    return voice, stance, closers
 
 
 #: Above this, the warm-up call clearly loaded the model rather than merely answering.
@@ -1066,6 +1192,14 @@ def _render_unvoiced(console: Console, result) -> None:
         )
     for error in result.voice_errors:
         console.print(f"[yellow]NPC call failed:[/yellow] [dim]{error}[/dim]")
+    for tag in result.unchanged:
+        # Worse than an unvoiced direction, and louder for it: the GM thinks it has just
+        # changed somebody's mind and the ledger has no such person, so it will keep
+        # narrating from a belief nobody holds.
+        console.print(
+            f"[yellow]nobody called {tag.name}:[/yellow] "
+            f"[dim]that change of mind went nowhere[/dim]"
+        )
 
 
 def _render_dialogue(console: Console, reply) -> None:
@@ -1081,6 +1215,30 @@ def _render_dialogue(console: Console, reply) -> None:
     else:
         console.print("[dim](says nothing the gate would let stand)[/dim]")
     _render_verdict(console, reply)
+
+
+def _render_beliefs(console: Console, updates) -> None:
+    """Say when a character changed their mind, and what it cost them (P4.6).
+
+    Shown for the same reason an interception is: a rewrite of the world the table cannot
+    see is a rewrite nobody can argue with. An NPC's beliefs are already visible here —
+    `_render_canon` prints an `npc_belief` entry like any other — so this adds no leak, and
+    a retirement is the one canon write that *removes* something, which nothing else does.
+
+    `unjudged` is printed rather than passed over. That is the fail-open path: the belief
+    was filed, nothing was retired, and a session where the judge was down must not read
+    afterwards as a session where nothing needed retiring.
+    """
+    for update in updates:
+        console.print()
+        console.print(f"  [dim]{update.npc.name} now believes: {update.belief}[/dim]")
+        for entry in update.retired:
+            console.print(f"    [dim]no longer: {entry.text}[/dim]")
+        if not update.judged:
+            console.print(
+                f"    [yellow]unjudged[/yellow] [dim]— {update.judgement.reason}; "
+                f"nothing was retired[/dim]"
+            )
 
 
 def _render_mechanics(console: Console, results) -> None:
@@ -1911,7 +2069,7 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
 
     seed = args.seed if args.seed is not None else random.randrange(MAX_SEED)
     log = start_session_log(cfg, campaign=campaign.name, seed=seed, billing=billing)
-    voice, voice_closers = _build_voice(console, cfg, args, log)
+    voice, stance, voice_closers = _build_voice(console, cfg, args, log)
     # The roster and the tier are the same switch: the GM is shown who speaks for
     # themselves only when somebody actually can. A roster with no seat behind it would
     # have the GM directing characters into silence all session.
@@ -1928,6 +2086,7 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
         prices=load_prices(cfg.pricing),
         canon=_canon_store(args, campaign, log),
         voice=voice,
+        stance=stance,
     )
 
     # The dataset is what gives a picked-up item its weight (P2.4's known gap, closed
@@ -2015,6 +2174,7 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
                 console.print("[yellow]the model declined that turn[/yellow]")
             _render_mechanics(console, result.mechanics)
             _render_canon(console, result.canon)
+            _render_beliefs(console, result.beliefs)
             confirm_inventory(
                 console, result.inventory, items, acting=active, turn=len(campaign.history)
             )
@@ -2508,6 +2668,16 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"control cases (default: the campaign's own {CONTROL_FILE})",
     )
     _add_gate_flags(npc_control)
+    npc_stance = npc_commands.add_parser(
+        "stance", help="run planted changes of mind past the supersession judge (P4.6)"
+    )
+    npc_stance.add_argument("name")
+    npc_stance.add_argument("--campaign", metavar="SLUG", required=True)
+    npc_stance.add_argument(
+        "--cases", metavar="PATH",
+        help=f"control cases (default: the campaign's own {STANCE_CONTROL_FILE})",
+    )
+    _add_gate_flags(npc_stance)
 
     roll_command = commands.add_parser("roll", help="roll dice through the rules engine")
     roll_command.add_argument("expression", help="e.g. 2d6+3, 4d6kh3, d20")
@@ -2756,6 +2926,8 @@ def main(argv: list[str] | None = None) -> int:
                 return _cmd_npc_speak(console, args)
             if args.npc_command == "control":
                 return _cmd_npc_control(console, args)
+            if args.npc_command == "stance":
+                return _cmd_npc_stance(console, args)
             parser.parse_args(["npc", "--help"])
             return 0
         if args.command == "roll":

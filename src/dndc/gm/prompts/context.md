@@ -29,7 +29,8 @@ wins**, and where it is silent you are free.
 
 These people answer in their own voices, in their own call, straight after your reply.
 Hand one the floor with `[[SPEAK: ...]]` and write **none** of their dialogue yourself —
-not a line, not a fragment, not a question they throw back. Whatever you put in their
+not a line, not a fragment, not a question they throw back. When one of them changes
+their mind about something, `[[BELIEF: <name> | <what they now believe>]]`. Whatever you put in their
 mouth, the table will hear them say something else a moment later.
 
 {{ npcs }}
