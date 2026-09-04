@@ -72,7 +72,14 @@ from dndc.game.combatturn import (
 )
 from dndc.game.inventory import InventoryStore, describe_change, proposals_for
 from dndc.game.party import resolve_member
-from dndc.game.saves import Resume, SaveError, SaveStore, restore
+from dndc.game.saves import Resume, SaveError, SaveStore
+from dndc.game.session import (
+    PlaySession,
+    SessionError,
+    acting_member,
+    build_engine,
+    resume_from,
+)
 from dndc.game.turn import MAX_NPC_TURNS, TurnEngine
 from dndc.gm.canon import npc_issues
 from dndc.gm.gatekeeper import ControlCase, Gatekeeper, Verdict, run_control
@@ -1180,22 +1187,6 @@ COLD_LOAD_MS = 10_000
 
 def _warmth(elapsed_ms: int) -> str:
     return " (it was cold)" if elapsed_ms >= COLD_LOAD_MS else " (already resident)"
-
-
-def _speaking(console: Console, stream: "_NarrationStream"):
-    """An `on_dialogue` callback that flushes the narration before another voice starts.
-
-    The GM's reply may still be holding a character back (the stream withholds anything
-    that could be the start of a `[[` tag). Letting an NPC speak over the tail of that
-    would put half a word of GM prose after the innkeeper's line. `finish` is idempotent,
-    so calling it per line is free.
-    """
-
-    def speak(reply) -> None:
-        stream.finish()
-        _render_dialogue(console, reply)
-
-    return speak
 
 
 def _render_unvoiced(console: Console, result) -> None:
@@ -2335,8 +2326,77 @@ def _announce_resume(console: Console, resume: Resume) -> None:
     )
 
 
+class ConsoleTable:
+    """The terminal, answering for the table (P6.1).
+
+    Every method is one of the things `PlaySession` says has to happen at a table,
+    rendered with `rich`. The loop is not in here and neither is any campaign state —
+    which is the test of whether the seam is in the right place: a second front end
+    should be able to implement this and nothing else.
+    """
+
+    def __init__(self, console: Console, cfg, args, items: InventoryStore) -> None:
+        self.console = console
+        self.cfg = cfg
+        self.args = args
+        self.items = items
+
+    def notice(self, text: str) -> None:
+        self.console.print(text)
+
+    def error(self, text: str) -> None:
+        self.console.print(f"\n[red]{text}[/red]")
+        self.console.print("[dim]nothing was recorded — try again, or /quit[/dim]\n")
+
+    def narration(self) -> "_ConsoleNarration":
+        return _ConsoleNarration(self.console)
+
+    def opened(self, result) -> None:
+        self.console.print("\n")
+
+    def played(self, result) -> None:
+        self.console.print()
+        _render_unvoiced(self.console, result)
+        if result.refused:
+            self.console.print("[yellow]the model declined that turn[/yellow]")
+        _render_mechanics(self.console, result.mechanics)
+        _render_canon(self.console, result.canon)
+        _render_beliefs(self.console, result.beliefs)
+
+    def inventory(self, tags, acting: str, turn: int) -> int:
+        return confirm_inventory(self.console, tags, self.items, acting=acting, turn=turn)
+
+    def sweep(self, session: PlaySession) -> None:
+        _run_sweep(self.console, self.cfg, session.campaign, session.engine.canon, session.log)
+
+    def chronicle(self, session: PlaySession) -> None:
+        _run_chronicle(self.console, self.cfg, session.campaign, self.args, session.log)
+
+
+class _ConsoleNarration:
+    """`_NarrationStream` plus the NPC lines that interrupt it."""
+
+    def __init__(self, console: Console) -> None:
+        self.console = console
+        self.stream = _NarrationStream(console)
+
+    def feed(self, chunk: str) -> None:
+        self.stream.feed(chunk)
+
+    def dialogue(self, reply) -> None:
+        # The GM's reply may still be holding a character back (the stream withholds
+        # anything that could be the start of a `[[` tag). Letting an NPC speak over the
+        # tail of that would put half a word of GM prose after the innkeeper's line.
+        # `finish` is idempotent, so calling it per line is free.
+        self.stream.finish()
+        _render_dialogue(self.console, reply)
+
+    def finish(self) -> None:
+        self.stream.finish()
+
+
 def _cmd_play(console: Console, args: argparse.Namespace) -> int:
-    """The hot-seat turn loop (P1.3, OD-4)."""
+    """The hot-seat front end (P1.3, OD-4). The loop itself is `game/session.py`."""
     cfg = load_config()
     loaded = _gm_campaign_context(console, args)
     if loaded is None:
@@ -2353,16 +2413,11 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
     resume: Resume | None = None
     if saves is not None and not args.fresh:
         try:
-            save = saves.load()
+            resume = resume_from(saves, campaign, scene=args.scene or "")
         except SaveError as exc:
             console.print(f"[red]error:[/red] {exc}")
             return 1
-        if save is not None:
-            resume = restore(save, campaign)
-            # An explicit --scene is somebody deliberately moving the party; it beats
-            # whatever the save remembers about where they were standing.
-            if args.scene:
-                campaign.scene = args.scene
+        if resume is not None:
             _announce_resume(console, resume)
 
     billing = resolve_billing(cfg, console, requested=args.billing, ask=not args.no_prompt)
@@ -2384,19 +2439,6 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
     # have the GM directing characters into silence all session.
     if voice is not None:
         campaign.cast = list(load_campaign_npcs(args.campaign))
-    engine = TurnEngine(
-        backend=backend,
-        campaign=campaign,
-        builder=GMPromptBuilder(scaffolding=args.scaffolding or cfg.gameplay.scaffolding),
-        rng=random.Random(seed),
-        log=log,
-        max_tokens=args.max_tokens,
-        billing=billing.value,
-        prices=load_prices(cfg.pricing),
-        canon=_canon_store(args, campaign, log),
-        voice=voice,
-        stance=stance,
-    )
 
     # The dataset is what gives a picked-up item its weight (P2.4's known gap, closed
     # with the ingest task). A session without an ingested SRD still plays; items just
@@ -2409,43 +2451,51 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
     for key, sheet in loaded_sheets.items():
         items.add(sheet, path=loaded.paths.get(key))
 
-    sheets = {member.name.lower(): member for member in campaign.party}
-    active = _acting(campaign, resume)
-    player_turns = 0
+    engine = build_engine(
+        campaign,
+        backend,
+        log=log,
+        scaffolding=args.scaffolding or cfg.gameplay.scaffolding,
+        seed=seed,
+        max_tokens=args.max_tokens,
+        billing=billing.value,
+        prices=load_prices(cfg.pricing),
+        canon=_canon_store(args, campaign, log),
+        voice=voice,
+        stance=stance,
+    )
+    try:
+        session = PlaySession.start(
+            campaign,
+            loaded_sheets,
+            backend=backend,
+            log=log,
+            engine=engine,
+            items=items,
+            acting=acting_member(campaign, resume),
+            billing=billing.value,
+            seed=seed,
+            saves=saves,
+            resume=resume,
+            closers=voice_closers,
+        )
+    except SessionError as exc:
+        console.print(f"[red]error:[/red] {exc}")
+        return 1
 
+    table = ConsoleTable(console, cfg, args, items)
     console.print(f"[bold]{campaign.name}[/bold] — {backend.name}, seed {seed}")
     console.print(f"[dim]log -> {log.path}  ·  /help for commands[/dim]\n")
 
     try:
-        # The GM speaks first, as at a table. Without this the loop sat waiting for a
-        # player who had not been told where they were standing (first playtest).
-        if not campaign.history:
-            stream = _NarrationStream(console)
-            try:
-                opened = engine.open_scene(
-                    on_text=stream.feed,
-                    on_dialogue=_speaking(console, stream),
-                )
-            except GMBackendError as exc:
-                console.print(f"[red]error:[/red] {exc}")
-                return 1
-            except Exception as exc:  # network / rate limit
-                console.print(f"\n[red]call failed:[/red] {type(exc).__name__}: {exc}")
-                return 1
-            finally:
-                stream.finish()
-            # The opening scene should not be handing out gear — the prompt says as much
-            # — but a proposal silently dropped here would be a hole, and holes are what
-            # this task is closing.
-            confirm_inventory(
-                console, opened.inventory, items, acting=active, turn=len(campaign.history)
-            )
-            if saves is not None:
-                saves.record(campaign, acting=active, log=log)
-            console.print("\n")
+        try:
+            session.open_scene(table)
+        except SessionError as exc:
+            console.print(f"\n[red]error:[/red] {exc}")
+            return 1
 
         while True:
-            member = sheets[active.lower()]
+            member = session.member
             try:
                 raw = Prompt.ask(f"[bold cyan]{member.player} ({member.name})[/bold cyan]")
             except (EOFError, KeyboardInterrupt):
@@ -2457,80 +2507,31 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
                 continue
             if text.startswith("/"):
                 outcome = _play_command(
-                    console, text, campaign, engine.builder, items=items, acting=active
+                    console, text, campaign, engine.builder, items=items,
+                    acting=session.acting,
                 )
                 if outcome.quit:
                     break
                 if outcome.active:
-                    active = outcome.active
+                    session.hand_to(outcome.active)
                 continue
 
-            player_turns += 1
             console.print()
-            stream = _NarrationStream(console)
-            try:
-                result = engine.run(
-                    text,
-                    player=member.player,
-                    sheet=loaded_sheets.get(active.lower()),
-                    on_text=stream.feed,
-                    # Printed as each character answers rather than collected and dumped
-                    # at the end: an NPC line takes seconds on a local seat, and a table
-                    # watching nothing happen is a table that thinks it has hung.
-                    on_dialogue=_speaking(console, stream),
-                )
-            except Exception as exc:
-                # A rate limit, a dropped connection, a bad gateway. Before P5.1 this
-                # ended the process and the evening with it; the save point makes that
-                # recoverable, but recovering from a traceback is still a worse table
-                # experience than being told to say it again. The turn is not lost
-                # silently: the engine has already logged a `pending` row with no
-                # terminal, which is exactly what a failed call should look like.
-                # KeyboardInterrupt is not an Exception and still ends the session.
-                stream.finish()
-                console.print(f"\n[red]that turn failed:[/red] {type(exc).__name__}: {exc}")
-                console.print("[dim]nothing was recorded — try again, or /quit[/dim]\n")
+            if session.take_turn(text, table) is None:
+                # A failed turn is not a turn: it gets no trailing spacing and no
+                # scaffolding hint, because nothing was narrated to react to.
                 continue
-            stream.finish()
-            console.print()
-            _render_unvoiced(console, result)
-            if result.refused:
-                console.print("[yellow]the model declined that turn[/yellow]")
-            _render_mechanics(console, result.mechanics)
-            _render_canon(console, result.canon)
-            _render_beliefs(console, result.beliefs)
-            confirm_inventory(
-                console, result.inventory, items, acting=active, turn=len(campaign.history)
-            )
-            # Written before the next prompt rather than at session end: the point of a
-            # save point is that an evening does not end, it stops.
-            if saves is not None:
-                saves.record(campaign, acting=active, log=log)
-            if should_hint_scaffolding(player_turns, engine.builder.scaffolding):
+            if should_hint_scaffolding(session.player_turns, engine.builder.scaffolding):
                 console.print(
                     f"\n[dim]— GM offering you options more than you want? "
                     f"/scaffolding {SCAFFOLDING_CHOICES}[/dim]"
                 )
             console.print()
     finally:
-        backend.close()
-        for closer in voice_closers:
-            closer.close()
+        session.close()
 
-    if not args.no_sweep:
-        _run_sweep(console, cfg, campaign, engine.canon, log)
-    if not args.no_chronicle:
-        # After the sweep, deliberately: the sweep can still be reading the session back
-        # when the chronicle is written, and the two are independent, but running the
-        # cheap confirmable one first means an interrupted end-of-session loses the
-        # summary rather than the canon.
-        _run_chronicle(console, cfg, campaign, args, log)
-
+    session.finish(table, sweep=not args.no_sweep, chronicle=not args.no_chronicle)
     if saves is not None:
-        # Closing is what tells the next run this was a bedtime and not a crash: the
-        # scene survives, the turn window does not, and the chronicle just written is
-        # what carries this session into the next one (D-002).
-        saves.close(campaign, acting=active, log=log)
         console.print(f"[dim]saved -> {saves.path}[/dim]")
     console.print()
     _render_cost(console, read_session(log.path), "what the evening cost")

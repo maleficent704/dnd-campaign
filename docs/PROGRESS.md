@@ -27,7 +27,8 @@ the table, including where the party is standing; and an evening now says what i
 both of the currencies it spends — **$0.2428 of API billing across the whole campaign to
 date, and one 65-second wait for a cold 70B.**
 
-**Phases 0–5 are built. Phase 6 (the LAN GUI) is next, and nothing ruled is unbuilt.**
+**Phases 0–5 are built. Phase 6 (the LAN GUI) is under way** — planned as six tasks and
+P6.1 landed 2026-09-03 (g). **Nothing ruled is unbuilt.**
 
 P5.5 (2026-09-03 (f)) closed the one defect Phase 5 found in itself: nothing recorded a
 player character's pronouns, so every layer re-derived them from prose and the chronicler
@@ -424,6 +425,115 @@ the drift instrument's own log is a finding worth the two-line fix.
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-09-03 (g) — Phase 6 opens: one loop, two front ends (Claude Code, kelly-pc)
+
+**Phase 6 planned and P6.1 done.** 1389 tests, suite still fully offline. Kelly confirmed
+the P5.5 backfill was fine ("we'd probably start new character sheets anyway") and said to
+proceed.
+
+### The rule the phase is built on
+
+Phase 6 puts a browser in front of the same campaign the CLI plays, and the tempting way
+to do that is to write a second turn loop in the web layer. It is the wrong way for
+exactly the reason a save point holds nothing the ledger owns (P5.1): **two authorities
+for one behaviour drift the first time one path changes and the other does not.**
+
+Here the drift would be silent and expensive. The web loop would forget to record a save,
+or to confirm an item, or to close the session — and the campaign it produced would be
+subtly not the campaign the CLI produces, in a project whose entire purpose is measuring
+whether a campaign stays consistent with itself. So: **one loop, two front ends**, and the
+loop is `game/session.py`.
+
+### What P6.1 actually moved
+
+`_cmd_play` was doing four separable jobs at once: building a session, running turns,
+asking the table things, and drawing on a terminal. The first two are now `PlaySession`.
+The last two are a `Table` the caller passes in — `rich` today, a browser from P6.3.
+
+**The protocol is about questions and answers, not widgets.** Nothing in the session knows
+what a panel looks like. It knows that after a turn somebody must be shown what happened,
+and that before an item reaches a sheet somebody must say yes. Those are true at a table
+regardless of what the table is looking at, and they are precisely what a second front end
+must not be free to skip. A test pins `ConsoleTable` as a conforming implementation, so if
+a later task adds a method to the protocol the terminal has to answer it too rather than
+the two drifting apart in silence.
+
+**The end-of-session jobs reach the table through the protocol rather than running in the
+session**, because the sweep and the chronicle are `rich`-built confirmation flows and
+untangling those is P6.5's whole task. But their **ordering moved into the session**,
+because "sweep, then chronicle, then close the save, then say what it cost" encodes a
+decision — an interrupted end-of-session should lose the summary, which regenerates for
+free, and not the canon, which does not — and a front end must not be able to get that
+wrong by writing its own sequence.
+
+### The other Phase 6 decisions, made now rather than discovered later
+
+**No build step.** Server-rendered HTML, SSE, vanilla JS. A house LAN app that needs
+`npm install` to move a button is a worse instrument, and this repo has no JS toolchain to
+protect. `fastapi` and `uvicorn` will arrive as an optional `web` extra so the rules core,
+the CLI and the whole suite still run without them — the posture `anthropic` already has.
+
+**The read-only mirror (P6.3) comes before the write path (P6.4).** It has value on its
+own — Sam's phone showing the scene while Kelly plays hot-seat — and it forces the
+secrecy boundary into existence before there is any concurrency to confuse it with.
+
+**P6.2 is a task rather than a line of P6.3.** A browser is the first surface where a
+`gm_only` fact reaches a device the GM is not holding, and the answer has to be the P4.1
+one: absent from the type, not filtered from it. That deserves its own tests and its own
+name.
+
+### Deviations
+
+- **Party loading stayed in the CLI.** `_gm_campaign_context` prints its own errors and is
+  argparse-shaped; moving it would have grown this task without serving it. The web will
+  either reuse it or get its own loader in P6.4, and the choice is better made when there
+  is a caller to make it for.
+- **Two small behaviours were preserved deliberately rather than accidentally**: a failed
+  turn still gets no scaffolding hint and no trailing blank line, because nothing was
+  narrated to react to. The first version of the refactor lost both — the old code got
+  them from a `continue`, and the tests did not cover either.
+- `_speaking` is gone; the narration object now owns flushing the stream before an NPC
+  speaks, which is where that belonged.
+
+### Known issues
+
+- **`PlaySession` still takes its parts pre-built.** Which backend, seat and log a session
+  runs on is a front end's decision, so `start()` accepts them rather than constructing
+  them — but that means the web must assemble the same six objects the CLI does, and
+  nothing yet stops it assembling them differently. `build_engine` is the piece that
+  matters most and is already shared.
+- **The `Table` protocol will grow in P6.5.** The confirmation methods it needs
+  (`choose_proposals`, `confirm_background`, the recap's scene question) are still called
+  directly out of `rich` inside `_run_sweep` and `_run_chronicle`. The conformance test
+  will catch the CLI, but the protocol as it stands is not yet the whole surface.
+- **Nothing has been served over HTTP yet.** P6.1 is a refactor with no new capability;
+  its entire justification is the three tasks after it.
+
+### FOR DESIGN
+
+None new. Nothing ruled is unbuilt.
+
+**Carried, all four still open and none blocking:** the change-of-mind trigger; whether the
+GM should voice player characters; whether a `blocked` line should cost the turn; and
+whether a closed save should restore the turn window.
+
+One question Phase 6 will raise for real and does not need answering yet: **on a house LAN
+with no auth, any browser can claim to be any player.** P6.4 will implement identity as a
+choice made on connect and stored in the browser, and write down plainly what that does
+and does not protect. If Kelly wants something stronger than "we trust everyone on the
+wifi", that is a ruling worth having before P6.4 rather than after.
+
+### Recommended next task
+
+**P6.2 — the view model**, per TASKS.md. It is the boundary every later task sits behind,
+and it can be written and tested with no server at all.
+
+Still outstanding and still not code: **an evening with Kelly and Sam at the Brakewater
+crossroads.** Phase 6 exists to make that evening better; it is not a substitute for
+having had one.
 
 ---
 

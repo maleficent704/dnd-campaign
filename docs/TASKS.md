@@ -523,6 +523,59 @@ Task breakdown:
 FastAPI backend over the same engine; two-device play from the couch; hot-seat CLI
 remains supported.
 
+**The governing rule is P5.1's, applied to behaviour instead of state: one loop, two
+front ends.** A second turn loop in the web layer would drift from the CLI's the first
+time one path was changed and the other was not — it would forget to record a save, or to
+confirm an item, or to close the session — and the campaign it produced would be subtly
+not the campaign the CLI produces. In a project whose purpose is measuring whether a
+campaign stays consistent with itself, that is the worst available bug.
+
+**No build step.** Server-rendered HTML, SSE, and vanilla JS. A house LAN app that needs
+`npm install` to move a button is a worse instrument, and this repo has no JS toolchain to
+protect. `fastapi` and `uvicorn` arrive as an optional `web` extra so the rules core, the
+CLI and the whole suite still run without them — the same posture `anthropic` has.
+
+- **P6.1** Extract the turn loop from the CLI into `game/session.py`: a `PlaySession`
+  owning setup, the opening scene, per-turn mechanics, save recording and the
+  end-of-session ordering, with everything a human has to be shown or asked expressed as a
+  `Table` the caller supplies. No behaviour change.
+  *(Done 2026-09-03 (g). `_cmd_play` was doing four separable jobs at once — building a
+  session, running turns, asking the table things, and drawing on a terminal — and only
+  the last two are a front end's business. The `Table` protocol is deliberately about
+  questions and answers rather than widgets: nothing in the session knows what a panel
+  looks like, only that after a turn somebody must be shown what happened and that before
+  an item reaches a sheet somebody must say yes. Those are true at a table regardless of
+  what the table is looking at, and they are exactly what a second front end must not be
+  free to skip. The CLI is now the first consumer, via a `ConsoleTable` that wraps the
+  existing renderers verbatim, and a test pins it as a conforming implementation so the
+  protocol and the terminal cannot drift apart in silence. **The sweep and the chronicle
+  reach the table through the protocol rather than running here**, because both are
+  `rich`-built confirmation flows and untangling them is P6.5's whole task — but their
+  *ordering* moved into the session, because "sweep, then chronicle, then close the save"
+  encodes a decision (an interrupted end-of-session should lose the summary, which
+  regenerates for free, and not the canon) that a front end must not be able to get wrong
+  by writing its own. 1389 tests, suite still fully offline, and the 1364 that existed
+  before are the regression suite. Verified live on a scratch campaign: opening scene, a
+  turn, a slash command, `/quit`, save closed, cost printed — then a second run that
+  announced the pick-up and restored the scene. 3.3 cents.)*
+- **P6.2** The view model: exactly what a player's device may be sent. `gm_only` canon,
+  the cast's author notes and another character's beliefs must be **absent from the type**
+  rather than filtered out of it, and asserted on the serialised bytes. P4.1's discipline
+  on a fifth surface, and the first one where a leak reaches a device the GM is not
+  holding.
+- **P6.3** The mirror: FastAPI app plus an SSE stream, read-only. A browser watching a
+  live session — narration, dialogue, mechanics, party condition. Playable value on its
+  own (Sam's phone showing the scene while Kelly plays hot-seat) and it proves the
+  boundary before any write path exists to complicate it.
+- **P6.4** Taking a turn from a browser: submitting a line, acting-player gating, one turn
+  at a time, and an honest account of what "no auth on a house LAN" does and does not
+  mean.
+- **P6.5** The confirmations: inventory, canon proposals, backgrounds, the recap's scene.
+  Each is a blocking `rich` prompt today and becomes a round trip. A browser closed
+  mid-question must not hang the evening — fail-open, like every other utility seat.
+- **P6.6** `dndc serve`: bind address and port from config, the LAN security note written
+  down rather than assumed, and an evening actually played on two devices.
+
 ## Phase 7 — Research instrumentation
 
 Canon-drift metrics, ruling-fairness analysis over `gm_adjudication`, NPC
