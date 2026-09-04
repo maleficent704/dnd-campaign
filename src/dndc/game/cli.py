@@ -47,7 +47,14 @@ from dndc.analysis import (
     store_for_replay,
     survives,
 )
-from dndc.config import Billing, load_config, load_env_file, save_billing_default
+from dndc.config import (
+    EVERY_INTERFACE,
+    LAN,
+    Billing,
+    load_config,
+    load_env_file,
+    save_billing_default,
+)
 from dndc.game.campaign import (
     CHARACTERS_DIRNAME,
     CampaignError,
@@ -99,7 +106,7 @@ from dndc.game.asking import (
 from dndc.game.floor import WEB, Floor
 from dndc.gm.tagstream import TagStream
 from dndc.web.mirror import Mirror
-from dndc.web.server import DEFAULT_HOST, DEFAULT_PORT, Server
+from dndc.web.server import Server
 from dndc.web.view import table_view
 from dndc.gm.canon import npc_issues
 from dndc.gm.gatekeeper import ControlCase, Gatekeeper, Verdict, run_control
@@ -2519,14 +2526,23 @@ class _MirroredNarration:
         self.mirror.settle()
 
 
-def _start_mirror(console: Console, mirror: Mirror, args, floor=None) -> "Server | None":
+def _start_mirror(console: Console, cfg, mirror: Mirror, args, floor=None) -> "Server | None":
     """Bring the sofa online, or explain why not and let the table play anyway.
 
     A failure here is not fatal by accident — it is not fatal on purpose, and the return
     value says which. The port is already taken, or the extra is not installed: neither is
     a reason nobody gets to play tonight.
+
+    The address comes from `config.yaml`; a flag overrides it for one evening (P6.6). What
+    the table is told is the *exposure*, not the setting — "every interface" is a phrase
+    that sounds smaller than it is on a machine that is also a tailnet node.
     """
-    server = Server(mirror, host=args.serve_host, port=args.serve_port, floor=floor)
+    server = Server(
+        mirror,
+        host=args.serve_host or cfg.web.host,
+        port=args.serve_port or cfg.web.port,
+        floor=floor,
+    )
     try:
         server.start()
     except Exception as exc:
@@ -2535,6 +2551,11 @@ def _start_mirror(console: Console, mirror: Mirror, args, floor=None) -> "Server
         return None
     how = "read-only" if floor is None else "and playing from it"
     console.print(f"[green]from the sofa:[/green] {server.url}  [dim]({how})[/dim]")
+    if server.everywhere:
+        console.print(
+            f"[yellow]bound to {EVERY_INTERFACE} — every interface, the tailnet "
+            f"included[/yellow] [dim](there is no login; docs/LAN-ACCESS.md)[/dim]"
+        )
     return server
 
 
@@ -2561,6 +2582,24 @@ def _keyboard(console: Console, session: PlaySession, floor: Floor) -> threading
     thread = threading.Thread(target=read, daemon=True)
     thread.start()
     return thread
+
+
+def _cmd_serve(console: Console, args: argparse.Namespace) -> int:
+    """`dndc serve` — the same evening, with the browser as its front end (P6.6).
+
+    Deliberately thin, and it should stay thin: it is `play --serve` with the one
+    terminal-shaped default inverted, because nothing may ask a question at a console
+    before the session exists — there may not be one. Everything after that is the same
+    code, since a served session that took a different path through the program would be
+    a second turn loop wearing a hat, which is the thing P6.1 exists to prevent.
+
+    A hot seat is still available — run this in a terminal and the keyboard joins the
+    floor like any other device. It is no longer *required*, which is the whole
+    difference, and the reason this is the shape P6.7's container entrypoint wants.
+    """
+    args.serve = True
+    args.no_prompt = True  # D-004's sticky default stands; --billing still overrides it.
+    return _cmd_play(console, args)
 
 
 def _cmd_play(console: Console, args: argparse.Namespace) -> int:
@@ -2659,7 +2698,7 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
         # cannot tell "not allowed" from "not built", which is the honest shape for a
         # read-only server (P6.3's behaviour, kept rather than degraded).
         floor = None if args.watch_only else Floor()
-        server = _start_mirror(console, mirror, args, floor)
+        server = _start_mirror(console, cfg, mirror, args, floor)
         if server is None:
             return 1
         table = MirrorTable(table, mirror, session, floor)
@@ -3305,78 +3344,91 @@ def build_parser() -> argparse.ArgumentParser:
     gm.add_argument("--max-tokens", type=int, default=1024)
     gm.add_argument("--log", action="store_true", help="record to a JSONL session log")
 
-    play = commands.add_parser("play", help="hot-seat play session (the turn loop)")
-    play.add_argument(
+    # `play` and `serve` are the same session with a different front end in front of it,
+    # so they take the same options from one place. A second copy of this list would drift
+    # within a task, and the two commands differing by accident is exactly the failure
+    # P6.1 exists to prevent — one loop, two front ends.
+    play_flags = argparse.ArgumentParser(add_help=False)
+    play_flags.add_argument(
         "--campaign", metavar="SLUG",
         help="play a saved campaign — its party and canon load from disk",
     )
-    play.add_argument("--campaign-name", help="campaign title")
-    play.add_argument("--scene", help="where the party starts")
-    play.add_argument("--canon", help="path to a canon ledger YAML file")
-    play.add_argument(
+    play_flags.add_argument("--campaign-name", help="campaign title")
+    play_flags.add_argument("--scene", help="where the party starts")
+    play_flags.add_argument("--canon", help="path to a canon ledger YAML file")
+    play_flags.add_argument(
         "--character", action="append", metavar="PATH",
         help="a character sheet to put in the party (repeatable)",
     )
-    play.add_argument(
+    play_flags.add_argument(
         "--scaffolding", choices=sorted(SCAFFOLDING_TEMPLATES),
         help="override config's D-006 scaffolding level",
     )
-    play.add_argument(
+    play_flags.add_argument(
         "--billing", choices=[b.value for b in Billing],
         help="override the sticky default for this session (D-004)",
     )
-    play.add_argument(
+    play_flags.add_argument(
         "--no-prompt", action="store_true", help="don't ask for billing; use the default"
     )
-    play.add_argument(
+    play_flags.add_argument(
         "--threshold", action="store_true",
         help="use the Opus escalation model (authored threshold moment, OD-3)",
     )
-    play.add_argument(
+    play_flags.add_argument(
         "--seed", type=int, help="master seed (one is generated and logged if omitted)"
     )
-    play.add_argument(
+    play_flags.add_argument(
         "--fresh", action="store_true",
         help="ignore the campaign's save point and start the scene over (P5.1)",
     )
-    play.add_argument(
+    play_flags.add_argument(
         "--no-sweep", action="store_true",
         help="skip the end-of-session canon sweep on the interactive utility seat (P2.3)",
     )
-    play.add_argument(
+    play_flags.add_argument(
         "--no-chronicle", action="store_true",
         help="skip the end-of-session chronicle summary on the batch utility seat (P2.5)",
     )
-    play.add_argument(
+    play_flags.add_argument(
         "--no-recap", action="store_true",
         help="skip the \"previously on...\" at pickup on the batch utility seat (P5.3)",
     )
-    play.add_argument("--max-tokens", type=int, default=1024)
+    play_flags.add_argument("--max-tokens", type=int, default=1024)
+    play_flags.add_argument(
+        "--watch-only", action="store_true",
+        help="a spectator link: no write route exists at all (P6.4)",
+    )
+    play_flags.add_argument(
+        "--serve-port", type=int,
+        help="port to serve on (default: config.yaml web.port)",
+    )
+    play_flags.add_argument(
+        "--serve-host",
+        help=f"bind address (default: config.yaml web.host — `{LAN}` is this machine's "
+             f"LAN address; `{EVERY_INTERFACE}` is every interface, tailnet included)",
+    )
+    play_flags.add_argument(
+        "--no-npcs", action="store_true",
+        help="don't voice NPCs on the local seat; the GM narrates everyone (P4.5)",
+    )
+    play_flags.add_argument(
+        "--ungated", action="store_true",
+        help="run NPC lines without the output gate — raw drafts reach the table (P4.4)",
+    )
+    _add_gate_flags(play_flags)
+
+    play = commands.add_parser(
+        "play", parents=[play_flags], help="hot-seat play session (the turn loop)"
+    )
     play.add_argument(
         "--serve", action="store_true",
         help="also serve this session on the LAN, playable from a browser (P6.3, P6.4)",
     )
-    play.add_argument(
-        "--watch-only", action="store_true",
-        help="with --serve, a spectator link: no write route exists at all (P6.4)",
+    commands.add_parser(
+        "serve", parents=[play_flags],
+        help="the same session, served: the browser is the front end (P6.6)",
     )
-    play.add_argument(
-        "--serve-port", type=int, default=DEFAULT_PORT,
-        help=f"port for --serve (default {DEFAULT_PORT})",
-    )
-    play.add_argument(
-        "--serve-host", default=DEFAULT_HOST,
-        help=f"bind address for --serve (default {DEFAULT_HOST}, every interface)",
-    )
-    play.add_argument(
-        "--no-npcs", action="store_true",
-        help="don't voice NPCs on the local seat; the GM narrates everyone (P4.5)",
-    )
-    play.add_argument(
-        "--ungated", action="store_true",
-        help="run NPC lines without the output gate — raw drafts reach the table (P4.4)",
-    )
-    _add_gate_flags(play)
 
     cost = commands.add_parser(
         "cost", help="what a session or a campaign cost, read back off the log (P5.4)"
@@ -3527,6 +3579,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_gm(console, args)
         if args.command == "play":
             return _cmd_play(console, args)
+        if args.command == "serve":
+            return _cmd_serve(console, args)
         if args.command == "cost":
             return _cmd_cost(console, args)
         if args.command == "combat":

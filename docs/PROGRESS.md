@@ -27,11 +27,14 @@ the table, including where the party is standing; and an evening now says what i
 both of the currencies it spends — **$0.2428 of API billing across the whole campaign to
 date, and one 65-second wait for a cold 70B.**
 
-**Phases 0–5 are built. Phase 6 (the LAN GUI) is under way** — planned as six tasks and
-P6.1–P6.5 landed 2026-09-03 (g)–(j) and 2026-09-04. **A browser on the LAN can watch
-an evening, take a turn in it, and answer the confirmations that end it**
-(`dndc play --serve`; `--watch-only` for a spectator link). **Kelly looked at the UI
-2026-09-03 and approved it.** **Nothing ruled is unbuilt.**
+**Phases 0–5 are built. Phase 6 (the LAN GUI) is under way** — planned as seven tasks and
+P6.1–P6.6 landed 2026-09-03 (g)–(j) and 2026-09-04. **A browser on the LAN can watch
+an evening, take a turn in it, answer the confirmations that end it, and end it**
+(`dndc serve`, or `dndc play --serve`; `--watch-only` for a spectator link). **Kelly
+looked at the UI 2026-09-03 and approved it.** P6.6 changed the bind default from every
+interface to the LAN address — the old one published an unauthenticated GUI to the
+tailnet — and wrote `docs/LAN-ACCESS.md`. **Only P6.7 (hosting) is left in Phase 6.**
+**Nothing ruled is unbuilt.**
 
 **Kelly, 2026-09-03: host it on the VM** like chat-archive, scrapbook and pit-wall,
 rather than needing a terminal on her PC. Agreed and added as **P6.7** — the house
@@ -442,6 +445,143 @@ the drift instrument's own log is a finding worth the two-line fix.
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-09-04 (b) — P6.6: where the table listens, and who that lets in (Claude Code, kelly-pc)
+
+**P6.6 done.** 1549 tests, suite still fully offline. Two devices played an evening end to
+end over a real socket, with no keyboard attached to the process at all.
+
+### The task was to write a note down, and writing it down changed the code
+
+`web/server.py` has said this since P6.3:
+
+> `DEFAULT_HOST = "0.0.0.0"` — Bound to every interface on purpose: the whole point is the
+> other sofa. What that does and does not protect is written down in P6.6 rather than
+> assumed here.
+
+The house had already answered it, two days before I wrote that line.
+`race-control/docs/operations/lan-only-services.md` (2026-09-02, written while gating the
+kids capture station) measured that **a `0.0.0.0` bind here is not LAN-only**: the machine
+is a Tailscale node, `tailscale0` is one of the interfaces "every interface" means, and
+`100.97.50.9:8086` answered `200` from the tailnet. Both machines this will ever run on
+are tailnet nodes — kelly-pc and the VM.
+
+So the default was publishing an unauthenticated GUI to a VPN. Not a hypothetical for
+P6.7: that is what `dndc play --serve` did on Kelly's PC, on any evening Tailscale was up.
+The comment was right that the exposure needed writing down and wrong about what it would
+say when written.
+
+**The default is now `host: lan`**, resolved to this machine's address when the socket is
+bound rather than written into the file — an address in a config file goes stale on the
+next DHCP lease, and a stale bind address does not fail loudly. It binds to nothing and
+reports that it started.
+
+`0.0.0.0` is still one flag away and now announces itself: *every interface, the tailnet
+included — there is no login*. Making the unsafe thing loud beats making it impossible,
+because the safe default is what people actually get.
+
+### Measured, not asserted — including the part that proves nothing
+
+The house doc's own rule. Two binds, three targets, from kelly-pc:
+
+```
+bound to 0.0.0.0:8791          bound to 192.168.50.160:8792
+  127.0.0.1        -> 200        127.0.0.1        -> FAIL
+  192.168.50.160   -> 200        192.168.50.160   -> 200
+  100.100.147.83   -> FAIL       100.100.147.83   -> FAIL
+```
+
+The left column's third row **is not evidence and must not be cited as any**. Tailscale on
+kelly-pc was not up during the test: service running, adapter `Up`, `tailscale status`
+reporting `NoState` with no IPv4 assigned, still true fifteen minutes later. `0.0.0.0` was
+LAN-only *by accident of state*, and a control that holds while a VPN happens to be down is
+not a control.
+
+What the right column does prove, and what I wanted: **the LAN bind genuinely narrows on
+Windows.** It drops loopback too — the port exists on exactly one interface. Then proved
+again through the product rather than a toy socket, below.
+
+**FOR DESIGN: nothing.** But it is a race-control finding —
+`inventory/network.md` lists kelly-pc as *Always on* at `100.100.147.83`, and it currently
+has no tailnet IP at all. Noted in that doc; not chased here.
+
+### `dndc serve`
+
+The same session with the browser as its front end. Deliberately thin and it should stay
+thin: `play --serve` with one terminal-shaped default inverted, because nothing may ask a
+question at a console before the session exists — there may not be one. Everything after
+that is the same code, since a served session taking a different path through the program
+would be a second turn loop wearing a hat.
+
+The two commands share one option list via an argparse parent, so they cannot drift apart
+inside a task. A hot seat is still available: run it in a terminal and the keyboard joins
+the floor like any other device. It is no longer *required*, which is the whole difference,
+and the reason this is the shape P6.7's container entrypoint wants.
+
+### An evening on two devices, over a real socket
+
+`dndc serve --campaign p66-smoke` with **stdin at `/dev/null`** — if anything in the run
+needed somebody at the terminal, it would hang, and that would be the result.
+
+```
+1. serve came up with stdin closed .......... yes
+2. loopback on the same port ................ refused (URLError)
+4. the other device is refused ............... 409 it is not your turn
+5. device A takes a turn ..................... 202
+6. the turn is handed over from a device ..... yes
+7. device B takes a turn ..................... 202
+8. both devices are in the same log ......... ['Sam (Brother Hammond)', 'Kelly (Corin Vale)']
+9. a device ended the evening ............... exit 0
+```
+
+Two clients, one holding the event stream open throughout. Sam's device refused while it
+was Kelly's turn and told *why* — a phone that silently does nothing is indistinguishable
+from a broken phone. `/switch` handed the turn across from a device, `/quit` ended the
+evening from one, and the session saved and reported its cost with nobody at the keyboard:
+**$0.0434 for three GM calls.**
+
+Line 2 is the one worth keeping. The bind narrowed *in the product*, not in a probe.
+
+### Known issues
+
+- **The human half of P6.6 is not done, and I cannot do it.** "An evening actually played
+  on two devices" means Kelly and Sam, on two real screens, in two rooms. What is verified
+  is two HTTP clients on one machine, which tests the machinery and not the experience.
+- **`--watch-only` is now on `serve` as well as `play`**, which is right, but a spectator
+  link and a playable one still differ only by a flag on the command line. P6.7 will want
+  it to be a property of the URL.
+- **No auth, by design and now by written decision rather than by omission.** See
+  `docs/LAN-ACCESS.md`, which lists what a device on that port can do — including spend
+  money and rewrite canon — and recommends a per-session code at P6.7 rather than now.
+- The recap's scene question is still terminal-only (P6.5's named cut, unchanged).
+
+### FOR DESIGN
+
+None new and nothing blocking. Carried: the change-of-mind trigger; whether the GM should
+voice PCs; whether a `blocked` line costs the turn; whether a closed save restores the turn
+window; and the (h) scope question.
+
+One question that is **Kelly's rather than Fable's** is now written down properly in
+`docs/LAN-ACCESS.md`: is a code wanted on the LAN at all, or is the network trusted? Every
+other service in this house is unauthenticated on the LAN and that is a deliberate posture,
+so matching it is a real option. What makes this one different is that a device on this
+port can spend money and rewrite the campaign's canon, which a dashboard cannot. Not
+blocking; P6.7 is where it costs something to have got wrong.
+
+### Recommended next task
+
+**P6.7 — host it on the VM.** Everything it needs from Phase 6 now exists: a browser can
+watch, play, confirm and end an evening, and `dndc serve` is the entrypoint shape. What is
+left is deployment (container, `deploy.sh`, `dndc-pull.timer`, a lab-control-panel slot),
+the server owning session *startup*, and **campaign data out of the code repo**. Bind to
+`192.168.50.46:PORT` explicitly in the compose file — on that box `ufw` does not filter
+Docker-published ports, so the bind is the control and a firewall would report success
+while changing nothing. Confirm `:8090` on the VM before claiming it; the `:8090` in the
+docs is the PC's retired one.
+
+Still not code: **an evening with Kelly and Sam at the Brakewater crossroads.**
 
 ---
 

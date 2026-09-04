@@ -43,7 +43,8 @@ stream with per-turn cost telemetry.
 ## Repo layout (target)
 
 ```
-docs/                  DESIGN-DECISIONS.md, TASKS.md, PROGRESS.md, playtests/
+docs/                  DESIGN-DECISIONS.md, TASKS.md, PROGRESS.md,
+                       LAN-ACCESS.md (what serving exposes), playtests/
 data/srd/              ingested SRD 5e structured data + LICENSE/attribution
 campaigns/             campaign + save state (data, not code)
 src/dndc/

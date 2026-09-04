@@ -6,8 +6,13 @@ is also doing.** A crash in the server must not take the table down, a browser m
 able to hold up a turn, and closing the terminal must end everything — which a daemon
 thread gives for free.
 
-`dndc serve` as a standalone command belongs to P6.6, where the bind address becomes a
-config question rather than a flag.
+**The bind address comes from config and defaults to the LAN, not to every interface**
+(P6.6). It used to be `0.0.0.0`, with a comment saying what that exposed would be written
+down here rather than assumed. Writing it down is what changed it: this house has already
+measured that a wildcard bind is *not* LAN-only, because the machine is a Tailscale node
+and `tailscale0` is one of the interfaces `0.0.0.0` means — see `docs/LAN-ACCESS.md` and
+race-control `operations/lan-only-services.md`. A table with no login should be reachable
+from the other sofa and not from a phone on cellular.
 """
 
 from __future__ import annotations
@@ -15,12 +20,17 @@ from __future__ import annotations
 import socket
 import threading
 
+from dndc.config import EVERY_INTERFACE, LAN
 from dndc.web.mirror import Mirror
 
-#: Bound to every interface on purpose: the whole point is the other sofa. What that does
-#: and does not protect is written down in P6.6 rather than assumed here.
-DEFAULT_HOST = "0.0.0.0"
-DEFAULT_PORT = 8765
+#: Binds that mean "every interface", and therefore also the tailnet.
+WILDCARD = frozenset({EVERY_INTERFACE, "::", "*"})
+
+
+def resolve_host(host: str) -> str:
+    """`lan` becomes this machine's LAN address; anything else is taken at its word."""
+    cleaned = host.strip()
+    return lan_address() if cleaned.lower() == LAN else cleaned
 
 
 class Server:
@@ -29,7 +39,10 @@ class Server:
     def __init__(self, mirror: Mirror, host: str, port: int, floor=None) -> None:
         self.mirror = mirror
         self.floor = floor
-        self.host = host
+        #: What was asked for (`lan`, an address, `0.0.0.0`) — kept so a message can say
+        #: what the table chose rather than only what it resolved to.
+        self.requested = host
+        self.host = resolve_host(host)
         self.port = port
         self._thread: threading.Thread | None = None
         self._server = None
@@ -37,7 +50,12 @@ class Server:
     @property
     def url(self) -> str:
         """The address to read out loud, which is never `0.0.0.0`."""
-        return f"http://{lan_address() if self.host == DEFAULT_HOST else self.host}:{self.port}"
+        return f"http://{lan_address() if self.everywhere else self.host}:{self.port}"
+
+    @property
+    def everywhere(self) -> bool:
+        """True when this is bound to every interface — the tailnet included."""
+        return self.host in WILDCARD
 
     def start(self) -> None:
         import uvicorn

@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config.yaml"
 DEFAULT_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
@@ -120,6 +120,49 @@ class GameplayConfig(_Strict):
     play_mode: Literal["hotseat", "web"]
 
 
+#: `host: lan` — this machine's address on the LAN, found when the socket is bound rather
+#: than written down. An address in a config file is a fact that goes stale on the next
+#: DHCP lease, and a stale bind address does not fail loudly: it binds to nothing and the
+#: server reports that it started.
+LAN = "lan"
+#: Every interface. **Not** a synonym for "the LAN" on this network — both kelly-pc and the
+#: VM are Tailscale nodes, so a wildcard bind also serves the tailnet, including a phone on
+#: cellular. See `docs/LAN-ACCESS.md` and race-control `operations/lan-only-services.md`.
+EVERY_INTERFACE = "0.0.0.0"
+
+DEFAULT_WEB_HOST = LAN
+DEFAULT_WEB_PORT = 8765
+
+
+class WebConfig(_Strict):
+    """Where the Phase 6 GUI listens (P6.6).
+
+    Defaulted rather than required, so a config written before Phase 6 still loads — a
+    table that never serves should not have to say so. The defaults are the safe pair,
+    which is the point of moving them out of the code: P6.7 deploys this file, and the
+    address a service binds to should be reviewable without reading Python.
+    """
+
+    host: str = DEFAULT_WEB_HOST
+    port: int = Field(default=DEFAULT_WEB_PORT, ge=1, le=65535)
+
+    @field_validator("host")
+    @classmethod
+    def _a_bind_address_not_a_url(cls, value: str) -> str:
+        """Catch the two realistic typos here rather than at `bind()`.
+
+        `http://192.168.50.160:8765` pasted out of a browser is the obvious one, and it
+        fails deep inside uvicorn with an error about name resolution that says nothing
+        about config.yaml.
+        """
+        host = value.strip()
+        if not host:
+            raise ValueError(f"web.host is empty — use `{LAN}`, an address, or {EVERY_INTERFACE}")
+        if "://" in host or "/" in host:
+            raise ValueError(f"web.host is a bind address, not a URL: {value!r}")
+        return host
+
+
 class LoggingConfig(_Strict):
     dir: str
     stamp_commit_sha: bool
@@ -141,6 +184,7 @@ class Config(_Strict):
     pricing: dict[str, PriceEntry] = Field(default_factory=dict)
     gameplay: GameplayConfig
     logging: LoggingConfig
+    web: WebConfig = Field(default_factory=WebConfig)
 
 
 def load_config(path: Path | str | None = None) -> Config:

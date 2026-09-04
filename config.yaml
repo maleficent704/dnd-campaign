@@ -55,6 +55,18 @@ gameplay:
   scaffolding: high       # high | low | off — D-006 new-player option surfacing
   play_mode: hotseat      # hotseat until Phase 6 GUI (OD-4)
 
+web:                      # the LAN GUI (Phase 6) — `dndc serve`, or `dndc play --serve`
+                          # READ docs/LAN-ACCESS.md BEFORE WIDENING host. There is no
+                          # login: whoever reaches this port is sitting at the table, can
+                          # take a turn, and spends the API budget doing it.
+  host: lan               # lan | an address | 0.0.0.0
+                          # `lan` = this machine's LAN address, found when the socket is
+                          # bound, so a new DHCP lease doesn't break it.
+                          # `0.0.0.0` is NOT "the LAN": kelly-pc (100.100.147.83) and the
+                          # VM (100.97.50.9) are both tailnet nodes, so every interface
+                          # includes tailscale0 — a phone on cellular, from anywhere.
+  port: 8765              # PC-side default. The VM slot is decided in P6.7.
+
 logging:
   dir: logs/
   stamp_commit_sha: true

@@ -649,6 +649,27 @@ CLI and the whole suite still run without them — the same posture `anthropic` 
   startup, and moving it now would be for a reason that stops applying.)*
 - **P6.6** `dndc serve`: bind address and port from config, the LAN security note written
   down rather than assumed, and an evening actually played on two devices.
+
+  *(Done 2026-09-04 (b). Writing the note down is what changed the code. `web/server.py`
+  bound every interface with a comment saying the exposure would be "written down in P6.6
+  rather than assumed here" — and the house had already measured the answer two days
+  earlier: `race-control/operations/lan-only-services.md` shows a `0.0.0.0` bind here is
+  **not LAN-only**, because both machines this runs on are Tailscale nodes and
+  `tailscale0` is one of the interfaces "every" means. The default is now **`host: lan`**
+  in `config.yaml`, resolved when the socket is bound rather than written into the file —
+  an address in a config goes stale on the next DHCP lease, and a stale bind does not fail
+  loudly. A wildcard is still one flag away and now announces itself. `docs/LAN-ACCESS.md`
+  is the note: what a device on that port can do (take a turn as whoever is acting,
+  `/switch`, `/scene`, answer the P6.5 confirmations, `/quit`, and **spend money**), what
+  cannot leak and why it is structural, and the open question for Kelly — a per-session
+  code, recommended for P6.7 rather than now. `dndc serve` is deliberately thin: `play
+  --serve` with one terminal-shaped default inverted, sharing one option list through an
+  argparse parent so the two cannot drift. **Verified live with stdin at `/dev/null`**:
+  two devices, one refused while it was the other's turn and told why, `/switch` across,
+  both in the same log, `/quit` from a device ending the evening at exit 0 — and the
+  loopback on the same port refused, which proves the bind narrowed in the product rather
+  than in a probe. 1549 tests. **The human half is not done and I cannot do it**: two HTTP
+  clients on one machine test the machinery, not two people in two rooms.)*
 - **P6.7** Host it on the VM, the way every other service in this house is hosted
   (Kelly, 2026-09-03). Container + `deploy.sh` + a `dndc-pull.timer`, a slot in
   lab-control-panel's allowlist so Pit Wall can toggle it, and **campaign data out of the
