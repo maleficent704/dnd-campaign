@@ -503,9 +503,29 @@ What the right column does prove, and what I wanted: **the LAN bind genuinely na
 Windows.** It drops loopback too — the port exists on exactly one interface. Then proved
 again through the product rather than a toy socket, below.
 
-**FOR DESIGN: nothing.** But it is a race-control finding —
-`inventory/network.md` lists kelly-pc as *Always on* at `100.100.147.83`, and it currently
-has no tailnet IP at all. Noted in that doc; not chased here.
+**Completed later the same day.** Kelly turned Tailscale back on, so the row that proved
+nothing could be measured properly — from the VM, which is the second-machine test the
+house doc actually asks for:
+
+```
+from ubuntu-docker            :8791 (0.0.0.0)   :8792 (LAN bind)
+  via tailnet 100.100.147.83      200               refused
+  via LAN     192.168.50.160      200               200
+```
+
+The whole argument for the default change, in four numbers. **A wildcard bind on this
+machine really is on the tailnet** — another machine reached it over the VPN, not the LAN,
+which is exactly what the old default was doing every evening. **The LAN bind really does
+close it** while staying reachable from the sofa. And **Windows Firewall is not a
+mitigating control**: both ports answered a machine across the LAN with no rule added, so
+nothing here was being saved by it.
+
+**Kelly, 2026-09-04, on the inventory row:** the PC is *not* always on — that is precisely
+why the VM hosts most things, and it is the argument for P6.7 rather than a defect. Hosting
+here is fine while we are still building. `inventory/network.md` corrected: the row claimed
+*Always on*, which was wrong about the machine and not only about that afternoon.
+
+**FOR DESIGN: nothing.**
 
 ### `dndc serve`
 

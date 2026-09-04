@@ -69,27 +69,41 @@ and reports that it started.
 
 ### Measured, 2026-09-04, on kelly-pc
 
+From the machine itself — two binds, three targets:
+
 ```
 bound to 0.0.0.0:8791          bound to 192.168.50.160:8792
   127.0.0.1        -> 200        127.0.0.1        -> FAIL
   192.168.50.160   -> 200        192.168.50.160   -> 200
-  100.100.147.83   -> FAIL       100.100.147.83   -> FAIL
 ```
 
-Two things to read carefully, because one of them is not evidence:
+**The LAN bind genuinely narrows, on Windows.** It drops loopback as well, so the port is
+present on exactly one interface. The control works here and not only on Linux.
 
-1. **The LAN bind genuinely narrows, on Windows.** It drops loopback as well — the port is
-   present on exactly one interface. The control works here, not just on Linux.
-2. **The tailnet row proves nothing.** Tailscale on kelly-pc was *not up* during the test:
-   the service was running, the adapter showed `Up`, and `tailscale status` reported
-   `NoState` with no IPv4 assigned. So `0.0.0.0` was measured LAN-only **by accident of
-   state**. A control that holds only while a VPN happens to be down is not a control, and
-   this table must not be cited as though the first column were safe. (Separately: this
-   contradicts `race-control/docs/inventory/network.md`, which lists kelly-pc as *Always
-   on* at `100.100.147.83`. Flagged there, not fixed here.)
+The tailnet question cannot be answered from the same machine, and the first attempt could
+not be answered at all: Tailscale on kelly-pc was down — service running, adapter `Up`,
+`tailscale status` reporting `NoState` with no IPv4 assigned. `0.0.0.0` measured as
+LAN-only **by accident of state**, which is not a control and must never be reported as
+one. Kelly turned it back on the same day, and it was then measured properly, **from the
+VM, over both routes** — the second-machine test the house doc asks for:
 
-The house doc's rule applies to this file too — **verify, don't assert.** If it matters
-tonight, run it, and from a second machine.
+```
+from ubuntu-docker (192.168.50.46 / 100.97.50.9)      :8791 (0.0.0.0)   :8792 (LAN bind)
+  via the tailnet   http://100.100.147.83/                200               refused
+  via the LAN       http://192.168.50.160/                200               200
+```
+
+That is the whole argument for the default, in four numbers:
+
+- **A wildcard bind on this machine really is on the tailnet.** Another machine reached it
+  over the VPN, not over the LAN. The old default was doing this.
+- **The LAN bind really does close it**, while staying reachable from the sofa. The control
+  is the bind, and it needs nothing to be remembered or kept running.
+- **Windows Firewall is not a mitigating control here.** Both ports answered a machine
+  across the LAN without any rule being added. Do not count on it.
+
+The house doc's rule applies to this file too — **verify, don't assert**, and from a second
+machine. The commands are in `race-control/docs/operations/lan-only-services.md`.
 
 ## What to do when
 
