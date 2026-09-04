@@ -32,21 +32,36 @@ class WebNotInstalled(RuntimeError):
     """The `web` extra is not installed. Raised with the command that fixes it."""
 
 
-def build_app(mirror: Mirror):
-    """A FastAPI app serving one mirror.
+def build_app(mirror: Mirror, floor=None):
+    """A FastAPI app serving one mirror, and optionally taking turns for one floor.
 
-    Takes the mirror rather than making one: the session owns it, the server borrows it,
-    and there is exactly one so a second front end cannot start a second campaign.
+    Takes both rather than making either: the session owns them, the server borrows them,
+    and there is exactly one of each so a second front end cannot start a second campaign.
+
+    `floor=None` is a genuinely read-only server, and it is not a degraded mode — it is
+    what `--serve` gave before P6.4 and what a spectator link should still give. The write
+    route does not exist when there is no floor, rather than existing and refusing, so a
+    device cannot tell the difference between "not allowed" and "not built".
     """
     try:
         from fastapi import FastAPI
-        from fastapi.responses import HTMLResponse, StreamingResponse
+        from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
     except ImportError as exc:  # pragma: no cover - exercised by hand, not in CI
         raise WebNotInstalled(
             "the web front end needs the `web` extra: pip install -e .[web]"
         ) from exc
 
     app = FastAPI(title="dndc", docs_url=None, redoc_url=None)
+
+    def snapshot() -> dict:
+        """The mirror's state, plus whether this server takes turns.
+
+        The device is told rather than left to find out by trying. A page that probes by
+        POSTing an empty turn works, but it means every spectator link starts by making a
+        request designed to be refused — and a screen should not have to guess at what it
+        is connected to.
+        """
+        return {**mirror.snapshot(), "writable": floor is not None}
 
     @app.get("/", response_class=HTMLResponse)
     def page() -> str:
@@ -55,7 +70,35 @@ def build_app(mirror: Mirror):
     @app.get("/api/table")
     def table() -> dict:
         """The whole screen, from cold. Everything a device needs and nothing else."""
-        return mirror.snapshot()
+        return snapshot()
+
+    if floor is not None:
+
+        @app.post("/api/turn")
+        def turn(body: dict) -> JSONResponse:
+            """Say something, if it is your turn.
+
+            This does **not** run a turn. It puts a line on the floor's queue and returns;
+            the play loop picks it up on its own thread, exactly as it picks up a line
+            from the keyboard. Every piece of campaign state this project owns — the
+            engine, the canon store, the save point — is single-threaded by construction,
+            and a turn run from a request handler would be a race against the campaign.
+
+            A refusal is answered plainly rather than swallowed. A device in another room
+            that has its sentence quietly dropped has no way to find that out.
+            """
+            offer = floor.offer(
+                character=str(body.get("character", "")),
+                text=str(body.get("text", "")),
+                acting=mirror.acting,
+                party=mirror.party,
+            )
+            if offer.accepted:
+                return JSONResponse({"accepted": True}, status_code=202)
+            return JSONResponse(
+                {"accepted": False, "refusal": offer.refusal.value, "reason": offer.reason},
+                status_code=409,
+            )
 
     @app.get("/api/events")
     def events():
@@ -68,7 +111,7 @@ def build_app(mirror: Mirror):
         def stream():
             watcher = mirror.subscribe()
             try:
-                yield _sse(json.dumps(mirror.snapshot()))
+                yield _sse(json.dumps(snapshot()))
                 while True:
                     try:
                         message = watcher.queue.get(timeout=POLL_SECONDS)

@@ -26,8 +26,9 @@ DEFAULT_PORT = 8765
 class Server:
     """A uvicorn instance in a thread, and the address to tell people about."""
 
-    def __init__(self, mirror: Mirror, host: str, port: int) -> None:
+    def __init__(self, mirror: Mirror, host: str, port: int, floor=None) -> None:
         self.mirror = mirror
+        self.floor = floor
         self.host = host
         self.port = port
         self._thread: threading.Thread | None = None
@@ -44,7 +45,7 @@ class Server:
         from dndc.web.app import build_app
 
         config = uvicorn.Config(
-            build_app(self.mirror),
+            build_app(self.mirror, self.floor),
             host=self.host,
             port=self.port,
             log_level="warning",

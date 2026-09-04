@@ -10,6 +10,8 @@ import argparse
 import random
 import re
 import sys
+import threading
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
@@ -81,6 +83,7 @@ from dndc.game.session import (
     resume_from,
 )
 from dndc.game.turn import MAX_NPC_TURNS, TurnEngine
+from dndc.game.floor import WEB, Floor
 from dndc.gm.tagstream import TagStream
 from dndc.web.mirror import Mirror
 from dndc.web.server import DEFAULT_HOST, DEFAULT_PORT, Server
@@ -152,6 +155,11 @@ from dndc.srd import SRDIngestError, ingest, load_dataset, validate_dataset, ver
 from dndc.srd.repository import SRDRepository
 
 MAX_SEED = 2**32
+
+#: How often the loop looks up from the queue when a floor is in play. Short enough that a
+#: terminal going away is noticed promptly, long enough to cost nothing while an evening
+#: sits waiting for somebody to decide what their character does.
+FLOOR_POLL = 0.25
 
 #: Seed for analysis-context sweeps. A tightener, never a substitute for the committed
 #: baseline (Fable, 2026-08-15) — reproducibility through a seed is hostage to model
@@ -2445,22 +2453,48 @@ class _MirroredNarration:
         self.mirror.settle()
 
 
-def _start_mirror(console: Console, mirror: Mirror, args) -> "Server | None":
+def _start_mirror(console: Console, mirror: Mirror, args, floor=None) -> "Server | None":
     """Bring the sofa online, or explain why not and let the table play anyway.
 
     A failure here is not fatal by accident — it is not fatal on purpose, and the return
     value says which. The port is already taken, or the extra is not installed: neither is
     a reason nobody gets to play tonight.
     """
-    server = Server(mirror, host=args.serve_host, port=args.serve_port)
+    server = Server(mirror, host=args.serve_host, port=args.serve_port, floor=floor)
     try:
         server.start()
     except Exception as exc:
         console.print(f"[yellow]the mirror did not start:[/yellow] {exc}")
         console.print("[dim]playing without it — the terminal is unaffected[/dim]")
         return None
-    console.print(f"[green]watching from the sofa:[/green] {server.url}  [dim](read-only)[/dim]")
+    how = "read-only" if floor is None else "and playing from it"
+    console.print(f"[green]from the sofa:[/green] {server.url}  [dim]({how})[/dim]")
     return server
+
+
+def _keyboard(console: Console, session: PlaySession, floor: Floor) -> threading.Thread:
+    """The terminal, feeding the same queue a browser feeds.
+
+    A thread because `Prompt.ask` blocks and a browser must not have to wait for somebody
+    in the room to press return. It is a daemon: when the loop stops, this stops with the
+    process, and it must never be a reason a session cannot end.
+
+    Nothing about the loop depends on this existing — a hosted session with no keyboard
+    (P6.7) is the same loop with one fewer source.
+    """
+
+    def read() -> None:
+        while True:
+            member = session.member
+            try:
+                raw = Prompt.ask(f"[bold cyan]{member.player} ({member.name})[/bold cyan]")
+            except (EOFError, KeyboardInterrupt):
+                return
+            floor.typed(raw)
+
+    thread = threading.Thread(target=read, daemon=True)
+    thread.start()
+    return thread
 
 
 def _cmd_play(console: Console, args: argparse.Namespace) -> int:
@@ -2552,10 +2586,14 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
         return 1
 
     table = ConsoleTable(console, cfg, args, items)
-    mirror, server = None, None
+    mirror, server, floor = None, None, None
     if args.serve:
         mirror = Mirror()
-        server = _start_mirror(console, mirror, args)
+        # A spectator link has no floor and therefore no write route at all — a device
+        # cannot tell "not allowed" from "not built", which is the honest shape for a
+        # read-only server (P6.3's behaviour, kept rather than degraded).
+        floor = None if args.watch_only else Floor()
+        server = _start_mirror(console, mirror, args, floor)
         if server is None:
             return 1
         table = MirrorTable(table, mirror, session)
@@ -2570,15 +2608,40 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
             console.print(f"\n[red]error:[/red] {exc}")
             return 1
 
+        keyboard = _keyboard(console, session, floor) if floor else None
+        orphaned = False
         while True:
-            member = session.member
-            try:
-                raw = Prompt.ask(f"[bold cyan]{member.player} ({member.name})[/bold cyan]")
-            except (EOFError, KeyboardInterrupt):
-                console.print("\n[dim]session ended[/dim]")
-                break
+            if floor is None:
+                member = session.member
+                try:
+                    raw = Prompt.ask(f"[bold cyan]{member.player} ({member.name})[/bold cyan]")
+                except (EOFError, KeyboardInterrupt):
+                    console.print("\n[dim]session ended[/dim]")
+                    break
+                text = raw.strip()
+            else:
+                # Every line arrives the same way whoever typed it, and the loop cannot
+                # tell a keyboard from a browser — which is the point. The wait is bounded
+                # so a terminal that has gone away (EOF, ^D) is noticed rather than
+                # blocking the process forever on a queue nobody will ever add to.
+                line = floor.next(timeout=FLOOR_POLL)
+                if line is None:
+                    if not keyboard.is_alive() and not orphaned:
+                        # The keyboard has gone (EOF, ^D) but the sofa has not. A served
+                        # session does not end because the terminal did — that is most of
+                        # the point of serving it, and a hosted one (P6.7) never has a
+                        # terminal to lose. `/quit` from either side still ends it, and
+                        # Ctrl+C still ends the process.
+                        orphaned = True
+                        console.print(
+                            "\n[dim]terminal closed — still serving. /quit from a device, "
+                            "or Ctrl+C here[/dim]"
+                        )
+                    continue
+                text = line.text.strip()
+                if line.source == WEB:
+                    console.print(f"\n[cyan]{line.character}[/cyan] [dim](from the couch)[/dim]: {text}")
 
-            text = raw.strip()
             if not text:
                 continue
             if text.startswith("/"):
@@ -2594,7 +2657,9 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
                 continue
 
             console.print()
-            if session.take_turn(text, table) is None:
+            with (floor.taking_a_turn() if floor else nullcontext()):
+                played = session.take_turn(text, table)
+            if played is None:
                 # A failed turn is not a turn: it gets no trailing spacing and no
                 # scaffolding hint, because nothing was narrated to react to.
                 continue
@@ -3218,7 +3283,11 @@ def build_parser() -> argparse.ArgumentParser:
     play.add_argument("--max-tokens", type=int, default=1024)
     play.add_argument(
         "--serve", action="store_true",
-        help="also serve a read-only view of this session on the LAN (P6.3)",
+        help="also serve this session on the LAN, playable from a browser (P6.3, P6.4)",
+    )
+    play.add_argument(
+        "--watch-only", action="store_true",
+        help="with --serve, a spectator link: no write route exists at all (P6.4)",
     )
     play.add_argument(
         "--serve-port", type=int, default=DEFAULT_PORT,

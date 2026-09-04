@@ -130,6 +130,23 @@ class Mirror:
             self._push(ENDED)
 
     @property
+    def acting(self) -> str:
+        """Whose turn it is, as the last settled view said.
+
+        The mirror is where the write route asks, because the mirror is what the devices
+        were told. Asking the session instead would let a browser be refused for a reason
+        no screen had shown it yet.
+        """
+        with self._lock:
+            return self._table.acting if self._table else ""
+
+    @property
+    def party(self) -> set[str]:
+        """Who is in this party, as the devices were told."""
+        with self._lock:
+            return {member.name for member in self._table.party} if self._table else set()
+
+    @property
     def over(self) -> bool:
         with self._lock:
             return self._ended

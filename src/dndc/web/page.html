@@ -57,6 +57,19 @@
   footer { color: var(--faint); font-size: .78rem; text-align: center;
            padding: 0 1rem 2rem; }
   .off { color: #c98b6a; }
+
+  #say { position: sticky; bottom: 0; background: var(--ground);
+         border-top: 1px solid var(--edge); padding: .7rem 1rem 1rem; }
+  #say form { max-width: 42rem; margin: 0 auto; display: flex; gap: .5rem; }
+  #say select, #say input, #say button {
+    font: inherit; font-size: .95rem; background: var(--panel); color: var(--ink);
+    border: 1px solid var(--edge); border-radius: 3px; padding: .5rem .6rem;
+  }
+  #say input { flex: 1; min-width: 0; }
+  #say button { cursor: pointer; }
+  #say input:disabled, #say button:disabled { opacity: .45; cursor: not-allowed; }
+  #whose { max-width: 42rem; margin: 0 auto .45rem; font-size: .8rem; color: var(--dim); }
+  #whose.refused { color: #c98b6a; }
 </style>
 
 <header>
@@ -74,13 +87,23 @@
   </details>
 </main>
 
-<footer>watching only — this screen cannot take a turn</footer>
+<div id="say" hidden>
+  <div id="whose"></div>
+  <form id="form">
+    <select id="asme" title="which character you are playing"></select>
+    <input id="text" autocomplete="off" placeholder="what do you do?">
+    <button id="send" type="submit">say</button>
+  </form>
+</div>
+
+<footer id="foot">watching only — this screen cannot take a turn</footer>
 
 <script>
 (function () {
   "use strict";
   var el = function (id) { return document.getElementById(id); };
-  var log = el("log"), pendingNode = null, turnNode = null;
+  var log = el("log"), pendingNode = null, turnNode = null, latest = null;
+  var canPlay = false;
 
   function text(tag, cls, body) {
     var n = document.createElement(tag);
@@ -122,6 +145,43 @@
     return wrap;
   }
 
+  // Who this device is playing. Remembered per browser so a phone does not ask every
+  // time; it is a convenience and not a credential, and the LAN has no auth at all.
+  var ME_KEY = "dndc.me";
+  function me() {
+    try { return localStorage.getItem(ME_KEY) || ""; } catch (e) { return ""; }
+  }
+  function setMe(name) {
+    try { localStorage.setItem(ME_KEY, name); } catch (e) { /* private window */ }
+  }
+
+  function drawWho(view) {
+    var pick = el("asme"), box = el("say"), whose = el("whose");
+    if (!canPlay) { box.hidden = true; return; }
+    box.hidden = false;
+    el("foot").textContent = "anyone on this network can play as anyone — there is no login";
+
+    var names = (view.party || []).map(function (m) { return m.name; });
+    if (pick.options.length !== names.length) {
+      pick.textContent = "";
+      names.forEach(function (n) {
+        var o = document.createElement("option");
+        o.value = n; o.textContent = n;
+        pick.appendChild(o);
+      });
+    }
+    if (!me() && names.length) setMe(names[0]);
+    if (me()) pick.value = me();
+
+    var mine = view.acting && pick.value === view.acting;
+    el("text").disabled = !mine;
+    el("send").disabled = !mine;
+    whose.className = "";
+    whose.textContent = mine
+      ? "your turn"
+      : (view.acting ? "waiting for " + view.acting : "waiting for the session to start");
+  }
+
   function drawKnown(view) {
     var list = el("known"), known = view.known || [];
     el("knownbox").hidden = known.length === 0;
@@ -134,10 +194,12 @@
   // to be wrong.
   function drawTable(view) {
     if (!view) return;
+    latest = view;
     el("campaign").textContent = view.campaign;
     el("scene").textContent = view.scene || "";
     drawParty(view);
     drawKnown(view);
+    drawWho(view);
     log.textContent = "";
     (view.turns || []).forEach(function (t) { log.appendChild(drawTurn(t)); });
     pendingNode = null;
@@ -161,6 +223,9 @@
 
   function handle(msg) {
     if (msg.kind === "table") {
+      // A spectator link says so, and the input is never offered there — a device should
+      // not be shown a box that every submission will be refused from.
+      if (msg.writable !== undefined) canPlay = msg.writable;
       drawTable(msg.table);
       if (msg.pending) { pending().textContent = msg.pending; }
       (msg.spoken || []).forEach(function (d) { handle({ kind: "line", speaker: d.speaker, text: d.text }); });
@@ -203,5 +268,37 @@
   }
 
   connect();
+
+  el("asme").addEventListener("change", function () {
+    setMe(el("asme").value);
+    if (latest) drawWho(latest);
+  });
+
+  el("form").addEventListener("submit", function (event) {
+    event.preventDefault();
+    var input = el("text"), said = input.value.trim();
+    if (!said) return;
+    input.disabled = true;
+    el("send").disabled = true;
+    fetch("/api/turn", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ character: el("asme").value, text: said })
+    }).then(function (r) {
+      if (r.ok) { input.value = ""; return; }
+      return r.json().then(function (body) {
+        var whose = el("whose");
+        whose.className = "refused";
+        whose.textContent = body.reason || "that was not accepted";
+        // Left in the box on purpose: a sentence somebody typed should not vanish
+        // because the timing was wrong.
+        input.disabled = false;
+        el("send").disabled = false;
+      });
+    }).catch(function () {
+      input.disabled = false;
+      el("send").disabled = false;
+    });
+  });
 })();
 </script>

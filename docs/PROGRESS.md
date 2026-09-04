@@ -28,8 +28,17 @@ both of the currencies it spends — **$0.2428 of API billing across the whole c
 date, and one 65-second wait for a cold 70B.**
 
 **Phases 0–5 are built. Phase 6 (the LAN GUI) is under way** — planned as six tasks and
-P6.1–P6.3 landed 2026-09-03 (g)–(i). **A browser on the LAN can now watch an
-evening happen** (`dndc play --serve`), read-only. **Nothing ruled is unbuilt.**
+P6.1–P6.4 landed 2026-09-03 (g)–(j). **A browser on the LAN can now watch an
+evening and take a turn in it** (`dndc play --serve`; `--watch-only` for a spectator
+link). **Nothing ruled is unbuilt.**
+
+**Kelly, 2026-09-03: host it on the VM** like chat-archive, scrapbook and pit-wall,
+rather than needing a terminal on her PC. Agreed and added as **P6.7** — the house
+architecture doc already says services live on the VM and "nothing has to live
+[on the PC]; it sleeps". Deliberately sequenced *after* P6.5, because a hosted service
+with no way to start a session shows an empty page forever. It also forces a fix that
+is overdue on its own: **campaign saves are game data and should not be in the code
+repo.**
 
 **One new question, non-blocking, from P6.2 (h):** the ledger records that a fact is
 true but not that the party found it out, so The Salt Road has six `world` facts the
@@ -432,6 +441,142 @@ the drift instrument's own log is a finding worth the two-line fix.
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-09-03 (j) — P6.4: a turn from the couch, and the thread it must not run on (Claude Code, kelly-pc)
+
+**P6.4 done.** 1466 tests, suite still fully offline. A browser can now play — and Kelly
+raised the hosting question mid-task, which changed the plan rather than the code.
+
+### The rule, which is P6.1's applied to threads
+
+A browser submission **does not run a turn.** It puts a line on a queue and returns; the
+play loop picks it up on its own thread, exactly as it picks up a line from the keyboard.
+
+That is not tidiness. `PlaySession`, `TurnEngine`, the canon store and the save point are
+single-threaded by construction and were never meant to be otherwise — a turn run from a
+request handler would be a race against the campaign's own state, the kind that corrupts a
+ledger once a month and is never reproducible. One loop, one thread, one authority, which
+is the same sentence as P6.1's with a different noun.
+
+The terminal became one source feeding that queue rather than the only way in. **Nothing
+about the loop requires a keyboard to exist**, which is what makes P6.7 possible later.
+
+### The terminal and the web are deliberately not symmetrical
+
+A line typed at the keyboard is **always** taken. Somebody in the room typed it, and
+telling them "not now" would be answering for the table; the loop decides what to do with
+it.
+
+A line from a device is **refused, with a reason**, when it is not that character's turn or
+when the GM is still answering. A device in another room needs to be told — silently
+queueing it would show a player their sentence vanishing into an evening that had already
+moved on. Four refusals, each mapping to something a person can act on: not your turn, the
+GM is still answering, no such character, say something first.
+
+The refused text stays in the input box. A sentence somebody typed should not disappear
+because the timing was wrong.
+
+### Two decisions worth naming
+
+**A spectator link has no write route at all**, rather than one that refuses. `--watch-only`
+builds the app without the route, so a device cannot tell "not allowed" from "not built" —
+which is the honest shape for a read-only server, and keeps P6.3's behaviour intact rather
+than turning it into a degraded mode. The server *tells* the page which it is, so a
+spectator page never offers a box that every submission would be refused from, and does not
+have to find out by making a request designed to fail.
+
+**With `--serve`, the terminal closing no longer ends the session.** EOF on the keyboard
+prints a line and the evening continues, because the sofa has not gone anywhere — and a
+hosted session (P6.7) never has a terminal to lose in the first place. `/quit` from either
+side still ends it, and Ctrl+C still ends the process. Without `--serve`, EOF behaves as it
+always has.
+
+### Gating reads what the devices were told
+
+The refusal check asks the **mirror** whose turn it is, not the session. Asking the session
+would let a browser be refused for a reason no screen had shown it yet — the state moved,
+the device had not been told, and the person holding it is looking at a screen that says
+they may act.
+
+### Verified live
+
+A real session, a real browser POST, a real GM answer. All four gates fired: the acting
+player's line accepted (202) and played, a non-acting player refused (409 `not_your_turn`),
+an unknown name refused, an empty line refused. The CLI printed `Brother Hammond (from the
+couch): hello`, the save was written, and the payload carried no `[[`, no `gm_only`, no
+`npc_belief`.
+
+Worth recording honestly: **my test script mislabelled which character was acting** — the
+party sorts alphabetically, so Hammond had the floor and not Corin. The labels in the run
+were wrong and the behaviour was right, and it accidentally produced a better demonstration
+than the one I wrote, because the case I expected to be accepted was refused and the case I
+expected to be refused was accepted, both correctly.
+
+### Kelly's question, and what it changed
+
+> *"We have other apps that are hosted on the VM so that they can be toggled and viewable
+> on demand rather than having to run a python script from the terminal first. It also
+> would allow it to be hosted from a neutral machine and not mine."*
+
+She is right, and `race-control/docs/architecture/workflow.md` already says so: the PC is
+"Windows-local and *interactive* work — and Kelly's seat. **Nothing has to live here; it
+sleeps**"; the VM is "always-on *services*". The house pattern is well-worn — chat-archive
+`:8084`, scrapbook `:8085`, pit-wall `:8086`, loom-ui `:8087`, roundtable `:8089`, each a
+container with a `deploy.sh`, a `*-pull.timer` and a slot in lab-control-panel's allowlist.
+
+**Added as P6.7 rather than acted on**, and the sequencing is the substance of the answer:
+hosting *now* would be worse than what exists, because a mirror only has content while a
+session is running, so a hosted service with no way to start one shows an empty page
+forever. The browser has to be able to run an evening first.
+
+Three things it will need beyond deployment, all recorded in TASKS.md:
+
+1. **The server owns the session.** Today one is born from `dndc play`. P6.1 is what makes
+   this small — `PlaySession` is already headless and already driven by a `Table`.
+2. **Campaign data leaves the code repo.** `campaigns/*/saves/state.yaml` is a game save,
+   and Kelly's standing rule sends game saves to the NAS rather than into a repo. This
+   project has been drifting from that since P5.1, and I committed sheet edits into it
+   twice today. Hosting is the forcing function; the scrapbook is the template.
+3. **`api` billing only on that box.** The VM's Claude Code installs are the agent tier's
+   credential, watched by `claude-usage-watchdog` for Max headroom. An evening of D&D
+   should not compete with the Gardener for the same quota.
+
+Port `:8090` looks free (`:8089` roundtable, `:8091` kids capture station) — **confirm on
+the box before claiming it**, as scrapbook and roundtable both did.
+
+### Known issues
+
+- **No authentication, and that is now a write path.** Anyone on the wifi can play as
+  anyone; the character picker is a convenience remembered in the browser, not a
+  credential, and the page says so in its footer. For this house that is the intended
+  trade — but P6.3's version could only *read*, and this one cannot. If Kelly wants
+  something stronger it is much cheaper before P6.7 than after.
+- **A browser can send a slash command, including `/quit`.** It is the same table, so this
+  is arguably right, but nobody decided it — it fell out of lines being lines. P6.5 is
+  where commands get thought about properly.
+- **The keyboard thread shows a stale prompt after a web turn.** Cosmetic: `Prompt.ask` is
+  already blocked when the couch plays, so the terminal's prompt line still names whoever
+  was acting when it was drawn. The line is accepted correctly either way.
+- **Still nobody has looked at the page in a browser.** Its data and its refusals are
+  verified over HTTP; its rendering is not. That needs a person.
+
+### FOR DESIGN
+
+None new. Carried, none blocking: the change-of-mind trigger; whether the GM should voice
+PCs; whether a `blocked` line costs the turn; whether a closed save restores the turn
+window; and the (h) scope question, whose consequence is now visible on a real screen.
+
+### Recommended next task
+
+**P6.5 — the confirmations.** Inventory, canon proposals, backgrounds, the recap's scene.
+Each is a blocking `rich` prompt today and has to become a round trip, and a browser closed
+mid-question must not hang the evening. It is also the last thing standing between here and
+a session that can run without a terminal at all, which is what P6.7 needs.
+
+Still not code: **an evening with Kelly and Sam at the Brakewater crossroads.** Sam can now
+take a turn from the sofa, which is the first time that sentence has been true.
 
 ---
 

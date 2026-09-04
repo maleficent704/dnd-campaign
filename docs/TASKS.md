@@ -607,11 +607,59 @@ CLI and the whole suite still run without them — the same posture `anthropic` 
 - **P6.4** Taking a turn from a browser: submitting a line, acting-player gating, one turn
   at a time, and an honest account of what "no auth on a house LAN" does and does not
   mean.
+  *(Done 2026-09-03 (j). `game/floor.py` — P6.1's rule applied to threads: a submission
+  **does not run a turn**, it puts a line on a queue and returns, and the play loop picks
+  it up on its own thread exactly as it picks up a line from the keyboard. The engine, the
+  canon store and the save point are single-threaded by construction, so a turn run from a
+  request handler would be a race against the campaign's own state. The terminal became one
+  source feeding that queue rather than the only way in, which is what makes a keyboard-less
+  session possible at all (P6.7). **The two sources are deliberately not symmetrical**: a
+  typed line is always taken, because somebody in the room typed it and telling them "not
+  now" would be answering for the table; a line from a device is refused with a reason,
+  because a device in another room needs telling and a silently queued sentence vanishes
+  into an evening that has moved on. Four refusals, each actionable. Gating asks the
+  **mirror** whose turn it is rather than the session — asking the session would refuse a
+  browser for a reason no screen had shown it yet. A spectator link (`--watch-only`) has no
+  write route **at all** rather than one that refuses, and the server tells the page which
+  it is, so a read-only device never offers a box nor probes with a request designed to
+  fail. With `--serve` the terminal closing no longer ends the evening: the sofa has not
+  gone anywhere. 1466 tests, suite still fully offline. Live-verified with a real browser
+  POST and a real GM answer, all four gates firing.)*
 - **P6.5** The confirmations: inventory, canon proposals, backgrounds, the recap's scene.
   Each is a blocking `rich` prompt today and becomes a round trip. A browser closed
   mid-question must not hang the evening — fail-open, like every other utility seat.
 - **P6.6** `dndc serve`: bind address and port from config, the LAN security note written
   down rather than assumed, and an evening actually played on two devices.
+- **P6.7** Host it on the VM, the way every other service in this house is hosted
+  (Kelly, 2026-09-03). Container + `deploy.sh` + a `dndc-pull.timer`, a slot in
+  lab-control-panel's allowlist so Pit Wall can toggle it, and **campaign data out of the
+  code repo**.
+
+  *Why it belongs here and not earlier.* `race-control/docs/architecture/workflow.md` is
+  already decided about this: the PC is "Windows-local and *interactive* work — and
+  Kelly's seat. **Nothing has to live here; it sleeps**", and the VM is "always-on
+  *services*". A GUI the family opens on demand is a service. But hosting before P6.4 and
+  P6.5 would be **worse than what exists**: a mirror only has content while a session is
+  running, so a hosted service with no way to start one shows an empty page forever. The
+  browser has to be able to run an evening first; then this is mostly plumbing.
+
+  Three things it needs beyond deployment:
+
+  - **The server owns the session.** Today one is born from `dndc play`. Hosted, a browser
+    starts and ends one, which means a session manager and a lifecycle. P6.1 is what makes
+    this small rather than a rewrite — `PlaySession` is already headless and already
+    driven by a `Table`.
+  - **Campaign data leaves the repo.** `campaigns/*/saves/state.yaml` is a game save, and
+    Kelly's standing rule sends game saves to the NAS, not into a code repo. This project
+    has been drifting from that since P5.1. The scrapbook is the template: data in a
+    volume, a mirror bind-mount, a backup timer and a mirror timer to the NAS.
+  - **`api` billing only on that box.** The VM's Claude Code installs are the agent tier's
+    credential, watched by `claude-usage-watchdog` for Max headroom; an evening of D&D
+    should not compete with the Gardener for the same quota. `subscription` stays a
+    PC-local choice.
+
+  Port: `:8090` looks free (`:8089` roundtable, `:8091` kids capture station) — **confirm
+  on the box before claiming it**, as scrapbook and roundtable both did.
 
 ## Phase 7 — Research instrumentation
 
