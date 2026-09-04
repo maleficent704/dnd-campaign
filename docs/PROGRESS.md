@@ -28,7 +28,8 @@ both of the currencies it spends — **$0.2428 of API billing across the whole c
 date, and one 65-second wait for a cold 70B.**
 
 **Phases 0–5 are built. Phase 6 (the LAN GUI) is under way** — planned as six tasks and
-P6.1 and P6.2 landed 2026-09-03 (g)–(h). **Nothing ruled is unbuilt.**
+P6.1–P6.3 landed 2026-09-03 (g)–(i). **A browser on the LAN can now watch an
+evening happen** (`dndc play --serve`), read-only. **Nothing ruled is unbuilt.**
 
 **One new question, non-blocking, from P6.2 (h):** the ledger records that a fact is
 true but not that the party found it out, so The Salt Road has six `world` facts the
@@ -431,6 +432,118 @@ the drift instrument's own log is a finding worth the two-line fix.
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-09-03 (i) — P6.3: the sofa can watch, and the one path that skipped the boundary (Claude Code, kelly-pc)
+
+**P6.3 done.** 1443 tests, suite still fully offline — the web tests skip themselves when
+the `web` extra is absent, so a machine with no FastAPI still runs everything.
+
+`dndc play --serve` now prints an address, and a browser on the LAN watches the evening
+happen: narration streaming in as the GM writes it, NPC lines as they land, the party and
+their condition, and what the table knows. It cannot do anything else, and P6.4 is where
+that changes.
+
+### The finding: the view model had a hole beside it, not in it
+
+P6.2 made a real guarantee — a `gm_only` fact cannot reach a device because the types have
+nowhere to put one. Building the transport found that **the guarantee covered the wrong
+share of the surface.**
+
+Live narration does not go through those types at all. It arrives a token at a time,
+straight off the model, and it contains `[[CANON: gm_only — the miller drowned the boy]]`
+in plain text — a real string a real GM emits mid-sentence. Streaming it to a phone would
+have put the campaign's central secret on Sam's screen one character at a time, and the
+P6.2 tests would all still have passed, because none of them are about that path.
+
+The fix is the same shape as every other fix in this project: **one filter, shared.**
+`_NarrationStream`'s tag-holding logic had lived inside the CLI since P1.3, printing as it
+went. It is `gm/tagstream.py` now, the console uses it and the mirror uses it, and the
+mirror runs it *at the point text enters* rather than trusting a caller to have done it.
+A second copy of that filter would be a leak waiting for somebody to fix only one of them.
+
+The filter is on `[[` rather than per tag, which is why it caught this at all — every tag
+added since P1.3 (`[[PROPOSE:`, `[[FACT:`, `[[SPEAK:`, `[[BELIEF:`) was covered by a rule
+written before any of them existed.
+
+### What the seam bought
+
+`MirrorTable` is a decorator over `ConsoleTable`. Adding a browser required **no change to
+the turn loop, the engine, or any renderer** — one object that does what the console table
+does and then says so. That is P6.1 paying for itself one task later, and it is the whole
+argument for having done a refactor with no visible output.
+
+The `Table` protocol grew one method, `changed()`, for state that moves without a turn: a
+seat handed over with `/switch`, a scene set with `/scene`. The terminal no-ops it because
+the command already printed; the sofa needs telling. The conformance test meant the CLI had
+to answer it rather than the two quietly diverging.
+
+### Decisions worth naming
+
+- **The server is a daemon thread beside the loop, not the other way round.** The evening
+  is the process and the web is a thing it is also doing. A crash in the server cannot take
+  the table down, and closing the terminal ends everything.
+- **A failure to start the mirror is not fatal, on purpose.** Port taken, extra missing:
+  neither is a reason nobody gets to play tonight. It says so and plays on.
+- **A device that stops reading is dropped, not waited for.** A turn must never block on a
+  phone somebody left face-down on the sofa.
+- **A stream closes when the evening does**, and a device connecting afterwards is told
+  rather than left waiting all night on a session that finished at ten.
+- **`NPCReply` is destructured by name into the mirror, not spread.** It also carries
+  `.scope` — the canon ids that character was permitted, which is the denominator Phase 7
+  measures leaks against. Naming the two fields beats passing the object and hoping.
+- **The page is one HTML file.** No build step, no framework, no CDN. A diff of it reads as
+  HTML, which is the point.
+
+### Verified live
+
+A real `dndc play --serve` session, fetched over HTTP **from a separate process**: the page
+served, `/api/table` carrying the GM's actual opening scene, the SSE stream opening with a
+snapshot so a device that connects mid-turn draws a correct screen. And in the payload:
+**no `[[`, no `gm_only`, no `npc_belief`, no `scope`.**
+
+The P6.2 finding also showed up exactly as predicted — `known=0`. Nothing the party has
+learned is on that screen, because the ledger does not record that they learned it.
+
+### Known issues
+
+- **Nobody has looked at the page in a browser.** Its data is verified over HTTP and its
+  markup is served, but the rendering, the streaming cursor, the scroll behaviour on a
+  phone — none of that has been seen by a human. That is a P6.6 job and it needs a person,
+  not a test.
+- **No authentication, and the default bind is every interface.** Anyone on the wifi can
+  read the campaign. For a read-only mirror in this house that is the intended trade, but
+  it is a trade, and P6.6 writes it down properly rather than leaving it implied.
+- **The mirror shows the table's view, so it shows a player their own party's state and
+  nothing private.** Fine while it is read-only; it becomes the per-player secrecy question
+  the moment P6.4 lets a device act.
+- **The keepalive is 15 seconds and untested against a real proxy**, because there isn't
+  one. Direct on a LAN it is unnecessary; it is there so a future reverse proxy does not
+  silently close a connection everyone believes is open.
+- **`--serve` is not yet in config.** Bind, port and whether to serve at all are flags.
+  P6.6 moves them.
+
+### FOR DESIGN
+
+None new. **Carried, and the scope question from (h) is the one that now has a visible
+consequence**: a watching device shows the party's backstories and nothing about the
+situation they are in, because `world` and `player_known` are being used as one axis when
+they are two. Nothing is blocked. My view is still a second axis on `CanonEntry`.
+
+Also carried, none blocking: the change-of-mind trigger; whether the GM should voice PCs;
+whether a `blocked` line costs the turn; whether a closed save restores the turn window;
+and P6.4's identity question, which is now next and would benefit from an answer first.
+
+### Recommended next task
+
+**P6.4 — taking a turn from a browser.** It is the first task with a write path, and the
+identity question stops being hypothetical: on a house LAN with no auth, any browser can
+claim to be any player. Kelly's steer would be useful before rather than after.
+
+Still not code: **an evening with Kelly and Sam at the Brakewater crossroads.** There is
+now a screen for Sam to look at, which is the first thing Phase 6 has produced that makes
+that evening better rather than merely possible.
 
 ---
 

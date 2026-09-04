@@ -584,6 +584,26 @@ CLI and the whole suite still run without them — the same posture `anthropic` 
   live session — narration, dialogue, mechanics, party condition. Playable value on its
   own (Sam's phone showing the scene while Kelly plays hot-seat) and it proves the
   boundary before any write path exists to complicate it.
+  *(Done 2026-09-03 (i). `dndc play --serve` runs uvicorn in a daemon thread beside the
+  loop — the evening is the process and the web is a thing it is also doing, so a crash in
+  the server cannot take the table down and closing the terminal ends everything. Three
+  routes, all `GET`, and a test asserts that set is all there is. **The task's real finding
+  is that live narration is the one path to a device that skips the view model**: it
+  arrives raw off the model with `[[CANON: gm_only — ...]]` in it and never passes through
+  the P6.2 types at all. `_NarrationStream`'s tag filter — one class inside the CLI for
+  three phases — is now `gm/tagstream.py` and both front ends share it, because a second
+  copy of that filter is a leak waiting for somebody to fix only one of them. The mirror
+  runs it at the point text enters, so the guarantee covers the whole surface rather than
+  most of it. `MirrorTable` is a decorator over `ConsoleTable` and needed no change to the
+  loop, the engine, or the renderers, which is P6.1's seam being in the right place. A
+  device that stops reading fills its queue and is dropped rather than waited for: a turn
+  must not block on a phone left on the sofa. A stream closes when the evening does, and a
+  device connecting afterwards is told rather than left waiting all night on a session that
+  finished at ten. The page is one file, no build step, no framework. 1443 tests, suite
+  still fully offline; the web ones skip themselves without the extra. Live-verified
+  against a real session over HTTP from a separate process: page served, `/api/table`
+  carrying the GM's actual opening scene, SSE opening with a snapshot, and **no `[[`, no
+  `gm_only`, no `npc_belief` and no `scope` anywhere in the payload**.)*
 - **P6.4** Taking a turn from a browser: submitting a line, acting-player gating, one turn
   at a time, and an honest account of what "no auth on a house LAN" does and does not
   mean.

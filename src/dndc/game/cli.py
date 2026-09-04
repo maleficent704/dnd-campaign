@@ -81,6 +81,10 @@ from dndc.game.session import (
     resume_from,
 )
 from dndc.game.turn import MAX_NPC_TURNS, TurnEngine
+from dndc.gm.tagstream import TagStream
+from dndc.web.mirror import Mirror
+from dndc.web.server import DEFAULT_HOST, DEFAULT_PORT, Server
+from dndc.web.view import table_view
 from dndc.gm.canon import npc_issues
 from dndc.gm.gatekeeper import ControlCase, Gatekeeper, Verdict, run_control
 from dndc.gm.stance import StanceCase, StanceJudge, run_stance_control
@@ -1058,63 +1062,24 @@ class CommandResult:
 class _NarrationStream:
     """Streams GM text to the console with `[[...]]` machine tags held back.
 
-    Tags are instructions to the engine, not prose. Streaming one raw put a literal
-    `[[CHECK: Strength DC 15 ...]]` in front of the players mid-sentence. Text is held
-    from the first `[` and released as soon as it cannot be the start of a tag, so
-    ordinary bracketed prose still comes through.
-
-    The filter is on `[[` rather than on each tag name: every tag the project has added
-    since — `[[PROPOSE:`, `[[FACT:` — is the same kind of thing, and a filter that has to
-    be updated per tag is one that will eventually miss one in front of a player.
+    The filtering is `TagStream`'s (P6.3 moved it out); this is the half that knows about
+    a terminal. A tag streamed raw once put a literal `[[CHECK: Strength DC 15 ...]]` in
+    front of the players mid-sentence, and a `[[CANON: gm_only — ...]]` would be worse.
     """
-
-    _MARKER = "[["
 
     def __init__(self, console: Console) -> None:
         self.console = console
-        self._held = ""
-        self._suppressing = False
-        self._swallow = False
+        self._tags = TagStream()
 
     def feed(self, chunk: str) -> None:
-        for char in chunk:
-            if self._suppressing:
-                self._held += char
-                if self._held.endswith("]]"):
-                    self._held = ""
-                    self._suppressing = False
-                    # Whatever whitespace followed the tag was there to space out the
-                    # tag; the whitespace *before* it already went through, so keeping
-                    # this too leaves a hole in the middle of the reply.
-                    self._swallow = True
-                continue
-
-            if self._swallow:
-                if char.isspace():
-                    continue
-                self._swallow = False
-
-            if self._held or char == "[":
-                self._held += char
-                candidate = self._MARKER[: len(self._held)]
-                if self._held.upper() == candidate:
-                    if len(self._held) == len(self._MARKER):
-                        self._suppressing = True
-                    continue
-                self._emit(self._held)
-                self._held = ""
-                continue
-
-            self._emit(char)
+        self._emit(self._tags.feed(chunk))
 
     def finish(self) -> None:
-        if self._held and not self._suppressing:
-            self._emit(self._held)
-        self._held = ""
+        self._emit(self._tags.finish())
 
     def _emit(self, text: str) -> None:
-        self.console.print(text, end="", markup=False, highlight=False)
-
+        if text:
+            self.console.print(text, end="", markup=False, highlight=False)
 
 def _build_voice(console: Console, cfg, args, log) -> tuple[object | None, object, list]:
     """The NPC tier for a play session: the voice, the supersession keeper, and closers.
@@ -2362,6 +2327,13 @@ class ConsoleTable:
     def inventory(self, tags, acting: str, turn: int) -> int:
         return confirm_inventory(self.console, tags, self.items, acting=acting, turn=turn)
 
+    def changed(self) -> None:
+        """State moved without a turn happening — a seat handed over, a scene set.
+
+        Nothing for a terminal to do: the command that changed it already printed. A
+        screen in another room has not been told anything, which is why this exists.
+        """
+
     def sweep(self, session: PlaySession) -> None:
         _run_sweep(self.console, self.cfg, session.campaign, session.engine.canon, session.log)
 
@@ -2389,6 +2361,106 @@ class _ConsoleNarration:
 
     def finish(self) -> None:
         self.stream.finish()
+
+
+class MirrorTable:
+    """The terminal, plus everyone watching from the sofa (P6.3).
+
+    A decorator rather than a second `Table`, and that is the whole argument for P6.1's
+    seam being in the right place: the browser did not need the loop changed, or the
+    renderers changed, or a flag threaded through the engine. It needed one object that
+    does what the console table does and then says so.
+
+    Nothing here can change the campaign. It reads `session.campaign` to build a view and
+    hands it on — an instrument that alters what it measures is not an instrument, and a
+    screen in another room is exactly an instrument.
+    """
+
+    def __init__(self, inner: ConsoleTable, mirror: Mirror, session: PlaySession) -> None:
+        self.inner = inner
+        self.mirror = mirror
+        self.session = session
+
+    def _show(self) -> None:
+        self.mirror.show(table_view(self.session.campaign, acting=self.session.acting))
+
+    def notice(self, text: str) -> None:
+        self.inner.notice(text)
+        self.mirror.note(text)
+
+    def error(self, text: str) -> None:
+        self.inner.error(text)
+        self.mirror.note(text)
+
+    def narration(self):
+        return _MirroredNarration(self.inner.narration(), self.mirror)
+
+    def opened(self, result) -> None:
+        self.inner.opened(result)
+        self._show()
+
+    def played(self, result) -> None:
+        self.inner.played(result)
+        self._show()
+
+    def changed(self) -> None:
+        self.inner.changed()
+        self._show()
+
+    def inventory(self, tags, acting: str, turn: int) -> int:
+        return self.inner.inventory(tags, acting, turn)
+
+    def sweep(self, session: PlaySession) -> None:
+        self.inner.sweep(session)
+
+    def chronicle(self, session: PlaySession) -> None:
+        self.inner.chronicle(session)
+
+
+class _MirroredNarration:
+    """One reply, going to the terminal and to every watching device at once."""
+
+    def __init__(self, inner, mirror: Mirror) -> None:
+        self.inner = inner
+        self.mirror = mirror
+
+    def feed(self, chunk: str) -> None:
+        self.inner.feed(chunk)
+        # Raw model text. The mirror runs its own `TagStream` over it rather than trusting
+        # this one, because the two consumers hold different amounts of it at any moment
+        # and a shared filter would hand one of them the other's tail.
+        self.mirror.narrate(chunk)
+
+    def dialogue(self, reply) -> None:
+        self.inner.dialogue(reply)
+        # Name and line, and deliberately nothing else. `NPCReply` also carries `.scope`
+        # — the canon ids this character was permitted at the moment of the call — which
+        # is the denominator Phase 7 measures leaks against and is not a thing to put on
+        # a screen. Naming the two fields beats spreading the object and hoping.
+        if reply.text:
+            self.mirror.spoke(reply.npc.name, reply.text)
+
+    def finish(self) -> None:
+        self.inner.finish()
+        self.mirror.settle()
+
+
+def _start_mirror(console: Console, mirror: Mirror, args) -> "Server | None":
+    """Bring the sofa online, or explain why not and let the table play anyway.
+
+    A failure here is not fatal by accident — it is not fatal on purpose, and the return
+    value says which. The port is already taken, or the extra is not installed: neither is
+    a reason nobody gets to play tonight.
+    """
+    server = Server(mirror, host=args.serve_host, port=args.serve_port)
+    try:
+        server.start()
+    except Exception as exc:
+        console.print(f"[yellow]the mirror did not start:[/yellow] {exc}")
+        console.print("[dim]playing without it — the terminal is unaffected[/dim]")
+        return None
+    console.print(f"[green]watching from the sofa:[/green] {server.url}  [dim](read-only)[/dim]")
+    return server
 
 
 def _cmd_play(console: Console, args: argparse.Namespace) -> int:
@@ -2480,6 +2552,14 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
         return 1
 
     table = ConsoleTable(console, cfg, args, items)
+    mirror, server = None, None
+    if args.serve:
+        mirror = Mirror()
+        server = _start_mirror(console, mirror, args)
+        if server is None:
+            return 1
+        table = MirrorTable(table, mirror, session)
+
     console.print(f"[bold]{campaign.name}[/bold] — {backend.name}, seed {seed}")
     console.print(f"[dim]log -> {log.path}  ·  /help for commands[/dim]\n")
 
@@ -2510,6 +2590,7 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
                     break
                 if outcome.active:
                     session.hand_to(outcome.active)
+                table.changed()
                 continue
 
             console.print()
@@ -2525,6 +2606,10 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
             console.print()
     finally:
         session.close()
+        if mirror is not None:
+            mirror.ended()
+        if server is not None:
+            server.stop()
 
     session.finish(table, sweep=not args.no_sweep, chronicle=not args.no_chronicle)
     if saves is not None:
@@ -3131,6 +3216,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="skip the \"previously on...\" at pickup on the batch utility seat (P5.3)",
     )
     play.add_argument("--max-tokens", type=int, default=1024)
+    play.add_argument(
+        "--serve", action="store_true",
+        help="also serve a read-only view of this session on the LAN (P6.3)",
+    )
+    play.add_argument(
+        "--serve-port", type=int, default=DEFAULT_PORT,
+        help=f"port for --serve (default {DEFAULT_PORT})",
+    )
+    play.add_argument(
+        "--serve-host", default=DEFAULT_HOST,
+        help=f"bind address for --serve (default {DEFAULT_HOST}, every interface)",
+    )
     play.add_argument(
         "--no-npcs", action="store_true",
         help="don't voice NPCs on the local seat; the GM narrates everyone (P4.5)",

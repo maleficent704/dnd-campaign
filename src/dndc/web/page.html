@@ -1,0 +1,207 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dndc</title>
+<style>
+  :root {
+    --ink: #efe9df; --dim: #9a9186; --faint: #6b645b;
+    --ground: #16150f; --panel: #1e1c15; --edge: #2e2b21;
+    --npc: #d8b978; --you: #8fb4c8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font: 16px/1.65 Iowan Old Style, Palatino, Georgia, serif;
+    -webkit-text-size-adjust: 100%;
+  }
+  header {
+    position: sticky; top: 0; z-index: 2;
+    background: var(--panel); border-bottom: 1px solid var(--edge);
+    padding: .7rem 1rem; display: flex; flex-wrap: wrap;
+    gap: .3rem 1rem; align-items: baseline;
+  }
+  h1 { font-size: 1.05rem; margin: 0; font-weight: 600; letter-spacing: .01em; }
+  .scene { color: var(--dim); font-style: italic; font-size: .95rem; }
+  .who { margin-left: auto; color: var(--faint); font-size: .8rem; }
+  main { max-width: 42rem; margin: 0 auto; padding: 1.2rem 1rem 4rem; }
+  .turn { margin: 0 0 1.9rem; }
+  .said {
+    color: var(--you); font-size: .95rem; margin: 0 0 .55rem;
+    padding-left: .8rem; border-left: 2px solid #33505f;
+  }
+  .said b { font-weight: 600; opacity: .8; }
+  .narration { margin: 0; white-space: pre-wrap; }
+  .line {
+    margin: .8rem 0 0; padding-left: .8rem;
+    border-left: 2px solid #5d4d28; color: var(--npc);
+  }
+  .line b { display: block; font-size: .78rem; letter-spacing: .06em;
+            text-transform: uppercase; color: #a08a55; font-weight: 600; }
+  .pending { opacity: .92; }
+  .pending::after {
+    content: "▍"; animation: blink 1.1s steps(1) infinite; color: var(--dim);
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  .party { display: flex; flex-wrap: wrap; gap: .5rem; margin: 0 0 1.6rem; }
+  .member {
+    background: var(--panel); border: 1px solid var(--edge); border-radius: 3px;
+    padding: .35rem .6rem; font-size: .82rem;
+  }
+  .member .hp { color: var(--dim); }
+  .member .turnnow { color: var(--npc); }
+  details { margin: 2rem 0 0; border-top: 1px solid var(--edge); padding-top: .9rem; }
+  summary { cursor: pointer; color: var(--dim); font-size: .85rem; }
+  details ul { margin: .6rem 0 0; padding-left: 1.1rem; color: var(--dim);
+               font-size: .88rem; }
+  details li { margin: .25rem 0; }
+  footer { color: var(--faint); font-size: .78rem; text-align: center;
+           padding: 0 1rem 2rem; }
+  .off { color: #c98b6a; }
+</style>
+
+<header>
+  <h1 id="campaign">…</h1>
+  <span class="scene" id="scene"></span>
+  <span class="who" id="status">connecting</span>
+</header>
+
+<main>
+  <div class="party" id="party"></div>
+  <div id="log"></div>
+  <details id="knownbox" hidden>
+    <summary>What you know so far</summary>
+    <ul id="known"></ul>
+  </details>
+</main>
+
+<footer>watching only — this screen cannot take a turn</footer>
+
+<script>
+(function () {
+  "use strict";
+  var el = function (id) { return document.getElementById(id); };
+  var log = el("log"), pendingNode = null, turnNode = null;
+
+  function text(tag, cls, body) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (body !== undefined) n.textContent = body;
+    return n;
+  }
+
+  function drawParty(view) {
+    var box = el("party");
+    box.textContent = "";
+    (view.party || []).forEach(function (m) {
+      var n = text("span", "member");
+      n.appendChild(text("span", null, m.name));
+      if (m.pronouns) n.appendChild(text("span", "hp", " (" + m.pronouns + ")"));
+      if (m.hp_max !== null && m.hp_max !== undefined) {
+        n.appendChild(text("span", "hp", "  " + m.hp_current + "/" + m.hp_max));
+      }
+      if (m.name === view.acting) n.appendChild(text("span", "turnnow", "  ← their turn"));
+      box.appendChild(n);
+    });
+  }
+
+  function drawTurn(turn) {
+    var wrap = text("div", "turn");
+    if (!turn.opening && turn.said) {
+      var said = text("p", "said");
+      said.appendChild(text("b", null, turn.speaker + ": "));
+      said.appendChild(text("span", null, turn.said));
+      wrap.appendChild(said);
+    }
+    wrap.appendChild(text("p", "narration", turn.narration));
+    (turn.dialogue || []).forEach(function (d) {
+      var line = text("div", "line");
+      line.appendChild(text("b", null, d.speaker));
+      line.appendChild(text("span", null, d.text));
+      wrap.appendChild(line);
+    });
+    return wrap;
+  }
+
+  function drawKnown(view) {
+    var list = el("known"), known = view.known || [];
+    el("knownbox").hidden = known.length === 0;
+    list.textContent = "";
+    known.forEach(function (fact) { list.appendChild(text("li", null, fact)); });
+  }
+
+  // A settled state replaces everything. The server is the truth and the screen is a
+  // picture of it; reconciling in the browser would be a second place for the campaign
+  // to be wrong.
+  function drawTable(view) {
+    if (!view) return;
+    el("campaign").textContent = view.campaign;
+    el("scene").textContent = view.scene || "";
+    drawParty(view);
+    drawKnown(view);
+    log.textContent = "";
+    (view.turns || []).forEach(function (t) { log.appendChild(drawTurn(t)); });
+    pendingNode = null;
+    turnNode = null;
+    atBottom();
+  }
+
+  function pending() {
+    if (!pendingNode) {
+      turnNode = text("div", "turn");
+      pendingNode = text("p", "narration pending", "");
+      turnNode.appendChild(pendingNode);
+      log.appendChild(turnNode);
+    }
+    return pendingNode;
+  }
+
+  function atBottom() {
+    window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+  }
+
+  function handle(msg) {
+    if (msg.kind === "table") {
+      drawTable(msg.table);
+      if (msg.pending) { pending().textContent = msg.pending; }
+      (msg.spoken || []).forEach(function (d) { handle({ kind: "line", speaker: d.speaker, text: d.text }); });
+      atBottom();
+    } else if (msg.kind === "narrating") {
+      pending().textContent += msg.text;
+      atBottom();
+    } else if (msg.kind === "line") {
+      pending();
+      var line = text("div", "line");
+      line.appendChild(text("b", null, msg.speaker));
+      line.appendChild(text("span", null, msg.text));
+      turnNode.appendChild(line);
+      atBottom();
+    } else if (msg.kind === "note") {
+      pending();
+      turnNode.appendChild(text("p", "said", msg.text));
+      atBottom();
+    } else if (msg.kind === "ended") {
+      el("status").textContent = "session ended";
+      el("status").className = "who off";
+    }
+  }
+
+  // EventSource reconnects on its own, and every reconnect re-sends the snapshot, so a
+  // phone that slept through three turns wakes up correct rather than three turns behind.
+  function connect() {
+    var source = new EventSource("/api/events");
+    source.onopen = function () {
+      el("status").textContent = "watching";
+      el("status").className = "who";
+    };
+    source.onmessage = function (event) {
+      try { handle(JSON.parse(event.data)); } catch (e) { /* a partial frame; the next is whole */ }
+    };
+    source.onerror = function () {
+      el("status").textContent = "reconnecting…";
+      el("status").className = "who off";
+    };
+  }
+
+  connect();
+})();
+</script>
