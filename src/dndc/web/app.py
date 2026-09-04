@@ -100,6 +100,21 @@ def build_app(mirror: Mirror, floor=None):
                 status_code=409,
             )
 
+        @app.post("/api/answer")
+        def answer(body: dict) -> JSONResponse:
+            """Answer the question the table is being asked.
+
+            Not gated on whose turn it is: a confirmation belongs to the table, not to the
+            acting player. Either of them may say whether an item goes on a sheet.
+            """
+            offer = floor.answer(str(body.get("text", "")))
+            if offer.accepted:
+                return JSONResponse({"accepted": True}, status_code=202)
+            return JSONResponse(
+                {"accepted": False, "refusal": offer.refusal.value, "reason": offer.reason},
+                status_code=409,
+            )
+
     @app.get("/api/events")
     def events():
         """Server-sent events: the snapshot, then every change as it happens.

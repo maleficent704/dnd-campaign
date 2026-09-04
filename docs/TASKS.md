@@ -628,6 +628,25 @@ CLI and the whole suite still run without them — the same posture `anthropic` 
 - **P6.5** The confirmations: inventory, canon proposals, backgrounds, the recap's scene.
   Each is a blocking `rich` prompt today and becomes a round trip. A browser closed
   mid-question must not hang the evening — fail-open, like every other utility seat.
+  *(Done 2026-09-04. `game/asking.py` makes a question **data rather than a prompt** — what
+  is asked, the options, whether free text means anything — and leaves rendering to a front
+  end. `MirrorTable.ask` draws to the terminal, pushes to every device, and listens on **the
+  same queue a turn arrives on**, so whoever answers first answers and the keyboard is not a
+  special case. Answering is **not** gated on whose turn it is: a confirmation belongs to the
+  table, not the acting player. A turn is refused while a question stands, with a reason.
+  **Silence is no, everywhere** — an item not applied, a fact not filed — which each of the
+  three already did when stdin ran out; this generalises it and gives it a timeout, so a
+  browser closed mid-question costs a keystroke and not the evening. `SILENCE` and `NOTHING`
+  stay separate values because a log must distinguish "nobody answered" from "everybody said
+  no", and an unreadable reply is neither: it is asked again. **The live run found a bug no
+  unit test could have** — the server was torn down *before* `session.finish`, so the sweep's
+  question went to a mirror nobody could reach and fail-open quietly declined six real facts;
+  every test that could have caught it owned the mirror directly and had no socket to lose.
+  Verified live end to end: a turn from the browser, the sweep asking over HTTP, the browser
+  answering `1`, and **"1 filed, 5 declined"**. 1496 tests, suite still fully offline.
+  **Scope cut, named:** the recap's scene question stays terminal-only, because `_run_recap`
+  runs before the session, table and server exist — it dissolves in P6.7 when the server owns
+  startup, and moving it now would be for a reason that stops applying.)*
 - **P6.6** `dndc serve`: bind address and port from config, the LAN security note written
   down rather than assumed, and an evening actually played on two devices.
 - **P6.7** Host it on the VM, the way every other service in this house is hosted

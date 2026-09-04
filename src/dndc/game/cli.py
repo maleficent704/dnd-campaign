@@ -11,6 +11,7 @@ import random
 import re
 import sys
 import threading
+import time
 from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
@@ -83,6 +84,18 @@ from dndc.game.session import (
     resume_from,
 )
 from dndc.game.turn import MAX_NPC_TURNS, TurnEngine
+from dndc.game.asking import (
+    ANSWER_TIMEOUT,
+    CANON,
+    INVENTORY,
+    SCENE,
+    SILENCE,
+    Answer,
+    Choice,
+    Question,
+    parse_selection,
+    read,
+)
 from dndc.game.floor import WEB, Floor
 from dndc.gm.tagstream import TagStream
 from dndc.web.mirror import Mirror
@@ -1256,29 +1269,6 @@ def _render_canon(console: Console, entries) -> None:
 #: Answers meaning "file all of them" and "file none of them" at the sweep prompt. Enter
 #: on its own is `all`: at the end of a session the common case is that the sweep is
 #: right, and the players have already read the list before they press anything.
-_SELECT_ALL = {"", "all", "a", "y", "yes", "*"}
-_SELECT_NONE = {"none", "n", "no", "nope", "0", "q", "skip"}
-
-
-def parse_selection(answer: str, count: int) -> set[int] | None:
-    """Which proposals the table kept. `None` means the answer made no sense.
-
-    Returning `None` rather than an empty set matters: "" and "nonsense" must not both
-    silently discard a session's worth of recovered canon. The caller asks again.
-    """
-    cleaned = answer.strip().casefold()
-    if cleaned in _SELECT_ALL:
-        return set(range(1, count + 1))
-    if cleaned in _SELECT_NONE:
-        return set()
-
-    numbers = {int(token) for token in re.findall(r"\d+", cleaned)}
-    chosen = {number for number in numbers if 1 <= number <= count}
-    if not chosen:
-        return None
-    return chosen
-
-
 def ask_selection(console: Console, count: int, question: str, attempts: int = 3) -> set[int]:
     """Ask the table which of `count` listed things to keep. One retry policy, two callers.
 
@@ -1335,24 +1325,29 @@ def confirm_background(console: Console, background, attempts: int = 3) -> bool:
 
 
 def choose_proposals(
-    console: Console, proposals: Sequence[SweepProposal], attempts: int = 3
+    table, proposals: Sequence[SweepProposal]
 ) -> tuple[list[SweepProposal], list[SweepProposal]]:
     """Show the sweep's proposals and split them into kept and declined.
 
     Near-duplicates are grouped for display (Fable, 2026-08-14): one number per fact, the
     other phrasings indented under it. Choosing a number files that phrasing and declines
-    the rest of its group — which is still a decline, still logged, and still visible on
-    screen. Nothing is suppressed; the grouping only decides what the table has to read.
+    the rest of its group — which is still a decline, still logged, and still visible.
+    Nothing is suppressed; the grouping only decides what the table has to read.
+
+    Takes a `Table` rather than a console since P6.5, so the same question can be answered
+    from a phone. Silence declines everything, which is what running out of stdin already
+    did — a fact not filed costs nothing but the keystroke to file it next time.
     """
     groups = cluster(proposals)
-    for index, group in enumerate(groups, start=1):
-        console.print(f"  [bold]{index}.[/bold] {group[0].text}")
-        for alternate in group[1:]:
-            console.print(f"     [dim]also: {alternate.text}[/dim]")
-
-    chosen = ask_selection(
-        console, len(groups), "  [dim]file which?[/dim] all / none / numbers", attempts
+    question = Question(
+        kind=CANON,
+        prompt="file which?",
+        choices=tuple(
+            Choice(text=group[0].text, detail=tuple(other.text for other in group[1:]))
+            for group in groups
+        ),
     )
+    chosen = table.ask(question).chosen
 
     accepted: list[SweepProposal] = []
     declined: list[SweepProposal] = []
@@ -1369,19 +1364,18 @@ def choose_proposals(
 
 
 def confirm_inventory(
-    console: Console,
+    table,
     tags: Sequence[InventoryTag],
     store: InventoryStore,
     acting: str | None,
     turn: int | None = None,
-    attempts: int = 3,
 ) -> int:
     """The table's say over what goes on the sheets (P2.4). Returns how many were applied.
 
     Items are state, so the GM proposes and the players decide — the same split `[[CHECK]]`
-    draws around dice, and the reason this is here in the interface rather than in the turn
-    engine. Every proposal is logged either way: accepted ones with what the sheet could
-    actually do, declined ones with `confirmed: false`.
+    draws around dice, and the reason this is in the interface rather than the turn engine.
+    Every proposal is logged either way: accepted ones with what the sheet could actually
+    do, declined ones with `confirmed: false`.
     """
     if not tags:
         return 0
@@ -1390,23 +1384,31 @@ def confirm_inventory(
     known = [(tag, sheet) for tag, sheet in paired if sheet is not None]
     unknown = [tag for tag, sheet in paired if sheet is None]
 
+    notes = []
     for tag in unknown:
         # Not offered for confirmation: there is nobody to give it to. Logged, because the
         # GM handing gear to a character who is not at the table is worth seeing.
-        console.print(f"  [yellow]?[/yellow] [dim]{tag.render()} — no such character[/dim]")
+        notes.append(f"{tag.render()} — no such character")
         store.decline(tag, character=tag.character or "", turn=turn)
 
     if not known:
+        for note in notes:
+            table.notice(f"  [yellow]?[/yellow] [dim]{note}[/dim]")
         return 0
 
-    console.print()
-    for index, (tag, sheet) in enumerate(known, start=1):
-        count = f" ×{tag.quantity}" if tag.quantity > 1 else ""
-        console.print(f"  [bold]{index}.[/bold] {sheet.name} {tag.verb} {tag.item}{count}")
-
-    chosen = ask_selection(
-        console, len(known), "  [dim]apply to the sheet?[/dim] all / none / numbers", attempts
+    question = Question(
+        kind=INVENTORY,
+        prompt="apply to the sheet?",
+        notes=tuple(notes),
+        choices=tuple(
+            Choice(
+                text=f"{sheet.name} {tag.verb} {tag.item}"
+                + (f" ×{tag.quantity}" if tag.quantity > 1 else "")
+            )
+            for tag, sheet in known
+        ),
     )
+    chosen = table.ask(question).chosen
 
     applied = 0
     for index, (tag, sheet) in enumerate(known, start=1):
@@ -1416,12 +1418,12 @@ def confirm_inventory(
         outcome = store.apply(tag, sheet, turn=turn)
         line = describe_change(outcome, tag.direction, sheet.name)
         colour = "green" if outcome.applied else "yellow"
-        console.print(f"  [{colour}]{line}[/{colour}]")
+        table.notice(f"  [{colour}]{line}[/{colour}]")
         applied += 1
     return applied
 
 
-def _run_sweep(console: Console, cfg, campaign, store: CanonStore, log: SessionLog) -> None:
+def _run_sweep(table, console: Console, cfg, campaign, store: CanonStore, log: SessionLog) -> None:
     """The P2.3 backstop, run once as the session ends.
 
     Everything here is best-effort. The sweep is a nicety at the end of an evening, and a
@@ -1458,7 +1460,7 @@ def _run_sweep(console: Console, cfg, campaign, store: CanonStore, log: SessionL
     if report.dropped:
         console.print(f"  [dim](and {report.dropped} more, not shown — the sweep ran long)[/dim]")
 
-    accepted, declined = choose_proposals(console, report.proposals)
+    accepted, declined = choose_proposals(table, report.proposals)
     written = sweep.record(accepted, declined, session=log.session_id)
     if written:
         console.print(f"[green]{len(written)} filed[/green]")
@@ -2333,7 +2335,29 @@ class ConsoleTable:
         _render_beliefs(self.console, result.beliefs)
 
     def inventory(self, tags, acting: str, turn: int) -> int:
-        return confirm_inventory(self.console, tags, self.items, acting=acting, turn=turn)
+        return confirm_inventory(self, tags, self.items, acting=acting, turn=turn)
+
+    def show_question(self, question: Question) -> None:
+        """Draw a question without waiting for it. Shared with the served front end,
+        which renders here and then listens somewhere else."""
+        for note in question.notes:
+            self.console.print(f"  [yellow]?[/yellow] [dim]{note}[/dim]")
+        if question.choices:
+            self.console.print()
+        for index, choice in enumerate(question.choices, start=1):
+            self.console.print(f"  [bold]{index}.[/bold] {choice.text}")
+            for extra in choice.detail:
+                self.console.print(f"     [dim]also: {extra}[/dim]")
+
+    def ask(self, question: Question) -> Answer:
+        """The terminal answering. Blocking, and the only reader of stdin in this mode."""
+        self.show_question(question)
+        chosen = ask_selection(
+            self.console,
+            len(question.choices),
+            f"  [dim]{question.prompt}[/dim] all / none / numbers",
+        )
+        return Answer(chosen=frozenset(chosen))
 
     def changed(self) -> None:
         """State moved without a turn happening — a seat handed over, a scene set.
@@ -2343,7 +2367,7 @@ class ConsoleTable:
         """
 
     def sweep(self, session: PlaySession) -> None:
-        _run_sweep(self.console, self.cfg, session.campaign, session.engine.canon, session.log)
+        _run_sweep(self, self.console, self.cfg, session.campaign, session.engine.canon, session.log)
 
     def chronicle(self, session: PlaySession) -> None:
         _run_chronicle(self.console, self.cfg, session.campaign, self.args, session.log)
@@ -2384,10 +2408,13 @@ class MirrorTable:
     screen in another room is exactly an instrument.
     """
 
-    def __init__(self, inner: ConsoleTable, mirror: Mirror, session: PlaySession) -> None:
+    def __init__(
+        self, inner: ConsoleTable, mirror: Mirror, session: PlaySession, floor=None
+    ) -> None:
         self.inner = inner
         self.mirror = mirror
         self.session = session
+        self.floor = floor
 
     def _show(self) -> None:
         self.mirror.show(table_view(self.session.campaign, acting=self.session.acting))
@@ -2416,10 +2443,49 @@ class MirrorTable:
         self._show()
 
     def inventory(self, tags, acting: str, turn: int) -> int:
-        return self.inner.inventory(tags, acting, turn)
+        return confirm_inventory(self, tags, self.inner.items, acting=acting, turn=turn)
+
+    def show_question(self, question: Question) -> None:
+        self.inner.show_question(question)
+
+    def ask(self, question: Question) -> Answer:
+        """A question every device can see and any of them can answer.
+
+        Rendered to the terminal *and* pushed to the sofa, then answered off the same
+        queue a turn comes from — so whoever replies first replies, and the keyboard is
+        not a special case. Silence is no: an evening must not sit on a question because
+        the only phone that could see it went flat.
+        """
+        if self.floor is None:
+            return self.inner.ask(question)
+
+        self.inner.show_question(question)
+        self.mirror.asking(question)
+        try:
+            with self.floor.answering():
+                deadline = ANSWER_TIMEOUT
+                while deadline > 0:
+                    started = time.monotonic()
+                    line = self.floor.next(timeout=deadline)
+                    if line is None:
+                        break
+                    answer = read(question, line.text)
+                    if answer is not None:
+                        return answer
+                    # Unreadable, not absent. Say so and keep listening rather than
+                    # treating a typo as a decision.
+                    self.notice("[yellow]didn't follow that[/yellow] — 'all', 'none', or e.g. 1 3")
+                    deadline -= time.monotonic() - started
+        finally:
+            self.mirror.answered()
+        self.notice("[dim]nobody answered — nothing was applied[/dim]")
+        return SILENCE
 
     def sweep(self, session: PlaySession) -> None:
-        self.inner.sweep(session)
+        _run_sweep(
+            self, self.inner.console, self.inner.cfg, session.campaign,
+            session.engine.canon, session.log,
+        )
 
     def chronicle(self, session: PlaySession) -> None:
         self.inner.chronicle(session)
@@ -2596,7 +2662,7 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
         server = _start_mirror(console, mirror, args, floor)
         if server is None:
             return 1
-        table = MirrorTable(table, mirror, session)
+        table = MirrorTable(table, mirror, session, floor)
 
     console.print(f"[bold]{campaign.name}[/bold] — {backend.name}, seed {seed}")
     console.print(f"[dim]log -> {log.path}  ·  /help for commands[/dim]\n")
@@ -2671,12 +2737,17 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
             console.print()
     finally:
         session.close()
-        if mirror is not None:
-            mirror.ended()
-        if server is not None:
-            server.stop()
 
+    # The between-session jobs run *before* the sofa is told the evening is over, because
+    # the sweep asks the table a question and P6.5 lets a device answer it. Tearing the
+    # server down first pushed that question to a mirror nobody could reach and then took
+    # silence for a decline — found live, not in a test, because every test that could
+    # have caught it owned the mirror directly and never had a socket to lose.
     session.finish(table, sweep=not args.no_sweep, chronicle=not args.no_chronicle)
+    if mirror is not None:
+        mirror.ended()
+    if server is not None:
+        server.stop()
     if saves is not None:
         console.print(f"[dim]saved -> {saves.path}[/dim]")
     console.print()

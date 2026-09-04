@@ -18,7 +18,13 @@ from __future__ import annotations
 import pytest
 from rich.console import Console
 
-from dndc.game.cli import choose_proposals, parse_selection
+from dndc.game.asking import parse_selection
+from dndc.game.cli import ConsoleTable, choose_proposals
+
+
+def _asked() -> ConsoleTable:
+    """A table made of a terminal (P6.5)."""
+    return ConsoleTable(Console(quiet=True), None, None, None)
 from dndc.gm.canon import CanonEntry, CanonLedger, CanonScope
 from dndc.gm.context import Turn
 from dndc.logging import SessionLog, read_log
@@ -419,7 +425,7 @@ def test_the_table_declining_leaves_the_rest_as_declined(monkeypatch):
     proposals = [SweepProposal(text=f"Fact {n}.") for n in (1, 2, 3)]
     monkeypatch.setattr("dndc.game.cli.Prompt.ask", lambda *a, **k: "2")
 
-    accepted, declined = choose_proposals(Console(quiet=True), proposals)
+    accepted, declined = choose_proposals(_asked(), proposals)
     assert [p.text for p in accepted] == ["Fact 2."]
     assert [p.text for p in declined] == ["Fact 1.", "Fact 3."]
 
@@ -431,7 +437,7 @@ def test_nobody_at_the_keyboard_declines_rather_than_files(monkeypatch):
         raise EOFError
 
     monkeypatch.setattr("dndc.game.cli.Prompt.ask", _eof)
-    accepted, declined = choose_proposals(Console(quiet=True), [SweepProposal(text="Fact.")])
+    accepted, declined = choose_proposals(_asked(), [SweepProposal(text="Fact.")])
     assert accepted == [] and len(declined) == 1
 
 
@@ -439,7 +445,7 @@ def test_an_unreadable_answer_is_asked_again(monkeypatch):
     answers = iter(["wat", "1"])
     monkeypatch.setattr("dndc.game.cli.Prompt.ask", lambda *a, **k: next(answers))
 
-    accepted, _ = choose_proposals(Console(quiet=True), [SweepProposal(text="Fact.")])
+    accepted, _ = choose_proposals(_asked(), [SweepProposal(text="Fact.")])
     assert len(accepted) == 1
 
 
@@ -516,7 +522,7 @@ def test_choosing_a_group_files_one_phrasing_and_declines_the_rest(monkeypatch):
     proposals = [SweepProposal(text=text) for text in RAIL]
     monkeypatch.setattr("dndc.game.cli.Prompt.ask", lambda *a, **k: "1")
 
-    accepted, declined = choose_proposals(Console(quiet=True), proposals)
+    accepted, declined = choose_proposals(_asked(), proposals)
 
     assert [p.text for p in accepted] == [RAIL[0]]
     assert [p.text for p in declined] == [RAIL[1]]
@@ -526,7 +532,7 @@ def test_declining_a_group_declines_every_phrasing_in_it(monkeypatch):
     proposals = [SweepProposal(text=text) for text in RAIL]
     monkeypatch.setattr("dndc.game.cli.Prompt.ask", lambda *a, **k: "none")
 
-    accepted, declined = choose_proposals(Console(quiet=True), proposals)
+    accepted, declined = choose_proposals(_asked(), proposals)
 
     assert accepted == []
     assert len(declined) == 2
@@ -537,7 +543,7 @@ def test_the_numbers_the_table_types_are_group_numbers(monkeypatch):
     proposals = [SweepProposal(text=text) for text in RAIL + DOG]
     monkeypatch.setattr("dndc.game.cli.Prompt.ask", lambda *a, **k: "2")
 
-    accepted, _ = choose_proposals(Console(quiet=True), proposals)
+    accepted, _ = choose_proposals(_asked(), proposals)
     assert [p.text for p in accepted] == [DOG[0]]
 
 
@@ -546,7 +552,10 @@ def test_the_alternates_are_shown_not_hidden(monkeypatch):
     monkeypatch.setattr("dndc.game.cli.Prompt.ask", lambda *a, **k: "none")
     recorder = Console(force_terminal=False, no_color=True, record=True, width=200)
 
-    choose_proposals(recorder, [SweepProposal(text=text) for text in RAIL])
+    choose_proposals(
+        ConsoleTable(recorder, None, None, None),
+        [SweepProposal(text=text) for text in RAIL],
+    )
 
     output = " ".join(recorder.export_text().split())
     assert "also:" in output and RAIL[1] in output

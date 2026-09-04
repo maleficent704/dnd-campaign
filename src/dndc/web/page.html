@@ -70,6 +70,15 @@
   #say input:disabled, #say button:disabled { opacity: .45; cursor: not-allowed; }
   #whose { max-width: 42rem; margin: 0 auto .45rem; font-size: .8rem; color: var(--dim); }
   #whose.refused { color: #c98b6a; }
+
+  #question { max-width: 42rem; margin: 0 auto .6rem; background: var(--panel);
+              border: 1px solid #4a4330; border-radius: 3px; padding: .6rem .75rem; }
+  #question h2 { font-size: .82rem; letter-spacing: .05em; text-transform: uppercase;
+                 color: #a08a55; margin: 0 0 .45rem; font-weight: 600; }
+  #question ol { margin: 0; padding-left: 1.3rem; font-size: .9rem; }
+  #question li { margin: .2rem 0; }
+  #question .alt { display: block; color: var(--faint); font-size: .84rem; }
+  #question .note { color: #c98b6a; font-size: .84rem; margin: 0 0 .35rem; }
 </style>
 
 <header>
@@ -88,6 +97,7 @@
 </main>
 
 <div id="say" hidden>
+  <div id="question" hidden></div>
   <div id="whose"></div>
   <form id="form">
     <select id="asme" title="which character you are playing"></select>
@@ -173,6 +183,7 @@
     if (!me() && names.length) setMe(names[0]);
     if (me()) pick.value = me();
 
+    if (pending) return;
     var mine = view.acting && pick.value === view.acting;
     el("text").disabled = !mine;
     el("send").disabled = !mine;
@@ -180,6 +191,41 @@
     whose.textContent = mine
       ? "your turn"
       : (view.acting ? "waiting for " + view.acting : "waiting for the session to start");
+  }
+
+  // A question stops the evening, so it is drawn above the input and the input answers
+  // it — whoever is holding the device. A confirmation belongs to the table, not to
+  // whoever's turn it happens to be.
+  var pending = null;
+  function drawQuestion(q) {
+    pending = q;
+    var box = el("question"), input = el("text");
+    if (!q) {
+      box.hidden = true;
+      input.placeholder = "what do you do?";
+      if (latest) drawWho(latest);
+      return;
+    }
+    box.hidden = false;
+    box.textContent = "";
+    box.appendChild(text("h2", null, q.prompt));
+    (q.notes || []).forEach(function (n) { box.appendChild(text("p", "note", n)); });
+    if ((q.choices || []).length) {
+      var list = document.createElement("ol");
+      q.choices.forEach(function (c) {
+        var item = text("li", null, c.text);
+        (c.detail || []).forEach(function (d) { item.appendChild(text("span", "alt", "also: " + d)); });
+        list.appendChild(item);
+      });
+      box.appendChild(list);
+    }
+    el("say").hidden = !canPlay;
+    input.disabled = false;
+    el("send").disabled = false;
+    input.placeholder = q.accepts_text ? "enter to accept, n to keep, or type a new one"
+                                       : "all / none / numbers";
+    el("whose").className = "";
+    el("whose").textContent = "the table is being asked";
   }
 
   function drawKnown(view) {
@@ -227,6 +273,7 @@
       // not be shown a box that every submission will be refused from.
       if (msg.writable !== undefined) canPlay = msg.writable;
       drawTable(msg.table);
+      if (msg.question !== undefined) drawQuestion(msg.question);
       if (msg.pending) { pending().textContent = msg.pending; }
       (msg.spoken || []).forEach(function (d) { handle({ kind: "line", speaker: d.speaker, text: d.text }); });
       atBottom();
@@ -244,6 +291,10 @@
       pending();
       turnNode.appendChild(text("p", "said", msg.text));
       atBottom();
+    } else if (msg.kind === "asking") {
+      drawQuestion(msg.question);
+    } else if (msg.kind === "answered") {
+      drawQuestion(null);
     } else if (msg.kind === "ended") {
       el("status").textContent = "session ended";
       el("status").className = "who off";
@@ -280,10 +331,13 @@
     if (!said) return;
     input.disabled = true;
     el("send").disabled = true;
-    fetch("/api/turn", {
+    var where = pending ? "/api/answer" : "/api/turn";
+    var payload = pending ? { text: said }
+                          : { character: el("asme").value, text: said };
+    fetch(where, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ character: el("asme").value, text: said })
+      body: JSON.stringify(payload)
     }).then(function (r) {
       if (r.ok) { input.value = ""; return; }
       return r.json().then(function (body) {

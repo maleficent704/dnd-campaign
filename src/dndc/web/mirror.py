@@ -76,6 +76,10 @@ class Mirror:
         #: Lines spoken since the last settled state, for a device that connects mid-turn.
         self._spoken: list[dict] = []
         self._ended = False
+        #: The question the table is being asked, if it is being asked one. Part of the
+        #: snapshot so a device that arrives mid-question sees it rather than a screen
+        #: that looks idle while the evening waits.
+        self._question: dict | None = None
 
     # --- what the play loop tells it ---------------------------------------
 
@@ -112,6 +116,18 @@ class Mirror:
         with self._lock:
             self._spoken.append(line)
             self._push({"kind": "line", **line})
+
+    def asking(self, question) -> None:
+        """The evening has stopped and is waiting for a person."""
+        with self._lock:
+            self._question = question.as_json()
+            self._push({"kind": "asking", "question": self._question})
+
+    def answered(self) -> None:
+        """Somebody answered, or nobody did. Either way the question is down."""
+        with self._lock:
+            self._question = None
+            self._push({"kind": "answered"})
 
     def note(self, text: str) -> None:
         """Something the table should see that is not narration — an error, a notice."""
@@ -161,6 +177,7 @@ class Mirror:
                 "table": self._table.model_dump(mode="json") if self._table else None,
                 "pending": self._pending,
                 "spoken": list(self._spoken),
+                "question": self._question,
             }
 
     def subscribe(self) -> Watcher:

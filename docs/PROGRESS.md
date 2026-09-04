@@ -28,9 +28,10 @@ both of the currencies it spends — **$0.2428 of API billing across the whole c
 date, and one 65-second wait for a cold 70B.**
 
 **Phases 0–5 are built. Phase 6 (the LAN GUI) is under way** — planned as six tasks and
-P6.1–P6.4 landed 2026-09-03 (g)–(j). **A browser on the LAN can now watch an
-evening and take a turn in it** (`dndc play --serve`; `--watch-only` for a spectator
-link). **Nothing ruled is unbuilt.**
+P6.1–P6.5 landed 2026-09-03 (g)–(j) and 2026-09-04. **A browser on the LAN can watch
+an evening, take a turn in it, and answer the confirmations that end it**
+(`dndc play --serve`; `--watch-only` for a spectator link). **Kelly looked at the UI
+2026-09-03 and approved it.** **Nothing ruled is unbuilt.**
 
 **Kelly, 2026-09-03: host it on the VM** like chat-archive, scrapbook and pit-wall,
 rather than needing a terminal on her PC. Agreed and added as **P6.7** — the house
@@ -441,6 +442,102 @@ the drift instrument's own log is a finding worth the two-line fix.
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-09-04 — P6.5: the questions that stop an evening (Claude Code, kelly-pc)
+
+**P6.5 done.** 1496 tests, suite still fully offline. A browser could take a turn after
+P6.4; it can now finish a session, which is the difference between a demo and a table.
+
+### A question is data, not a prompt
+
+Three things stop an evening and wait for a person: items the GM handed out (P2.4), facts
+the sweep wants to file (P2.3), and where the recap thinks the party is standing (P5.3).
+All three were blocking `rich` prompts, and all three were the reason the couch could play
+but not finish.
+
+`game/asking.py` makes a question an object — what is being asked, the options, whether
+free text means anything — and leaves *rendering* to a front end. `ConsoleTable.ask` draws
+it and reads stdin. `MirrorTable.ask` draws it to the terminal, pushes it to every device,
+and then listens on **the same queue a turn arrives on**. So whoever answers first answers,
+and the keyboard is not a special case.
+
+**Answering is not gated on whose turn it is**, deliberately. A confirmation belongs to the
+table, not the acting player: either of them may say whether an item goes on a sheet. A
+*turn* is refused while a question stands, with a reason that says so.
+
+### Silence is no, everywhere, on purpose
+
+Every question here has a conservative reading and it is always the same one: an item not
+applied, a fact not filed, a scene not changed. Each already worked that way when stdin ran
+out; this generalises it rather than inventing it, and gives it a timeout. **A browser
+closed mid-question costs the table a keystroke, never the evening.**
+
+`SILENCE` and `NOTHING` are separate values even though they do the same thing, because
+"nobody answered" and "everybody said no" must be distinguishable in a log.
+
+An unreadable reply is neither: it is asked again. `""` and `"wat"` must not both silently
+discard a session's worth of recovered canon — the rule `parse_selection` has enforced
+since P2.3, now on a surface where the person typing is in another room.
+
+### The bug the live test found, which no unit test could have
+
+The first live run got as far as *"canon sweep — 7 fact(s)"* and then the question never
+arrived at the browser. **The server was being torn down before `session.finish` ran.** The
+sweep pushed its question to a mirror nobody could reach, waited, and took silence for a
+decline — the fail-open behaviour working exactly as designed, on a failure that should
+never have happened.
+
+Every test that could have caught it owned the `Mirror` directly and never had a socket to
+lose. That is the shape of thing live verification is for, and the reason this project
+keeps paying for it. Teardown now runs *after* the between-session jobs.
+
+### Verified live, end to end
+
+A real session: a turn taken **from the browser**, the sweep asking the table **over HTTP**
+with all six proposals and their alternates, the browser answering `1`, and the CLI
+reporting **"1 filed, 5 declined (logged, not filed)"**. The answer from another room went
+into the canon ledger.
+
+### Scope cut, named rather than hidden
+
+**The recap's scene question is still terminal-only.** `_run_recap` runs before the session,
+the table and the server exist — it is deliberately early so the 70B's cold load is paid by
+a call the table wanted anyway — so there is nothing to ask through yet. A hosted session
+would fall through to "keep the old scene", which is the safe answer and not the right one.
+This dissolves in **P6.7**, where the server owns session startup and the ordering problem
+goes away; doing it now would mean moving the recap for a reason that stops applying a task
+later.
+
+### Known issues
+
+- The scene question, above.
+- **`ANSWER_TIMEOUT` is 180s and is not shown anywhere.** A device that sits on a question
+  gives no indication that it is running out. Fine at a real table where somebody is
+  looking at it; worth a countdown if it ever annoys anybody.
+- **Backgrounds are still `rich`-only**, but that is co-creation rather than play — a
+  browser cannot reach `dndc create-character` at all yet, and it is not in Phase 6's scope.
+- **Nobody has answered a question in an actual browser.** The round trip is verified over
+  HTTP; the rendering of the question box is not. Same standing gap as the rest of the page,
+  and Kelly's look at the UI (2026-09-03) predates this box existing.
+
+### FOR DESIGN
+
+None new. Carried, none blocking: the change-of-mind trigger; whether the GM should voice
+PCs; whether a `blocked` line costs the turn; whether a closed save restores the turn
+window; and the (h) scope question.
+
+### Recommended next task
+
+**P6.6 — bind/port from config, the LAN security note written down, and an evening on two
+devices.** Then **P6.7**, hosting it on the VM, which is now the only thing between here and
+Kelly not needing a terminal at all.
+
+Also worth doing before P6.7 and cheap: `dndc play --serve` still requires the terminal to
+*start* the session. That is the one piece P6.7 needs and P6.6 could prepare.
+
+Still not code: **an evening with Kelly and Sam at the Brakewater crossroads.**
 
 ---
 

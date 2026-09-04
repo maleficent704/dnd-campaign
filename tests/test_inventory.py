@@ -85,6 +85,14 @@ def console() -> Console:
     return Console(force_terminal=False, no_color=True)
 
 
+def asked() -> "ConsoleTable":
+    """A table made of a terminal. `confirm_inventory` takes one of these since P6.5, so
+    the same confirmation can be answered from a phone."""
+    from dndc.game.cli import ConsoleTable
+
+    return ConsoleTable(console(), None, None, None)
+
+
 # --- the tag parser --------------------------------------------------------
 
 
@@ -436,7 +444,7 @@ def test_confirming_applies_and_declining_does_not(monkeypatch, tmp_path):
     answering(monkeypatch, "1")
 
     applied = confirm_inventory(
-        console(), [tag("iron key"), tag("silver ring")], store, acting="Corin Vale"
+        asked(), [tag("iron key"), tag("silver ring")], store, acting="Corin Vale"
     )
 
     assert applied == 1
@@ -454,7 +462,7 @@ def test_bare_enter_applies_everything(monkeypatch):
     store.add(subject)
     answering(monkeypatch, "")
 
-    confirm_inventory(console(), [tag("key"), tag("rope")], store, acting="Corin Vale")
+    confirm_inventory(asked(), [tag("key"), tag("rope")], store, acting="Corin Vale")
     assert [i.name for i in subject.inventory] == ["key", "rope"]
 
 
@@ -464,7 +472,7 @@ def test_none_applies_nothing(monkeypatch):
     store.add(subject)
     answering(monkeypatch, "none")
 
-    assert confirm_inventory(console(), [tag("key")], store, acting="Corin Vale") == 0
+    assert confirm_inventory(asked(), [tag("key")], store, acting="Corin Vale") == 0
     assert subject.inventory == []
 
 
@@ -474,7 +482,7 @@ def test_an_unreadable_answer_is_asked_again(monkeypatch):
     store.add(subject)
     answering(monkeypatch, "wat", "all")
 
-    confirm_inventory(console(), [tag("key")], store, acting="Corin Vale")
+    confirm_inventory(asked(), [tag("key")], store, acting="Corin Vale")
     assert [i.name for i in subject.inventory] == ["key"]
 
 
@@ -489,7 +497,7 @@ def test_nobody_at_the_keyboard_declines(monkeypatch):
 
     monkeypatch.setattr("dndc.game.cli.Prompt.ask", _eof)
 
-    assert confirm_inventory(console(), [tag("key")], store, acting="Corin Vale") == 0
+    assert confirm_inventory(asked(), [tag("key")], store, acting="Corin Vale") == 0
     assert subject.inventory == []
 
 
@@ -501,7 +509,7 @@ def test_a_proposal_for_nobody_is_logged_without_being_offered(monkeypatch, tmp_
     answering(monkeypatch)
 
     applied = confirm_inventory(
-        console(), [tag("lantern", character="Halda Orrin")], store, acting="Corin Vale"
+        asked(), [tag("lantern", character="Halda Orrin")], store, acting="Corin Vale"
     )
 
     assert applied == 0
@@ -511,7 +519,7 @@ def test_a_proposal_for_nobody_is_logged_without_being_offered(monkeypatch, tmp_
 
 def test_no_proposals_asks_nothing(monkeypatch):
     answering(monkeypatch)
-    assert confirm_inventory(console(), [], InventoryStore(), acting="Corin Vale") == 0
+    assert confirm_inventory(asked(), [], InventoryStore(), acting="Corin Vale") == 0
 
 
 # --- looking in the pack ---------------------------------------------------

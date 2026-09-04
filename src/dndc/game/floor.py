@@ -47,6 +47,10 @@ class Refusal(str, Enum):
     NO_SUCH_CHARACTER = "no_such_character"
     #: An empty submission.
     NOTHING_SAID = "nothing_said"
+    #: The table is being asked something; a turn is not what is wanted right now.
+    QUESTION_PENDING = "question_pending"
+    #: An answer arrived for a question that is no longer open.
+    NOTHING_ASKED = "nothing_asked"
 
 
 @dataclass(frozen=True)
@@ -76,6 +80,8 @@ _REASONS = {
     Refusal.TURN_IN_FLIGHT: "the GM is still answering the last line",
     Refusal.NO_SUCH_CHARACTER: "no such character in this party",
     Refusal.NOTHING_SAID: "say something first",
+    Refusal.QUESTION_PENDING: "answer the question first",
+    Refusal.NOTHING_ASKED: "nothing is being asked",
 }
 
 TAKEN = Offer(accepted=True)
@@ -88,12 +94,26 @@ class Floor:
         self._lines: queue.Queue[Line] = queue.Queue()
         self._lock = threading.Lock()
         self._busy = False
+        self._asking = False
 
     # --- speaking ----------------------------------------------------------
 
     def typed(self, text: str) -> None:
         """A line from the keyboard. Always taken — somebody in the room typed it."""
         self._lines.put(Line(text=text, source=TERMINAL))
+
+    def answer(self, text: str) -> Offer:
+        """A reply to the question the table is being asked.
+
+        Not gated on whose turn it is, deliberately: a confirmation is the *table's*, not
+        the acting player's. Either of them may say whether an item goes on a sheet.
+        """
+        said = text.strip()
+        with self._lock:
+            if not self._asking:
+                return Offer(False, Refusal.NOTHING_ASKED)
+        self._lines.put(Line(text=said, source=WEB))
+        return TAKEN
 
     def offer(self, character: str, text: str, acting: str, party: set[str]) -> Offer:
         """A line from a device. Taken only if it is really this character's turn.
@@ -110,6 +130,8 @@ class Floor:
         if character.casefold() != acting.casefold():
             return Offer(False, Refusal.NOT_YOUR_TURN)
         with self._lock:
+            if self._asking:
+                return Offer(False, Refusal.QUESTION_PENDING)
             if self._busy:
                 return Offer(False, Refusal.TURN_IN_FLIGHT)
         self._lines.put(Line(text=said, source=WEB, character=character))
@@ -135,6 +157,19 @@ class Floor:
         """
         return _Turn(self)
 
+    def answering(self) -> "_Asking":
+        """Marks a question as open for as long as the block runs.
+
+        A context manager for the same reason `taking_a_turn` is: a question that raised
+        must not leave the floor closed to turns for the rest of the evening.
+        """
+        return _Asking(self)
+
+    @property
+    def asking(self) -> bool:
+        with self._lock:
+            return self._asking
+
     @property
     def busy(self) -> bool:
         with self._lock:
@@ -157,3 +192,17 @@ class _Turn:
     def __exit__(self, *exc) -> None:
         with self._floor._lock:
             self._floor._busy = False
+
+
+class _Asking:
+    def __init__(self, floor: Floor) -> None:
+        self._floor = floor
+
+    def __enter__(self) -> "_Asking":
+        with self._floor._lock:
+            self._floor._asking = True
+        return self
+
+    def __exit__(self, *exc) -> None:
+        with self._floor._lock:
+            self._floor._asking = False

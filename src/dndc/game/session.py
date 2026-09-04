@@ -96,6 +96,14 @@ class Table(Protocol):
 
     def changed(self) -> None: ...
 
+    def ask(self, question) -> object:
+        """Put a question to the table and wait for an answer (P6.5).
+
+        The one method here that *blocks the evening*, and the one whose failure mode is
+        specified rather than left to a front end: an answer that never comes is a no.
+        """
+        ...
+
     def sweep(self, session: PlaySession) -> None: ...
 
     def chronicle(self, session: PlaySession) -> None: ...
