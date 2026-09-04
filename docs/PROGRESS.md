@@ -539,9 +539,13 @@ Three things it will need beyond deployment, all recorded in TASKS.md:
    and Kelly's standing rule sends game saves to the NAS rather than into a repo. This
    project has been drifting from that since P5.1, and I committed sheet edits into it
    twice today. Hosting is the forcing function; the scrapbook is the template.
-3. **`api` billing only on that box.** The VM's Claude Code installs are the agent tier's
-   credential, watched by `claude-usage-watchdog` for Max headroom. An evening of D&D
-   should not compete with the Gardener for the same quota.
+3. ~~**`api` billing only on that box.**~~ **Corrected the same day (Kelly).** All the
+   Claude Code installs are one Max subscription on one login and **usage is per-account**,
+   so an evening costs the same quota wherever it runs. There was nothing to trade, and
+   the constraint would have overridden D-004's session toggle on a false premise. Billing
+   stays the toggle it is. What survives is smaller and operational: the VM's credential is
+   a separate one (auth is per-`$HOME`), it has lapsed undetected for two days before, and
+   `claude-auth-watchdog` is what watches it — a deploy note, not a rule.
 
 Port `:8090` looks free (`:8089` roundtable, `:8091` kids capture station) — **confirm on
 the box before claiming it**, as scrapbook and roundtable both did.

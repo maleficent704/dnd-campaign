@@ -653,10 +653,16 @@ CLI and the whole suite still run without them — the same posture `anthropic` 
     Kelly's standing rule sends game saves to the NAS, not into a code repo. This project
     has been drifting from that since P5.1. The scrapbook is the template: data in a
     volume, a mirror bind-mount, a backup timer and a mirror timer to the NAS.
-  - **`api` billing only on that box.** The VM's Claude Code installs are the agent tier's
-    credential, watched by `claude-usage-watchdog` for Max headroom; an evening of D&D
-    should not compete with the Gardener for the same quota. `subscription` stays a
-    PC-local choice.
+  - **Billing stays D-004's session toggle — hosting changes nothing about it.** An
+    earlier draft of this task said `api` only on the VM, on the grounds that a session
+    would compete with the Gardener for Max headroom. **Kelly, 2026-09-03: wrong.** All the
+    Claude Code installs are one Max subscription on one login and *usage is per-account*,
+    so an evening costs the same quota wherever it runs — the PC included. There was no
+    difference to trade away, and forcing a mode would have overridden a ratified decision
+    (D-004) on a false premise. What is actually true and worth carrying: the VM's
+    credential is a **separate** credential (auth is per-`$HOME`) which has lapsed before
+    and undetected for two days, which is why `claude-auth-watchdog` exists. That is an
+    operational dependency to note in the deploy, not a reason to constrain the seat.
 
   Port: `:8090` looks free (`:8089` roundtable, `:8091` kids capture station) — **confirm
   on the box before claiming it**, as scrapbook and roundtable both did.
