@@ -49,6 +49,11 @@ class CanonScope(str, Enum):
 #: here becomes unreachable by every NPC in every campaign, in one edit.
 _NEVER_FOR_NPCS = frozenset({CanonScope.GM_ONLY, CanonScope.PLAYER_KNOWN})
 
+#: The only scopes a player's own device may be sent (P6.2). An allow-list for the same
+#: reason `_NEVER_FOR_NPCS` is a deny-list of absolutes: this is the guarantee, and it is
+#: one edit to change for every campaign at once.
+_FOR_PLAYERS = frozenset({CanonScope.PLAYER_KNOWN, CanonScope.CHARACTER})
+
 
 class CanonEntry(BaseModel):
     """One established fact, with the provenance Phase 7 measures drift against."""
@@ -160,6 +165,28 @@ class CanonLedger(BaseModel):
             if entry.id in named or tags & {tag.casefold() for tag in entry.tags}:
                 visible.append(entry)
         return visible
+
+    def for_players(self) -> list[CanonEntry]:
+        """What the table may be shown — `for_npc`'s sibling, and the same kind of rule.
+
+        An allow-list, not a deny-list, so a scope added to this project in future is
+        invisible to a player's screen until somebody decides otherwise. That direction of
+        default is the whole design: a new kind of fact should have to earn its way onto a
+        device, rather than appear there because nobody remembered to exclude it.
+
+        Two scopes are true and still excluded, and the reasons are different.
+
+        - **`world`.** The ledger is the world, not the party's notes. A fact being in it
+          does not mean anybody has discovered it, and the undiscovered half of the world
+          is most of what a campaign is made of.
+        - **`npc_belief`.** What a character privately thinks, including things they have
+          never said out loud. P4.6 exists to let those change without anyone announcing
+          it; rendering the register onto the table's screen would undo that in one line.
+
+        `gm_only` is excluded too, but it needs no argument — it is the scope whose entire
+        definition is that this must not happen.
+        """
+        return [entry for entry in self.active() if entry.scope in _FOR_PLAYERS]
 
     def mint_id(self, scope: CanonScope, hint: str) -> str:
         """A stable, readable id that does not collide with one already in the ledger.

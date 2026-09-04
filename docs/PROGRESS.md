@@ -28,7 +28,13 @@ both of the currencies it spends — **$0.2428 of API billing across the whole c
 date, and one 65-second wait for a cold 70B.**
 
 **Phases 0–5 are built. Phase 6 (the LAN GUI) is under way** — planned as six tasks and
-P6.1 landed 2026-09-03 (g). **Nothing ruled is unbuilt.**
+P6.1 and P6.2 landed 2026-09-03 (g)–(h). **Nothing ruled is unbuilt.**
+
+**One new question, non-blocking, from P6.2 (h):** the ledger records that a fact is
+true but not that the party found it out, so The Salt Road has six `world` facts the
+party demonstrably knows and zero `player_known` ones. A device will look thin until
+that is settled. Four options are laid out in the (h) entry; my view is a second axis
+on `CanonEntry` rather than a prompt change or an inference.
 
 P5.5 (2026-09-03 (f)) closed the one defect Phase 5 found in itself: nothing recorded a
 player character's pronouns, so every layer re-derived them from prose and the chronicler
@@ -425,6 +431,115 @@ the drift instrument's own log is a finding worth the two-line fix.
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-09-03 (h) — P6.2: there is nowhere for a secret to sit (Claude Code, kelly-pc)
+
+**P6.2 done.** 1413 tests, suite still fully offline. No model calls in the task, so it was
+verified against the real campaign's own ledger rather than fixtures.
+
+### The question changes shape at the edge of the machine
+
+Every phase before this one kept its secrets inside one process, where the only thing that
+could leak them was a model — so the answer was always about prompts: what the GM is told,
+what an NPC may be shown, what the recapper is handed. Phase 6 puts a screen in somebody's
+hands in another room, and the question stops being *will the GM say this* and becomes *is
+this in the response*. A browser cannot be trusted, told, or reminded. It can only be sent
+things or not sent them.
+
+So the rule is P4.1's, for P4.1's reason: **absent from the type, not filtered out of it.**
+
+- There is no `scope` field on anything in `web/view.py`. A scope cannot travel because
+  there is nowhere for one to sit.
+- **The cast is absent entirely.** An NPC's author notes and knowledge scopes have no route
+  to a device at all; a character reaches a screen only by having said something out loud
+  in front of the party.
+- **No belief register.** P4.6 exists to let a mind change without anyone announcing it;
+  rendering the register onto the table's screen would undo that in one line.
+- **Narration is read from the turn window, never from a `GMResponse`.** `Turn.narration`
+  has been through `_clean`; a response has not, and holds `[[CANON: gm_only — ...]]` in
+  plain text. Nothing in this module can reach one.
+
+`CanonLedger.for_players` is the single door, and it is `for_npc`'s sibling rather than a
+filter over its output — an allow-list, so a scope added to this project in future is
+invisible to a screen until somebody decides otherwise. A pinned test enumerates
+`CanonScope` and fails when a new one exists that nobody has ruled on, which turns that
+default into a conversation instead of a silence.
+
+**Every assertion is on `model_dump_json()`**, not on the object. An attribute nobody reads
+is not a leak; a string in the bytes that leaves the machine is.
+
+Also collapsed: `_player_known` (P5.3, for the recap) was a second copy of the same scope
+test. It is `for_players` now. Two copies of a secrecy rule is how a secrecy rule drifts.
+
+### Verified against the real thing
+
+Built the view from `the-salt-road`'s actual ledger and cast: **9 withheld entries and 3
+cast notes, 0 of them in the bytes.** Including the teamster's *"He did not take it. He also
+cannot prove it, and he knows that"* — the exact sentence a device must never carry.
+
+### FOR DESIGN: truth and discovery are two questions and the scope answers only one
+
+That check surfaced something about the data rather than the code. **The Salt Road ledger
+contains no `player_known` entries at all.** Its live scopes are `character: 6`, `world: 6`,
+`npc_belief: 3` — and all six `world` facts are things the party demonstrably knows:
+
+> *"The third wagon's load has a crate-sized gap in the packing straw"* — **Corin found that
+> herself.** *"A caravan guard has accused one of the teamsters"* — happened in front of
+> them. *"Brakewater is a waystation town on the salt flats"* — they are standing in it.
+
+The GM tagged them `world`, and it was **right to**: they are objectively true whether or
+not anyone knows them. But that they were *discovered* is then recorded nowhere. `world` and
+`player_known` are being used as one axis when they are two — "is this true" and "have the
+players found out" are independent, and every fact the party learns in play is both.
+
+The consequence is concrete and lands on the next task: a device would show the two
+backstories and **nothing about the situation the party is actually in.** Nothing is blocked
+— P6.3 can ship and show what the rule permits — but the screen will look thin until this is
+settled. Roughly:
+
+1. **Leave the scopes and change the prompt** — the GM tags `player_known` for anything it
+   narrates to the table's face. Cheapest. Risks the mirror-image error: a genuinely
+   undiscovered fact mis-tagged as known, which fails in the dangerous direction.
+2. **Add a second axis** — `discovered: bool` (or a `discovered_in` session id) on
+   `CanonEntry`, so truth and discovery stop competing for one field. A D-008 amendment plus
+   a schema change, and it gives Phase 7 a real "what does the party know" measurement it
+   does not currently have.
+3. **Infer it** — treat a `world` fact carrying a `session`/`turn` stamp as discovered, since
+   seeded canon has neither. Cheap, no schema change, and *mostly* right. I would argue
+   against it: "mostly right" about who can see a secret is the wrong kind of mostly, and it
+   is exactly the guess this task exists to stop the code making.
+4. **Show `world` too.** Wrong, and named only to be rejected: it would put undiscovered
+   canon on a screen, which is the whole thing P6.2 prevents.
+
+**My view is (2)**, and I have not built it — it changes the canon model, which is D-002's
+territory. (1) is a reasonable interim and reversible in a prompt edit.
+
+### Known issues
+
+- **The view is the table's, not each player's.** Every device sees the same thing, which is
+  what the hot-seat CLI has always shown and what a physical table has always been. Two
+  devices make per-player secrecy *possible* for the first time — a note passed to the GM, a
+  character's private knowledge — and that is a design question rather than an
+  implementation one. Not urgent; nothing needs it yet.
+- **No cost, no sheets, no dice detail in the view.** Deliberate: a device showing the
+  table's state is not a sheet viewer, and the one that wants to be can be asked for
+  explicitly rather than arriving by accident.
+- **Nothing has been served over HTTP yet.** Two tasks now with no new capability. P6.3 is
+  where it becomes visible, and it is the last one that could be written without a server.
+
+### Recommended next task
+
+**P6.3 — the mirror**: FastAPI plus SSE, read-only, serving this view to a browser. The
+first task in the phase that produces something you can look at, and it needs the `web`
+extra installed (`fastapi`, `uvicorn`).
+
+Carried, all four still open and none blocking: the change-of-mind trigger; whether the GM
+should voice PCs; whether a `blocked` line costs the turn; whether a closed save restores
+the turn window. Plus P6.4's identity question and the scope question above.
+
+Still not code: **an evening with Kelly and Sam at the Brakewater crossroads.**
 
 ---
 

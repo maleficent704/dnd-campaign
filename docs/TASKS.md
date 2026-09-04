@@ -563,6 +563,23 @@ CLI and the whole suite still run without them — the same posture `anthropic` 
   rather than filtered out of it, and asserted on the serialised bytes. P4.1's discipline
   on a fifth surface, and the first one where a leak reaches a device the GM is not
   holding.
+  *(Done 2026-09-03 (h). `web/view.py` — frozen, `extra="forbid"` pydantic types, and
+  `CanonLedger.for_players`, which is `for_npc`'s sibling: an allow-list, so a scope added
+  to this project later is invisible to a screen until somebody decides otherwise. Three
+  things are absent from the *type* rather than filtered from a payload: there is no
+  `scope` field anywhere, no cast (so an NPC's author notes and knowledge scopes have no
+  route at all — a character reaches a device only by having said something out loud), and
+  no belief register. Narration is read from the turn window, never from a `GMResponse`:
+  `Turn.narration` has been through `_clean` and a response has not, and a response holds
+  `[[CANON: gm_only — ...]]` in plain text. Every assertion is made on
+  `model_dump_json()`, because an attribute nobody reads is not a leak and a string in the
+  bytes is. A pinned test enumerates `CanonScope` and fails when a new scope exists that
+  nobody has decided about. Verified against the real campaign: 9 withheld entries and 3
+  cast notes, **0 in the bytes**. Also collapsed `_player_known` into `for_players` — it
+  was a second copy of the same scope test, which is the shape of thing that drifts.
+  **Finding, tagged FOR DESIGN: the real ledger has no `player_known` entries at all**, and
+  the six facts the party demonstrably established are filed `world`. Truth and discovery
+  are independent questions and the scope forces one answer.)*
 - **P6.3** The mirror: FastAPI app plus an SSE stream, read-only. A browser watching a
   live session — narration, dialogue, mechanics, party condition. Playable value on its
   own (Sam's phone showing the scene while Kelly plays hot-seat) and it proves the

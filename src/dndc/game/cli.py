@@ -1582,16 +1582,12 @@ def _pronouns(campaign) -> dict[str, str]:
 def _player_known(ledger) -> list[str]:
     """What the players already know, and only that.
 
-    `player_known` is what the sweep files from play, `character` is what co-creation
-    wrote about their own people. World canon is deliberately excluded even though it is
-    true: the ledger is the world, not the party's notes, and a fact being in it does not
-    mean anybody has discovered it. `gm_only` never comes near this call.
+    One rule, one place: `for_players` is the ledger's own allow-list (P6.2), and the
+    recap and a browser must not be able to disagree about what the table knows. This
+    used to be a second copy of the same scope test, which is precisely the shape of
+    thing that drifts.
     """
-    return [
-        entry.text
-        for entry in ledger.active()
-        if entry.scope in {CanonScope.PLAYER_KNOWN, CanonScope.CHARACTER}
-    ]
+    return [entry.text for entry in ledger.for_players()]
 
 
 def _run_recap(
