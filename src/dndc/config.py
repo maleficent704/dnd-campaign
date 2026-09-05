@@ -133,6 +133,16 @@ EVERY_INTERFACE = "0.0.0.0"
 DEFAULT_WEB_HOST = LAN
 DEFAULT_WEB_PORT = 8765
 
+#: The LAN gate's shared token (P6.7b, Kelly 2026-09-04). Environment only, never
+#: config.yaml — that file is committed, and a token in it would be a committed secret.
+#: Reaches a container through `env_file:`, the way `the-room` takes `ROOM_TOKEN`.
+WEB_TOKEN_ENV = "DNDC_WEB_TOKEN"
+#: Set by the deployment to say "this exposure is bigger than one evening on the LAN", so
+#: that a missing token is a refusal to start rather than a service that comes up ungated.
+WEB_REQUIRE_TOKEN_ENV = "DNDC_WEB_REQUIRE_TOKEN"
+#: Short enough to guess is worse than absent: it reads as a control while being one.
+MIN_WEB_TOKEN = 16
+
 
 class WebConfig(_Strict):
     """Where the Phase 6 GUI listens (P6.6).

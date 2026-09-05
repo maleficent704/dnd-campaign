@@ -35,13 +35,22 @@ looked at the UI 2026-09-03 and approved it.** P6.6 changed the bind default fro
 interface to the LAN address — the old one published an unauthenticated GUI to the
 tailnet — and wrote `docs/LAN-ACCESS.md`. **Only P6.7 (hosting) is left in Phase 6**,
 split 2026-09-05 into **a** (campaigns path — done), **b** (the server owns the session),
-**c** (the deployment). **Nothing ruled is unbuilt.**
+**c** (the deployment); **b** split again into **i** the gate (done 2026-09-05 (b)),
+**ii** session construction leaving the CLI, **iii** the lifecycle.
+**Nothing ruled is unbuilt.**
 
 **Kelly ruled 2026-09-04, now recorded in `docs/LAN-ACCESS.md`: the LAN gate is a fixed
 token in the gitignored `.env`**, matching `the-room`'s `ROOM_TOKEN` — not the per-session
 code that file used to recommend, which would have made a family re-read a code off a
-terminal every evening for a page they are meant to bookmark. Built in P6.7b; an absent
-token must refuse to start rather than run ungated. She also confirmed the VM's Claude Code
+terminal every evening for a page they are meant to bookmark. **Built 2026-09-05 (b)** as
+`web/gate.py` — on every route including the event stream, which is what made it a cookie.
+
+> **One deviation wants Kelly's eye, non-blocking.** "An absent token must refuse to start"
+> is applied to a `0.0.0.0` bind, `--require-token` and `DNDC_WEB_REQUIRE_TOKEN` — not to a
+> plain `dndc play --serve` on the LAN, which stays open the way every other service in
+> this house is, because forcing a key on the evening she and Sam actually play would cost
+> something and buy nothing. Setting `DNDC_WEB_TOKEN` turns it on there too. If that
+> narrowing is wrong it is one line in `_web_gate`. See the 2026-09-05 (b) entry. She also confirmed the VM's Claude Code
 install is on the same Max login, so the GM seat exists on that box — what is still open is
 how the *container* reaches it (CLI in the image + credential mount, or `api` with a key),
 which is P6.7c's.
@@ -455,6 +464,128 @@ the drift instrument's own log is a finding worth the two-line fix.
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-09-05 (b) — P6.7b-i: the key, and the route that made it a cookie (Claude Code, kelly-pc)
+
+**P6.7b split into three** on the same reasoning that split P6.7: **i** the gate, **ii**
+session construction leaving the CLI, **iii** the lifecycle. This is **i**. The middle one
+is a pure refactor that must change nothing observable, and that is precisely why it should
+be a commit on its own rather than riding along with new behaviour.
+
+### What was built
+
+Kelly's ruling (2026-09-04): a fixed token in the gitignored `.env`, matching `the-room`'s
+`ROOM_TOKEN`. `web/gate.py` is that. `DNDC_WEB_TOKEN`, environment only and never
+`config.yaml` — that file is committed, and a token in it would be a committed secret,
+which is the one house rule that does not bend.
+
+Checked on **every** route that carries the campaign: `GET /`, `GET /api/table`,
+`GET /api/events`, `POST /api/turn`, `POST /api/answer`. Bearer headers are accepted the
+way `the-room` accepts them, compared with `hmac.compare_digest`, and a wrong token gets
+byte-for-byte the same answer as no token — telling those apart is free reconnaissance and
+buys a legitimate device nothing. The gate is checked **before** the floor, so a stranger
+is told 401 rather than "it is not your turn", which would otherwise confirm that a session
+exists and whose turn it is.
+
+### The design turns on the event stream
+
+The obvious implementation gates the two `POST`s and stops. That would have been a gate on
+the door of a room with no wall: **a browser cannot put an `Authorization` header on an
+`EventSource`**, and the narration is what flows down the stream. So an unauthenticated
+`/api/events` would have handed a stranger the entire evening in real time while the write
+routes politely refused them.
+
+Hence a cookie. `?k=…` on the page once — which is the bookmark Kelly asked for — and the
+page's own `fetch` and `EventSource` calls carry it from then on, because they are
+same-origin and relative. **The page's network code did not have to change at all**, which
+is the tell that the seam was in the right place. `HttpOnly` (nothing in the page reads
+it), `SameSite=Lax`, one year, because a key that quietly expires is the per-session code
+arriving by the back door.
+
+### Deviation, and it is a real one — flagged rather than buried
+
+I recorded Kelly's ruling as "an absent token must refuse to start rather than run
+ungated." **I did not apply that to a plain `dndc play --serve` on the LAN, and that is a
+deliberate narrowing of what I wrote down.**
+
+Where the hard refusal *does* apply: a `0.0.0.0` bind, `--require-token`, or
+`DNDC_WEB_REQUIRE_TOKEN=1` — which is what the container will set. Those are the exposures
+that are bigger than an evening, and P6.6 measured the first one reaching a phone on
+cellular. The refusal is pre-flighted in `_cmd_play` so it lands *before* the recap runs
+rather than after the table has waited on a 70B; refusing should cost nothing.
+
+Where it does not: an evening bound to the LAN, lasting as long as somebody is in the room,
+started by that somebody. That is the posture this house has chosen for every service it
+runs, P6.6 documented it, and forcing a key there would have broken the evening Kelly and
+Sam actually play in exchange for nothing. Setting `DNDC_WEB_TOKEN` turns the key on there
+too, and the startup line always says which of the two you got.
+
+**Kelly: if that reading is wrong, it is one line in `_web_gate` to make a key mandatory
+everywhere.** I am flagging it because narrowing a ruling is not mine to do quietly.
+
+### A bug worth keeping, because it would have shipped silently
+
+`from __future__ import annotations` in `web/app.py` broke every route the moment one took
+a `Request`. FastAPI resolves a route's annotations **by name against the module's
+globals**, and `Request` is imported *inside* `build_app` so that fastapi stays off the
+import path of `dndc roll`. With postponed evaluation the annotation is a string that
+resolves to nothing, and FastAPI reads `request: Request` as a **body field** — so every
+route still answered, with the wrong thing. 27 tests caught it, but only because they
+assert on content; a suite that checked status codes would have gone green. The module now
+carries a comment saying why it is the one file in the project without that import.
+
+### Verified live, on a real socket
+
+The suite is 1601 (from 1565; 36 new). But the gate is HTTP-layer, so the check that counts
+was a real uvicorn bind and a browser-like client — deliberately without a GM session,
+because a paid evening would have added nothing to this particular claim:
+
+```
+anonymous     GET /  /api/table  /api/events  POST /api/turn   -> 401, 401, 401, 401
+wrong key     GET /api/table                                   -> 401
+bearer header GET /api/table                                   -> 200
+?k= once      GET /?k=…   set-cookie: HttpOnly; SameSite=lax; Path=/; Max-Age=31536000
+then cookie   GET /api/events                                  -> 200, carried the table
+then cookie   POST /api/turn                                   -> 202
+```
+
+The load-bearing test is `test_no_route_on_a_guarded_app_answers_an_anonymous_request`: it
+walks the app's **own route table** rather than a list written by hand, so a route added in
+P6.7b-iii or P6.7c that forgets the gate fails this file instead of shipping. A gate is
+worth what its least protected route is worth.
+
+### Known issues
+
+- **The deviation above wants Kelly's eye**, though nothing is blocked either way.
+- `--watch-only` is still a flag rather than a property of the URL. P6.7b-iii.
+- The recap's scene question is still terminal-only. P6.7b-iii.
+- The committed campaign state (`canon.yaml`, `npcs.yaml`, the sheets) is **still
+  committed** — carried from this morning's entry, deferred to P6.7c with its destination.
+- **The human half of P6.6 is still not done and I still cannot do it.**
+- A throwaway probe of mine reported an empty cookie jar; the cookie is well-formed
+  (`http.cookiejar`'s own policy accepts it against IP, localhost and domain hosts, and two
+  independent clients keep and resend it), so that was a defect in my scratch script and
+  not in the product. Noted rather than chased.
+
+### FOR DESIGN
+
+None new and nothing blocking. Carried unchanged: the change-of-mind trigger; whether the
+GM should voice PCs; whether a `blocked` line costs the turn; whether a closed save
+restores the turn window; and the (h) truth-vs-discovery scope question.
+
+### Recommended next task
+
+**P6.7b-ii — session construction leaves the CLI.** `_cmd_play` does ~120 lines of setup
+(campaign, billing, backend, log, recap, voice, SRD, inventory, engine, session) before it
+reaches its loop, and every line of it is currently reachable only through a `Console`. A
+browser cannot start an evening until that is a function. P6.1 is the precedent and the
+warning both: one loop, because two would drift silently — and the same is true of two ways
+to *build* one. It should be a commit where every existing test passes unchanged, because
+nothing observable is supposed to move.
+
+Still not code: **an evening with Kelly and Sam at the Brakewater crossroads.**
 
 ---
 

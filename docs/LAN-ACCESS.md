@@ -31,6 +31,11 @@ None of that is a defect. It is what "a browser can play" means, and it is the r
 for a family on one network. It is written down because the size of the trust boundary
 should be a decision and not a discovery.
 
+**P6.7b added a key, and a key is not a login.** It decides whether a device may reach the
+port at all; it decides nothing about who that device is. Everyone holding it is the same
+person as far as this server is concerned, so every line above is still true of every
+device that gets in. What changed is the *door*, not the room.
+
 ## What is out of reach, and why
 
 These hold structurally rather than by policy, which is the only kind worth writing down:
@@ -109,15 +114,23 @@ machine. The commands are in `race-control/docs/operations/lan-only-services.md`
 
 | You want | Set |
 |---|---|
-| the other sofa, and nothing else | nothing — `host: lan` is the default |
+| the other sofa, and nothing else | nothing — `host: lan` is the default, and open |
 | just to look at it yourself | `--serve-host 127.0.0.1` |
 | a screen that cannot play | `--watch-only` — no write route is built |
-| the tailnet on purpose (phone, away from home) | `--serve-host 0.0.0.0`, and read the rest of this file first |
+| a key on the LAN as well | `DNDC_WEB_TOKEN=…` in `.env`; enforced as soon as it is set |
+| to be sure a key is enforced | `--require-token` — refuses to start without one |
+| the tailnet on purpose (phone, away from home) | `--serve-host 0.0.0.0` — **now requires a key**, and read the rest of this file first |
 
-A wildcard bind is still allowed and still one flag away. It announces itself: the startup
-line says *every interface, the tailnet included*, and says there is no login. Making the
-unsafe thing loud is better than making it impossible, because the safe default is what
-people actually get.
+A wildcard bind is still allowed and still one flag away, but it is no longer allowed
+*bare*: since P6.7b it refuses to start without a key, because that is the bind P6.6
+measured reaching a phone on cellular. It still announces itself — the startup line says
+*every interface, the tailnet included*, and says a key is not a login. Making the unsafe
+thing loud is better than making it impossible; making the *widest* thing conditional is
+better than either.
+
+Setting `DNDC_WEB_TOKEN` is enough to turn the key on everywhere. Leaving it unset keeps an
+evening on the LAN open, which is what it has always been and what this house does with
+every other LAN service — the startup line says which of the two you got, every time.
 
 ## What changes at P6.7
 
@@ -159,16 +172,32 @@ reason is worth keeping, because the earlier recommendation was worse for the ac
 > evening to start. A fixed token is one bookmark, forever, and it is already the shape
 > this house uses.
 
-What that means for P6.7b, where it gets built:
+### What P6.7b built
 
-- The token lives in `.env` (gitignored) and reaches the container through `env_file:`,
-  never inline in `docker-compose.yml` and never in the image.
-- **Absent token → refuse to start**, not "run without a gate". A service that silently
-  drops its only control is the P6.6 firewall again: it reports success and protects
-  nothing.
-- Checked on `POST /api/turn`, `POST /api/answer` and `GET /api/events`. A read of `GET /`
-  handing out the shell is not the boundary — the stream is, because that is where the
-  narration actually flows.
-- It is **not** a login and must never be described as one. There is still no identity
-  here: everyone who has the token is the same person as far as this server knows, which
-  is the whole of "There is no login" above, unchanged.
+- The token lives in `.env` (gitignored) as `DNDC_WEB_TOKEN` and reaches a container
+  through `env_file:` — never inline in `docker-compose.yml`, never in the image, never in
+  `config.yaml`, which is committed. Generate one with
+  `python -c "import secrets; print(secrets.token_urlsafe(24))"`.
+- Checked on **every** route that carries the campaign: `GET /`, `GET /api/table`,
+  `GET /api/events`, `POST /api/turn`, `POST /api/answer`. The test that enforces this
+  walks the app's own route table rather than a list somebody maintains, so a route added
+  later cannot arrive ungated without failing the suite.
+- **The stream is the one that mattered.** A browser cannot put an `Authorization` header
+  on an `EventSource`, and the narration flows down the stream — so gating the write
+  routes and leaving the stream open would have been a gate on the door of a room with no
+  wall. Hence the cookie: `?k=…` once, and the page's own `fetch` and `EventSource` calls
+  carry it from then on, being same-origin. `HttpOnly`, `SameSite=Lax`, one year.
+- A token may also arrive as `Authorization: Bearer …`, which is what `the-room` takes and
+  what a script should use. Compared with `hmac.compare_digest`, and a wrong token gets
+  exactly the same answer as no token — telling those apart is free reconnaissance.
+- The gate is checked **before** the floor is, so a stranger is told 401 rather than
+  "it is not your turn", which would leak that a session exists and whose turn it is.
+
+**Where "refuse to start" applies, and where it deliberately does not.** The ruling said an
+absent token should refuse rather than run ungated, and that is what a wildcard bind, a
+`--require-token`, or `DNDC_WEB_REQUIRE_TOKEN=1` now do — the refusal happens before the
+recap runs, so it costs nothing. It is **not** applied to a plain `dndc play --serve` on
+the LAN. That evening is bound to one interface, lasts as long as somebody is in the room,
+and is the posture this house has chosen for every service it runs; forcing a key there
+would have broken the evening Kelly and Sam actually play in exchange for nothing. If that
+reading is wrong, one line in `_web_gate` makes a key mandatory everywhere.

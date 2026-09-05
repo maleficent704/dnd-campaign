@@ -734,10 +734,38 @@ CLI and the whole suite still run without them — the same posture `anthropic` 
     local directory with no backup, which is strictly worse than committed. The move goes
     with the volume and the NAS mirror timer. See the 2026-09-05 entry in PROGRESS.md.*
 
-  - **P6.7b — the server owns the session.** A session manager and lifecycle so a browser
-    can start and end an evening, a start screen, and the **fixed `.env` token**
-    (Kelly, 2026-09-04; `docs/LAN-ACCESS.md`) on the write routes and the event stream.
-    Absent token must refuse to start rather than run ungated.
+  - **P6.7b — the server owns the session.** Split again on 2026-09-05, on the same
+    reasoning: the gate, the extraction and the lifecycle fail differently, and the middle
+    one should be a commit that changes nothing observable.
+
+    - **i — the gate.** The fixed `.env` token (Kelly, 2026-09-04; `docs/LAN-ACCESS.md`)
+      on every route that carries the campaign.
+
+      *(Done 2026-09-05 (b). `web/gate.py`: `DNDC_WEB_TOKEN` from `.env`, never
+      `config.yaml`, which is committed. Checked on `GET /`, `/api/table`, `/api/events`
+      and both `POST`s — and the test that says so **walks the app's own route table**
+      rather than a list somebody maintains, so a route added in iii or P6.7c cannot
+      arrive ungated without failing the suite. The design turns on the stream: a browser
+      cannot put an `Authorization` header on an `EventSource`, and the narration flows
+      there, so gating the writes alone would have been a gate on the door of a room with
+      no wall — hence a cookie, set from `?k=…` once, which the page's own same-origin
+      `fetch` and `EventSource` calls then carry without knowing the gate exists. Bearer
+      headers work too, for scripts and to match `the-room`. `hmac.compare_digest`; a
+      wrong token answered identically to none; the gate checked **before** the floor, so
+      a stranger gets 401 rather than "it is not your turn". **Required, not optional, for
+      the two big exposures** — a `0.0.0.0` bind, `--require-token`, or
+      `DNDC_WEB_REQUIRE_TOKEN` — and the refusal is pre-flighted so it lands before the
+      recap rather than after a 70B has been waited on. **Deliberately not required for a
+      plain LAN evening**: see the deviation note in the 2026-09-05 (b) PROGRESS entry.
+      36 tests, 1601 total; verified live against a real uvicorn socket.)*
+
+    - **ii — session construction leaves the CLI.** `_cmd_play`'s ~120 lines of setup
+      become console-free and reusable, the way P6.1 did for the loop. A pure refactor:
+      it must change nothing observable, which is exactly why it wants its own commit.
+
+    - **iii — the lifecycle.** A session manager so a browser can start and end an
+      evening, the start screen, and `--watch-only` becoming a property of the URL rather
+      than a flag on the command line. Needs i and ii.
 
   - **P6.7c — the deployment.** Dockerfile, `docker-compose.yml` bound to
     `192.168.50.46:<port>`, `deploy.sh`, `dndc-pull.timer`, backup + NAS mirror timers, a

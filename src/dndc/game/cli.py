@@ -50,6 +50,7 @@ from dndc.analysis import (
 from dndc.config import (
     EVERY_INTERFACE,
     LAN,
+    WEB_TOKEN_ENV,
     Billing,
     load_config,
     load_env_file,
@@ -105,8 +106,9 @@ from dndc.game.asking import (
 )
 from dndc.game.floor import WEB, Floor
 from dndc.gm.tagstream import TagStream
+from dndc.web.gate import TokenError, deployment_requires, resolve_gate
 from dndc.web.mirror import Mirror
-from dndc.web.server import Server
+from dndc.web.server import Server, is_everywhere
 from dndc.web.view import table_view
 from dndc.gm.canon import npc_issues
 from dndc.gm.gatekeeper import ControlCase, Gatekeeper, Verdict, run_control
@@ -2526,6 +2528,22 @@ class _MirroredNarration:
         self.mirror.settle()
 
 
+def _web_gate(cfg, args):
+    """The gate this evening will serve behind, or an open one (P6.7b).
+
+    A token is required when the exposure is bigger than one evening on the LAN: a
+    wildcard bind, which P6.6 measured reaches the tailnet, or a deployment that says so
+    (`DNDC_WEB_REQUIRE_TOKEN`, which P6.7c sets). Anything else keeps the posture this
+    house has chosen for every service on the LAN — open, and said out loud on the startup
+    line rather than assumed.
+    """
+    return resolve_gate(
+        required=is_everywhere(args.serve_host or cfg.web.host)
+        or getattr(args, "require_token", False)
+        or deployment_requires()
+    )
+
+
 def _start_mirror(console: Console, cfg, mirror: Mirror, args, floor=None) -> "Server | None":
     """Bring the sofa online, or explain why not and let the table play anyway.
 
@@ -2537,11 +2555,19 @@ def _start_mirror(console: Console, cfg, mirror: Mirror, args, floor=None) -> "S
     the table is told is the *exposure*, not the setting — "every interface" is a phrase
     that sounds smaller than it is on a machine that is also a tailnet node.
     """
+    host = args.serve_host or cfg.web.host
+    try:
+        gate = _web_gate(cfg, args)
+    except TokenError as exc:
+        console.print(f"[red]refusing to serve:[/red] {exc}")
+        return None
+
     server = Server(
         mirror,
-        host=args.serve_host or cfg.web.host,
+        host=host,
         port=args.serve_port or cfg.web.port,
         floor=floor,
+        gate=gate,
     )
     try:
         server.start()
@@ -2551,10 +2577,22 @@ def _start_mirror(console: Console, cfg, mirror: Mirror, args, floor=None) -> "S
         return None
     how = "read-only" if floor is None else "and playing from it"
     console.print(f"[green]from the sofa:[/green] {server.url}  [dim]({how})[/dim]")
+    if server.guarded:
+        # The token itself is not printed. It is fixed and it lives in `.env`, so echoing
+        # it every evening would put a live credential in scrollback and in any screenshot
+        # of a session, in exchange for saving one lookup that happens once.
+        console.print(
+            f"[dim]add ?k=… to that link — the key is {WEB_TOKEN_ENV} in .env[/dim]"
+        )
+    else:
+        console.print(
+            "[dim]no key: anyone who reaches this port is at the table "
+            "(docs/LAN-ACCESS.md)[/dim]"
+        )
     if server.everywhere:
         console.print(
             f"[yellow]bound to {EVERY_INTERFACE} — every interface, the tailnet "
-            f"included[/yellow] [dim](there is no login; docs/LAN-ACCESS.md)[/dim]"
+            f"included[/yellow] [dim](a key is not a login; docs/LAN-ACCESS.md)[/dim]"
         )
     return server
 
@@ -2605,6 +2643,16 @@ def _cmd_serve(console: Console, args: argparse.Namespace) -> int:
 def _cmd_play(console: Console, args: argparse.Namespace) -> int:
     """The hot-seat front end (P1.3, OD-4). The loop itself is `game/session.py`."""
     cfg = load_config()
+    if args.serve:
+        # Pre-flight, and the result is deliberately thrown away — `_start_mirror` resolves
+        # it again for real. The point is *when*: the mirror starts after the recap has
+        # run and the session has been built, so a refusal discovered there would arrive
+        # after the table had already waited on a 70B. Refusing should cost nothing.
+        try:
+            _web_gate(cfg, args)
+        except TokenError as exc:
+            console.print(f"[red]refusing to serve:[/red] {exc}")
+            return 1
     loaded = _gm_campaign_context(console, args)
     if loaded is None:
         return 1
@@ -3402,6 +3450,11 @@ def build_parser() -> argparse.ArgumentParser:
     play_flags.add_argument(
         "--serve-port", type=int,
         help="port to serve on (default: config.yaml web.port)",
+    )
+    play_flags.add_argument(
+        "--require-token", action="store_true",
+        help=f"refuse to serve without {WEB_TOKEN_ENV} in .env (P6.7b; implied by a "
+             f"{EVERY_INTERFACE} bind, and what the hosted service sets)",
     )
     play_flags.add_argument(
         "--serve-host",

@@ -21,6 +21,7 @@ from pydantic import ValidationError
 
 from dndc.config import (
     DEFAULT_WEB_HOST,
+    WEB_TOKEN_ENV,
     DEFAULT_WEB_PORT,
     EVERY_INTERFACE,
     LAN,
@@ -211,10 +212,12 @@ class Recorded:
 
     seen: list[tuple[str, int]] = []
 
-    def __init__(self, mirror, host, port, floor=None):
+    def __init__(self, mirror, host, port, floor=None, gate=None):
         Recorded.seen.append((host, port))
         self.host, self.port, self.floor = host, port, floor
+        self.gate = gate
         self.everywhere = host in WILDCARD
+        self.guarded = gate is not None and gate.guarded
         self.url = f"http://{host}:{port}"
 
     def start(self) -> None:
@@ -236,7 +239,7 @@ def start_mirror(recording, host=None, port=None, floor=None):
     from dndc.game import cli
 
     console = Console(record=True, width=100)
-    args = argparse.Namespace(serve_host=host, serve_port=port)
+    args = argparse.Namespace(serve_host=host, serve_port=port, require_token=False)
     server = cli._start_mirror(console, load_config(), Mirror(), args, floor)
     return server, console.export_text()
 
@@ -263,12 +266,28 @@ def test_one_flag_overrides_one_thing(recording):
     assert recording.seen == [(cfg.web.host, 9999)]
 
 
-def test_binding_every_interface_says_so_out_loud(recording):
+def test_binding_every_interface_without_a_key_refuses_to_serve(recording, monkeypatch):
+    """Changed by P6.7b, deliberately. P6.6 warned and played on; that was right while the
+    only exposure was an evening somebody started in the room, and it stopped being right
+    the moment the same flag could reach a phone on cellular. A wildcard bind is now one of
+    the two exposures that make the token mandatory."""
+    monkeypatch.delenv(WEB_TOKEN_ENV, raising=False)
+    server, printed = start_mirror(recording, host=EVERY_INTERFACE)
+
+    assert server is None
+    assert "refusing to serve" in printed
+    assert WEB_TOKEN_ENV in printed
+    assert recording.seen == []  # it never got as far as a socket
+
+
+def test_binding_every_interface_says_so_out_loud(recording, monkeypatch):
+    monkeypatch.setenv(WEB_TOKEN_ENV, "k" * 24)
     _, printed = start_mirror(recording, host=EVERY_INTERFACE)
 
     assert "every interface" in printed
     assert "tailnet" in printed
-    assert "no login" in printed
+    # The token is not authentication and the widest bind is where saying so matters most.
+    assert "not a login" in printed
 
 
 def test_the_usual_case_is_not_shouted_at(recording):
@@ -302,7 +321,7 @@ def test_a_mirror_that_will_not_start_is_not_fatal(monkeypatch):
 
     monkeypatch.setattr(cli, "Server", Refuses)
     console = Console(record=True, width=100)
-    args = argparse.Namespace(serve_host=None, serve_port=None)
+    args = argparse.Namespace(serve_host=None, serve_port=None, require_token=False)
 
     assert cli._start_mirror(console, load_config(), Mirror(), args, None) is None
     assert "did not start" in console.export_text()

@@ -33,12 +33,27 @@ def resolve_host(host: str) -> str:
     return lan_address() if cleaned.lower() == LAN else cleaned
 
 
+def is_everywhere(host: str) -> bool:
+    """Whether a configured host means every interface — the tailnet included.
+
+    A module function rather than only a property, because the caller has to know this
+    *before* it builds a server: a wildcard bind is one of the two exposures that make the
+    P6.7b token mandatory, and refusing to start is not something to discover after the
+    socket is open.
+    """
+    return resolve_host(host) in WILDCARD
+
+
 class Server:
     """A uvicorn instance in a thread, and the address to tell people about."""
 
-    def __init__(self, mirror: Mirror, host: str, port: int, floor=None) -> None:
+    def __init__(self, mirror: Mirror, host: str, port: int, floor=None, gate=None) -> None:
         self.mirror = mirror
         self.floor = floor
+        #: The LAN gate (P6.7b), or None for an open table. Resolved by the caller,
+        #: because whether a token is *required* is a fact about the exposure and the
+        #: deployment, not about this class.
+        self.gate = gate
         #: What was asked for (`lan`, an address, `0.0.0.0`) — kept so a message can say
         #: what the table chose rather than only what it resolved to.
         self.requested = host
@@ -57,13 +72,18 @@ class Server:
         """True when this is bound to every interface — the tailnet included."""
         return self.host in WILDCARD
 
+    @property
+    def guarded(self) -> bool:
+        """True when a token is needed to reach this (P6.7b)."""
+        return self.gate is not None and self.gate.guarded
+
     def start(self) -> None:
         import uvicorn
 
         from dndc.web.app import build_app
 
         config = uvicorn.Config(
-            build_app(self.mirror, self.floor),
+            build_app(self.mirror, self.floor, self.gate),
             host=self.host,
             port=self.port,
             log_level="warning",
