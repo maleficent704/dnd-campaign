@@ -33,8 +33,18 @@ an evening, take a turn in it, answer the confirmations that end it, and end it*
 (`dndc serve`, or `dndc play --serve`; `--watch-only` for a spectator link). **Kelly
 looked at the UI 2026-09-03 and approved it.** P6.6 changed the bind default from every
 interface to the LAN address — the old one published an unauthenticated GUI to the
-tailnet — and wrote `docs/LAN-ACCESS.md`. **Only P6.7 (hosting) is left in Phase 6.**
-**Nothing ruled is unbuilt.**
+tailnet — and wrote `docs/LAN-ACCESS.md`. **Only P6.7 (hosting) is left in Phase 6**,
+split 2026-09-05 into **a** (campaigns path — done), **b** (the server owns the session),
+**c** (the deployment). **Nothing ruled is unbuilt.**
+
+**Kelly ruled 2026-09-04, now recorded in `docs/LAN-ACCESS.md`: the LAN gate is a fixed
+token in the gitignored `.env`**, matching `the-room`'s `ROOM_TOKEN` — not the per-session
+code that file used to recommend, which would have made a family re-read a code off a
+terminal every evening for a page they are meant to bookmark. Built in P6.7b; an absent
+token must refuse to start rather than run ungated. She also confirmed the VM's Claude Code
+install is on the same Max login, so the GM seat exists on that box — what is still open is
+how the *container* reaches it (CLI in the image + credential mount, or `api` with a key),
+which is P6.7c's.
 
 **Kelly, 2026-09-03: host it on the VM** like chat-archive, scrapbook and pit-wall,
 rather than needing a terminal on her PC. Agreed and added as **P6.7** — the house
@@ -445,6 +455,139 @@ the drift instrument's own log is a finding worth the two-line fix.
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-09-05 — P6.7a: the campaign stops living where the code lives (Claude Code, kelly-pc)
+
+**P6.7 split into three** before starting it, because the pieces fail differently and only
+one of them needs the VM: **a** the campaigns path, **b** the server owning the session,
+**c** the deployment. This is **a**, which touches no VM state at all — chosen deliberately
+while another session was building a container on the box, and still the right first move
+now that it isn't, because a volume is worth nothing until something can be pointed at it.
+
+### What was actually wrong
+
+`default_campaigns_root()` was `Path(__file__).resolve().parents[3] / "campaigns"`. That is
+not a default — it is a fact about the machine holding the checkout, asserted as though it
+were true everywhere. It is exactly wrong for the thing P6.7 is for: a container's data
+lives in a mounted volume, and an image path cannot know where that is.
+
+Resolution now runs through `configured_campaigns_dir()`:
+
+```
+DNDC_CAMPAIGNS_DIR  >  config.yaml campaigns.dir  >  campaigns/ beside the code
+```
+
+**The environment wins over config on purpose.** The volume a container mounts is a fact
+about the deployment, not about the image, and `env_file:` is the lever the house already
+uses for exactly this (`the-room`, `scrapbook`). It also matches `load_env_file`, where a
+real environment variable always beats a file. A relative path still resolves against the
+repo, absolute is taken as given, `~` expands — the same rule `resolve_log_dir` has used
+for `logging.dir` since Phase 0, so there is one rule in this project and not two.
+
+### The decision worth defending: where the resolution happens
+
+`campaign.py` has had a `root: Path | None` parameter threaded through `campaign_dir`,
+`SaveStore.for_campaign`, `CanonStore.for_campaign` and `Chronicler.for_campaign` since
+P0.3, and the obvious move was to fill it in from config at the CLI. **I didn't, and the
+reason is the shape of the failure.** The CLI reaches `campaign_dir()` from about twenty
+places that pass no root. Threading it means twenty edits, and a call site that got missed
+would not raise: it would resolve to `campaigns/` *inside the image*, find no campaign
+there, and cheerfully offer to create one. An evening lost while the program reports
+success is the same defect P6.6 found in the bind address — a control that reports it
+worked and protected nothing — and it takes the same fix, which is a single resolution
+point with nothing to bypass. The `root=` parameter stays as the explicit override for
+tests and library callers, where an argument in front of you is not something you can
+forget.
+
+Two smaller calls in the same spirit: a **missing** config.yaml falls back to the default,
+because a checkout without one is still a usable library; an **invalid** config.yaml
+raises, because silently choosing a directory for someone's saves is the failure mode this
+task exists to remove. And `campaigns.dir: ""` is refused at validation — it would resolve
+to the repo root and scatter campaign directories through the checkout rather than failing.
+
+### Verified in the product, not only in tests
+
+15 new tests (1549 → **1564**, suite still offline, 6.6s). But the load-bearing check was a
+real command with the override set:
+
+```
+DNDC_CAMPAIGNS_DIR=<a temp dir>  dndc new-campaign "Root Check"    -> created outside the repo
+DNDC_CAMPAIGNS_DIR=<a temp dir>  dndc campaigns                    -> lists only Root Check
+                                 git status --porcelain campaigns/ -> clean
+                                 dndc campaigns (unset)            -> the real two, unchanged
+```
+
+The pinned tests are `test_the_shipped_config_still_points_beside_the_code` (nothing has
+moved yet) and `test_the_repo_is_untouched_while_the_override_is_in_force` (the whole point
+— an evening on the VM must not write into a checkout).
+
+### A finding I did not act on, on purpose
+
+**`campaigns/*/saves/` is gitignored, but `canon.yaml`, `npcs.yaml`, the chronicle and the
+character sheets are committed.** The canon ledger is the campaign's memory and grows every
+session; that is game state in a code repo, and Kelly's standing rule sends game saves to
+the NAS rather than into git. The split as it stands — "saves are data, everything else is
+code" — is wrong about what a campaign is.
+
+I did not evict them, and this is a sequencing judgement rather than an oversight. Moving
+them today would take Kelly's live campaign out of the one place currently backing it up
+(git, pushed to GitHub) and put it in an untracked local directory with **no** backup,
+because the volume, the backup timer and the NAS mirror timer do not exist until P6.7c.
+That is strictly worse. The eviction goes with its destination. Recorded in TASKS.md
+against P6.7c so it cannot quietly not happen.
+
+### Two things recorded rather than built
+
+- **Kelly ruled on the gate (2026-09-04): a fixed token in `.env`, matching `the-room`'s
+  `ROOM_TOKEN`.** `docs/LAN-ACCESS.md` had this as an open question and recommended a
+  *per-session* code; that recommendation was worse for the actual use and the file now
+  says so — a rotating code has to be read off a terminal and re-sent to two people every
+  evening, on a page a family is meant to bookmark, and it optimises against an attacker
+  who does not exist here at the cost of the thing that made hosting worth doing. The
+  section is now **Settled**, with what P6.7b has to build: token from `env_file:`, checked
+  on both write routes *and* the event stream, **absent token refuses to start** rather
+  than running ungated, and never described as a login, because there is still no identity
+  here.
+- **Port re-confirmed on the VM (read-only):** `:8090` and `:8093` both still free,
+  `~/services/` unchanged at four services. **`:8093`** stands — `the-room` already
+  rejected `:8090` in writing ("a number that already means something else on another host
+  is a number someone will misread"), and following house precedent beats re-litigating it.
+
+### Known issues
+
+- **The committed campaign state is still committed.** Deferred to P6.7c with its
+  destination, as above. This is the one item that will look like an omission later, so it
+  is written in two places.
+- **The human half of P6.6 is still not done and I still cannot do it** — Kelly and Sam, two
+  real screens, two rooms.
+- `--watch-only` is still a flag on the command line rather than a property of the URL.
+  P6.7b is where that changes.
+- The recap's scene question is still terminal-only (P6.5's named cut). P6.7b dissolves it.
+- `configured_campaigns_dir()` re-reads config.yaml per call rather than caching. Measured
+  as irrelevant — `campaign_dir()` is setup-path only, never per-turn, and the CLI already
+  calls `load_config()` fourteen times — but noted so nobody has to re-derive it.
+
+### FOR DESIGN
+
+None new, and nothing blocking. Carried unchanged: the change-of-mind trigger; whether the
+GM should voice PCs; whether a `blocked` line costs the turn; whether a closed save restores
+the turn window; and the (h) truth-vs-discovery scope question.
+
+The LAN gate question that was open for **Kelly** is now closed by her, and recorded.
+
+### Recommended next task
+
+**P6.7b — the server owns the session.** It is the only piece left that is real design
+rather than plumbing: a session manager and lifecycle so a browser can start and end an
+evening (P6.1's `PlaySession` is already headless, which is what makes this small), a start
+screen, and the fixed-token gate on the write routes and the event stream. It needs nothing
+from the VM either, so P6.7c can stay last. Two P6.5/P6.6 leftovers fall out of it for free:
+the recap's scene question stops being terminal-only, and `--watch-only` can become a
+property of the URL instead of a flag someone has to remember.
+
+Still not code: **an evening with Kelly and Sam at the Brakewater crossroads.**
 
 ---
 

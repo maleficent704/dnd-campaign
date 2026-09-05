@@ -46,7 +46,8 @@ stream with per-turn cost telemetry.
 docs/                  DESIGN-DECISIONS.md, TASKS.md, PROGRESS.md,
                        LAN-ACCESS.md (what serving exposes), playtests/
 data/srd/              ingested SRD 5e structured data + LICENSE/attribution
-campaigns/             campaign + save state (data, not code)
+campaigns/             campaign + save state (data, not code; path from
+                       config `campaigns.dir` / $DNDC_CAMPAIGNS_DIR)
 src/dndc/
   models/              GMBackend (api, subscription adapters), ollama adapter, seats
   schema/              pydantic types: sheets, monsters, spells, canon entries, events

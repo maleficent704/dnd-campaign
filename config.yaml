@@ -67,6 +67,15 @@ web:                      # the LAN GUI (Phase 6) — `dndc serve`, or `dndc pla
                           # includes tailscale0 — a phone on cellular, from anywhere.
   port: 8765              # PC-side default. The VM slot is decided in P6.7.
 
+campaigns:                # where campaign state lives (P6.7a)
+                          # A campaign is DATA, not code: canon.yaml, the chronicle and
+                          # saves/ are what an evening produces and they grow every
+                          # session. Relative paths resolve against the repo, absolute
+                          # ones are taken as given — the same rule as logging.dir.
+  dir: campaigns/         # Override with DNDC_CAMPAIGNS_DIR, which wins over this line.
+                          # That is the container's lever: the volume it mounts is not
+                          # something a config baked into the image can know.
+
 logging:
   dir: logs/
   stamp_commit_sha: true

@@ -707,6 +707,52 @@ CLI and the whole suite still run without them — the same posture `anthropic` 
   Port: `:8090` looks free (`:8089` roundtable, `:8091` kids capture station) — **confirm
   on the box before claiming it**, as scrapbook and roundtable both did.
 
+  *(Split into three on 2026-09-05, because the three pieces fail differently and only one
+  of them needs the VM. Ordered so that each is shippable on its own.)*
+
+  - **P6.7a — campaign data leaves the repo.** The path, not the move: a `campaigns.dir`
+    config key with a `DNDC_CAMPAIGNS_DIR` override, defaulting to today's directory.
+    Touches no VM state.
+
+    *(Done 2026-09-05. `default_campaigns_root()` was `parents[3] / "campaigns"` — right
+    on the machine holding the checkout and wrong everywhere else, which is exactly what
+    a mounted volume is. Resolution now runs through `configured_campaigns_dir()`:
+    `DNDC_CAMPAIGNS_DIR` > `campaigns.dir` > `campaigns/`, with the environment winning
+    because the volume a container mounts is not something an image can know. **Resolved
+    at the one point every caller already goes through, not threaded down from the CLI**
+    — `campaign_dir()` is reached from about twenty call sites that pass no root, and one
+    that forgot would not fail: it would read an empty directory inside the image, find no
+    campaign, and offer to make a new one. Losing an evening while reporting success is
+    the P6.6 bind-address failure again, and it takes the same fix. A missing config.yaml
+    falls back; an invalid one raises. Verified end to end, not just in tests: with the
+    override set, `new-campaign` and `campaigns` ran entirely outside the checkout and
+    `git status campaigns/` stayed clean. 1564 tests.*
+
+    *Deliberately **not** done here: moving the existing campaigns. `canon.yaml`,
+    `npcs.yaml` and the character sheets are committed game state and should not be — but
+    evicting them before P6.7c exists would leave Kelly's live campaign in an untracked
+    local directory with no backup, which is strictly worse than committed. The move goes
+    with the volume and the NAS mirror timer. See the 2026-09-05 entry in PROGRESS.md.*
+
+  - **P6.7b — the server owns the session.** A session manager and lifecycle so a browser
+    can start and end an evening, a start screen, and the **fixed `.env` token**
+    (Kelly, 2026-09-04; `docs/LAN-ACCESS.md`) on the write routes and the event stream.
+    Absent token must refuse to start rather than run ungated.
+
+  - **P6.7c — the deployment.** Dockerfile, `docker-compose.yml` bound to
+    `192.168.50.46:<port>`, `deploy.sh`, `dndc-pull.timer`, backup + NAS mirror timers, a
+    lab-control-panel allowlist slot, race-control inventory. Also where the committed
+    campaign data is finally evicted, and where the GM seat's reach into the container is
+    settled (the VM's Claude Code install is on the same Max login — Kelly, 2026-09-04 —
+    but a container does not inherit the host's, so it needs the CLI in the image plus a
+    credential mount, or `api` with a key).
+
+    Port: **`:8093`**, not `:8090`. Both measured free on the VM (2026-09-04, re-confirmed
+    2026-09-05), but `~/services/the-room` already rejected `:8090` in writing — "a number
+    that already means something else on another host is a number someone will misread",
+    the host in question being this PC's retired dashboard, whose firewall rule outlived
+    it. Following house precedent rather than re-litigating it.
+
 ## Phase 7 — Research instrumentation
 
 Canon-drift metrics, ruling-fairness analysis over `gm_adjudication`, NPC

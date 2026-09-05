@@ -133,24 +133,42 @@ Three things follow, and belong in P6.7 rather than here:
   `ufw` does not filter Docker-published ports, so a firewall there reports "active, deny
   incoming" while the port stays wide open. A firewall that says active while the port
   answers is worse than none — it converts an unknown into a confident wrong belief.
-- **Then a shared code becomes worth it.** Not now: today the session is bounded by
-  someone starting it. My recommendation for P6.7 is the cheapest thing that matches the
-  actual threat — a per-session code in the URL (`/?k=…`), checked on the write routes and
-  on the event stream, printed in the terminal and regenerated per session. It stops "a
-  device that found the port" without asking a family to hold accounts. It is not
-  authentication and should not be described as any.
+- **A shared token, decided.** See *Settled* below. It is checked on the write routes and
+  on the event stream, and it is not authentication — it stops "a device that found the
+  port", which is the actual threat, and nothing else.
 - **Idle sessions end.** An always-on service that will happily hold an abandoned session
   open is how the money gets spent by accident.
 
 ---
 
-## Open, for Kelly
+## Settled (Kelly, 2026-09-04): a fixed token in `.env`
 
-**Is a code wanted at all, or is the LAN trusted?** Both are defensible and the house
-already leans one way — every service on the VM today is unauthenticated on the LAN, and
-that is a deliberate posture rather than an oversight. Matching it is a real option. The
-thing that makes this one different from pit-wall or the scrapbook is that a stranger on
-this port can **spend money and rewrite the campaign's canon**, which a dashboard cannot.
+The question was whether a code is wanted at all, given that every other service on the VM
+is unauthenticated on the LAN by deliberate posture. What makes this port different is that
+a device on it can **spend money and rewrite the campaign's canon**, which a dashboard
+cannot. Kelly's answer: **a fixed token in the gitignored `.env`, matching `the-room`'s
+`ROOM_TOKEN`.**
 
-Nothing is blocked either way; P6.6 does not need the answer, and P6.7 is where it costs
-something to have got wrong.
+This overrides the per-session code recommended above when this file was written, and the
+reason is worth keeping, because the earlier recommendation was worse for the actual use:
+
+> A rotating code has to be read off a terminal and re-sent to two people every evening —
+> on a page a family is meant to **bookmark**. It optimises against an attacker who does
+> not exist here (nobody is replaying yesterday's link) at the cost of the thing that made
+> hosting worth doing, which is that Kelly does not have to be at a keyboard for the
+> evening to start. A fixed token is one bookmark, forever, and it is already the shape
+> this house uses.
+
+What that means for P6.7b, where it gets built:
+
+- The token lives in `.env` (gitignored) and reaches the container through `env_file:`,
+  never inline in `docker-compose.yml` and never in the image.
+- **Absent token → refuse to start**, not "run without a gate". A service that silently
+  drops its only control is the P6.6 firewall again: it reports success and protects
+  nothing.
+- Checked on `POST /api/turn`, `POST /api/answer` and `GET /api/events`. A read of `GET /`
+  handing out the shell is not the boundary — the stream is, because that is where the
+  narration actually flows.
+- It is **not** a login and must never be described as one. There is still no identity
+  here: everyone who has the token is the same person as far as this server knows, which
+  is the whole of "There is no login" above, unchanged.

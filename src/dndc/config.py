@@ -163,6 +163,49 @@ class WebConfig(_Strict):
         return host
 
 
+#: Where campaigns live when nothing says otherwise: beside the code, as they have since
+#: P0.3. Relative paths resolve against the repo root, absolute ones are taken as given —
+#: the same rule `logging.dir` already follows.
+DEFAULT_CAMPAIGNS_DIR = "campaigns/"
+#: The deployment's lever (P6.7). A container gets its data directory from `env_file:`,
+#: not from a config baked into the image, so this wins over `campaigns.dir` — the same
+#: precedence `load_env_file` uses, where a real environment variable always wins.
+CAMPAIGNS_DIR_ENV = "DNDC_CAMPAIGNS_DIR"
+
+
+class CampaignsConfig(_Strict):
+    """Where campaign state is kept (P6.7a).
+
+    Defaulted rather than required, so a config written before this key existed still
+    loads and still points at the same directory it always did.
+
+    This exists because a campaign is **data**: the canon ledger, the chronicle and the
+    saves are what an evening produces, and they grow every session. Kelly's standing
+    rule sends game saves to the NAS rather than into a code repo, and until now this
+    project had no way to say where they go — the path was a `parents[3]` in
+    `game/campaign.py`, which is fine on the machine holding the checkout and wrong
+    everywhere else. A hosted service (P6.7) keeps its data in a volume that survives
+    the container being rebuilt, which is exactly the thing an image path cannot do.
+    """
+
+    dir: str = DEFAULT_CAMPAIGNS_DIR
+
+    @field_validator("dir")
+    @classmethod
+    def _a_directory_that_was_actually_named(cls, value: str) -> str:
+        """An empty string is the dangerous typo here, not a malformed one.
+
+        `dir: ""` resolves to the repo root itself, which would scatter campaign
+        directories through the checkout rather than failing.
+        """
+        directory = value.strip()
+        if not directory:
+            raise ValueError(
+                f"campaigns.dir is empty — use a path, e.g. {DEFAULT_CAMPAIGNS_DIR!r}"
+            )
+        return directory
+
+
 class LoggingConfig(_Strict):
     dir: str
     stamp_commit_sha: bool
@@ -183,6 +226,7 @@ class Config(_Strict):
     ollama_endpoints: dict[str, str] = Field(default_factory=dict)
     pricing: dict[str, PriceEntry] = Field(default_factory=dict)
     gameplay: GameplayConfig
+    campaigns: CampaignsConfig = Field(default_factory=CampaignsConfig)
     logging: LoggingConfig
     web: WebConfig = Field(default_factory=WebConfig)
 
