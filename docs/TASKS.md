@@ -763,6 +763,21 @@ CLI and the whole suite still run without them — the same posture `anthropic` 
       become console-free and reusable, the way P6.1 did for the loop. A pure refactor:
       it must change nothing observable, which is exactly why it wants its own commit.
 
+      *(Done 2026-09-06. `game/setup.py`: `build_evening(cfg, args, herald) -> Evening`.
+      The seam is `Herald` — `say`, `working`, `ask`, plus `can_ask` — which is the
+      three things setup ever did with a console plus the `isatty()` test that used to
+      sit inside `resolve_billing`. `ConsoleHerald` is a thin wrapper over
+      `console.print`/`Prompt.ask`, so the terminal is unchanged; `QuietHerald` is the
+      headless one and it **keeps** what it was told, because the recap and the NPC
+      warnings are the lines iii will want on a page. One contract changed on purpose:
+      `load_sheet` and `load_party` raise `SetupError` — carrying both the sentence and
+      the markup — instead of printing and returning `None`. **Verified as a claim about
+      output, not just a green suite**: against a worktree at `c449cdf`, seven failure
+      paths and a whole evening played to `/quit` produce byte-identical console output,
+      and the JSONL is identical event-for-event. Found and fixed a latent `NameError` in
+      `_warn_if_thrashing` — the one function here that built its own `Console` and so
+      had no seam — which no test had ever executed. 16 tests, 1617 total.)*
+
     - **iii — the lifecycle.** A session manager so a browser can start and end an
       evening, the start screen, and `--watch-only` becoming a property of the URL rather
       than a flag on the command line. Needs i and ii.

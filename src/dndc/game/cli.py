@@ -54,10 +54,8 @@ from dndc.config import (
     Billing,
     load_config,
     load_env_file,
-    save_billing_default,
 )
 from dndc.game.campaign import (
-    CHARACTERS_DIRNAME,
     CampaignError,
     campaign_dir,
     create_campaign,
@@ -69,8 +67,6 @@ from dndc.game.creation import (
     load_campaign_backgrounds,
     load_campaign_canon,
     load_campaign_npcs,
-    load_campaign_chronicle,
-    load_campaign_sheets,
     summarize,
 )
 from dndc.game.combatlog import CombatRecorder
@@ -83,13 +79,23 @@ from dndc.game.combatturn import (
 )
 from dndc.game.inventory import InventoryStore, describe_change, proposals_for
 from dndc.game.party import resolve_member
-from dndc.game.saves import Resume, SaveError, SaveStore
+from dndc.game.saves import Resume
 from dndc.game.session import (
     PlaySession,
     SessionError,
-    acting_member,
-    build_engine,
-    resume_from,
+)
+from dndc.game.setup import (
+    MAX_SEED,
+    SetupError,
+    _build_gate,
+    _pronouns,
+    _utility_backend,
+    _warn_if_thrashing,
+    build_evening,
+    load_party,
+    load_sheet,
+    resolve_billing,
+    start_session_log,
 )
 from dndc.game.turn import MAX_NPC_TURNS, TurnEngine
 from dndc.game.asking import (
@@ -111,31 +117,25 @@ from dndc.web.mirror import Mirror
 from dndc.web.server import Server, is_everywhere
 from dndc.web.view import table_view
 from dndc.gm.canon import npc_issues
-from dndc.gm.gatekeeper import ControlCase, Gatekeeper, Verdict, run_control
+from dndc.gm.gatekeeper import ControlCase, Verdict, run_control
 from dndc.gm.stance import StanceCase, StanceJudge, run_stance_control
-from dndc.game.beliefturn import StanceKeeper
 from dndc.game.npcturn import NPCVoice
 from dndc.gm.npcprompt import NPCPromptBuilder, NPCScene
 from dndc.gm.inventorytag import InventoryTag
 from dndc.gm import (
     DEFAULT_WINDOW,
     SCAFFOLDING_TEMPLATES,
-    CampaignContext,
-    CanonLedger,
     CanonScope,
     CreationPromptBuilder,
     GMPromptBuilder,
-    PartyMember,
 )
 from dndc.logging import SessionLog, git_commit_sha, resolve_log_dir
 from dndc.memory import (
     CHRONICLE_TEMPERATURE,
-    RECAP_TEMPERATURE,
     SWEEP_TEMPERATURE,
     CanonStore,
     CanonSweep,
     Chronicler,
-    Recapper,
     SweepProposal,
     cluster,
 )
@@ -143,7 +143,6 @@ from dndc.models import (
     BATCH_SEAT,
     GM_SEAT,
     INTERACTIVE_SEAT,
-    THROTTLE_WARNING,
     GMBackendError,
     OllamaRouter,
     RoutingError,
@@ -168,15 +167,12 @@ from dndc.rules.statblock import (
     weapons_for,
 )
 from dndc.rules.dice import Advantage, DiceError, roll, roll_d20
-from dndc.schema.campaign import slugify
-from dndc.schema.events import Cost, DiceRoll, GMNarration, RulesResolution, SeatInfo, SessionMeta
+from dndc.schema.events import Cost, DiceRoll, GMNarration, RulesResolution
 from dndc.schema.npc import NPCS_FILE
 from dndc.schema.sheet import SKILL_ABILITY, Ability, CharacterSheet, Skill
 from dndc.schema.srd import IngestScope
 from dndc.srd import SRDIngestError, ingest, load_dataset, validate_dataset, verify_pin
 from dndc.srd.repository import SRDRepository
-
-MAX_SEED = 2**32
 
 #: How often the loop looks up from the queue when a floor is in play. Short enough that a
 #: terminal going away is noticed promptly, long enough to cost nothing while an evening
@@ -193,102 +189,42 @@ DEFAULT_ANALYSIS_SEED = 20260815
 SCAFFOLDING_CHOICES = " | ".join(sorted(SCAFFOLDING_TEMPLATES))
 
 
-def _seats_for_meta(cfg) -> dict[str, SeatInfo]:
-    """Snapshot the resolved seats so a log says what actually ran."""
-    return {
-        "gm": SeatInfo(backend=cfg.seats.gm.backend, model=cfg.seats.gm.model_default),
-        "npc": SeatInfo(
-            backend=cfg.seats.npc.backend,
-            model=cfg.seats.npc.model,
-            endpoint=cfg.seats.npc.endpoint,
-        ),
-        # Both utility seats, keyed by the same names the `cost` rows use — a log that
-        # cannot say which of them ran cannot answer the question the split was made to
-        # answer (Fable, 2026-08-14).
-        INTERACTIVE_SEAT: SeatInfo(
-            backend=cfg.seats.utility_interactive.backend,
-            model=cfg.seats.utility_interactive.model,
-            endpoint=cfg.seats.utility_interactive.endpoint,
-        ),
-        BATCH_SEAT: SeatInfo(
-            backend=cfg.seats.utility_batch.backend,
-            model=cfg.seats.utility_batch.model,
-            endpoint=cfg.seats.utility_batch.endpoint,
-        ),
-    }
+@dataclass
+class ConsoleHerald:
+    """A terminal, told how the evening is coming together (P6.7b-ii).
 
+    Deliberately thin and meant to stay thin: every string reaching `say` is a rich
+    markup line that used to be a `console.print` in this file, which is why moving
+    construction into `game/setup.py` changed no terminal output. If this class ever
+    grows a decision, the decision is in the wrong place.
 
-def start_session_log(
-    cfg,
-    campaign: str | None = None,
-    seed: int | None = None,
-    billing: Billing | None = None,
-    resume: Resume | None = None,
-) -> SessionLog:
-    """Open a session log and write its `session_meta` header (D-008).
-
-    A `resume` that is *continuing* reopens the save point's own log rather than starting
-    a new one, and `SessionLog.open` picks `seq` up from the highest already on disk — the
-    npc-village rider, doing the job it was ported for. The second `session_meta` row in
-    that file is not a duplicate: the process restarted, and the commit, the seat and the
-    seed it restarted on are all free to have changed (D-008 item 27).
+    `can_ask` is the one piece of judgement here, and it belongs here: whether there is
+    somebody to put a question to is a fact about this terminal, not about billing.
     """
-    if resume is not None and resume.continuing and resume.log_path is not None:
-        log = SessionLog.open(resume.log_path.parent, session_id=resume.log_path.stem)
-    else:
-        log = SessionLog.open(resolve_log_dir(cfg.logging.dir))
-    sha, dirty = git_commit_sha() if cfg.logging.stamp_commit_sha else (None, False)
-    log.emit(
-        SessionMeta,
-        dndc_version=__version__,
-        commit_sha=sha,
-        dirty_worktree=dirty,
-        billing=(billing or cfg.billing.default).value,
-        campaign=campaign,
-        seats=_seats_for_meta(cfg),
-        gameplay={
-            "scaffolding": cfg.gameplay.scaffolding,
-            "play_mode": cfg.gameplay.play_mode,
-        },
-        seed=seed,
-        resumed_from=resume.session_id if resume is not None else None,
-        resumed_turns=resume.played if resume is not None else 0,
-    )
-    return log
 
+    console: Console
 
-def resolve_billing(
-    cfg,
-    console: Console,
-    requested: str | None = None,
-    ask: bool = True,
-    remember: bool = True,
-) -> Billing:
-    """Settle the billing path for this session (D-004).
+    @property
+    def can_ask(self) -> bool:
+        return sys.stdin.isatty()
 
-    `--billing` wins; otherwise ask, defaulting to the sticky value from config. The
-    answer becomes the new default, because household usage varies week to week and the
-    last choice is the best guess at the next one.
-    """
-    if requested is not None:
-        choice = Billing(requested)
-    elif ask and sys.stdin.isatty():
-        default = cfg.billing.default
-        console.print(
-            f"[bold]billing[/bold] — [cyan]api[/cyan] (metered, spend-capped) or "
-            f"[cyan]subscription[/cyan] (weekly Max pool)"
-        )
-        answer = Prompt.ask("  mode", choices=[b.value for b in Billing], default=default.value)
-        choice = Billing(answer)
-    else:
-        choice = cfg.billing.default
+    def say(self, text: str) -> None:
+        self.console.print(text)
 
-    if choice is Billing.SUBSCRIPTION:
-        console.print(f"[yellow]heads-up:[/yellow] {THROTTLE_WARNING}")
+    def working(self, text: str):
+        return self.console.status(text)
 
-    if remember and choice is not cfg.billing.default and save_billing_default(choice):
-        console.print(f"[dim]sticky default is now {choice.value}[/dim]")
-    return choice
+    def ask(
+        self, prompt: str, default: str = "", choices: Sequence[str] | None = None
+    ) -> str | None:
+        try:
+            if choices is not None:
+                return Prompt.ask(prompt, choices=list(choices), default=default)
+            return Prompt.ask(prompt, default=default)
+        except (EOFError, KeyboardInterrupt):
+            # The same silence a browser gives by closing its tab. `Herald.ask` has one
+            # way of saying "no answer came" so that callers need only one branch.
+            return None
 
 
 # --- config ----------------------------------------------------------------
@@ -519,9 +455,6 @@ CONTROL_FILE = "gatekeeper-control.yaml"
 #: reason: a change of mind only means something against a cast that holds beliefs.
 STANCE_CONTROL_FILE = "stance-control.yaml"
 
-#: Judgement wants no creativity: the same draft should get the same verdict twice.
-GATEKEEPER_TEMPERATURE = 0.0
-
 
 def _add_gate_flags(parser: argparse.ArgumentParser) -> None:
     # Measured 2026-09-02 (d) on 13 planted cases: both seats catch 7/7 inventions, but
@@ -533,54 +466,6 @@ def _add_gate_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--gate-seat", choices=[INTERACTIVE_SEAT, BATCH_SEAT], default=BATCH_SEAT,
         help="which utility seat checks drafts (default: %(default)s — measured cleaner)",
-    )
-
-
-def _build_gate(cfg, args) -> tuple[Gatekeeper | None, object | None]:
-    """The output gate and the backend to close afterwards, or (None, None) if ungated.
-
-    Which seat checks is a flag rather than a constant because the two candidates trade
-    against each other and the trade is measurable: `utility_interactive` is the seat
-    defined as "the jobs the table waits on", and `utility_batch` is the better reader. Run
-    `dndc npc control` against both before believing either.
-    """
-    if getattr(args, "ungated", False):
-        return None, None
-    backend = _utility_backend(cfg, args)
-    _warn_if_thrashing(cfg, backend)
-    return Gatekeeper(backend=backend), backend
-
-
-def _utility_backend(cfg, args):
-    """The utility seat the tier's second calls run on — the gate, and the P4.6 judge.
-
-    One function because they must land on the same seat: two different models on one host
-    evict each other, and the whole point of `_warn_if_thrashing` is that the tier's extra
-    calls are cheap only while everything stays resident.
-    """
-    build = build_batch_backend if args.gate_seat == BATCH_SEAT else build_interactive_backend
-    return build(cfg, temperature=GATEKEEPER_TEMPERATURE)
-
-
-def _warn_if_thrashing(cfg, gate_backend) -> None:
-    """A gate on a *different* model at the *same* endpoint reloads both, every line.
-
-    Measured on toto-llm 2026-09-02 (e): llama3.3:70b and llama3.1:8b do not coexist
-    there — each evicts the other — so alternating an NPC call and a gate check across
-    them costs a ~70 s reload **per line**, not the ~1.5 s the gate itself takes. This is
-    a property of that box's VRAM rather than of the design, which is exactly why it is a
-    warning and not a refusal: a machine that fits both should not be told it cannot.
-    """
-    npc_seat = cfg.seats.npc
-    if gate_backend.endpoint.rstrip("/") != npc_seat.endpoint.rstrip("/"):
-        return
-    if gate_backend.model == npc_seat.model:
-        return
-    Console().print(
-        f"[yellow]warning:[/yellow] the gate runs {gate_backend.model} where the NPC seat "
-        f"runs {npc_seat.model}, on the same host. If that host cannot hold both, every "
-        f"line will reload a model (~70 s on toto-llm). Prefer a gate seat whose model "
-        f"matches the NPC seat's."
     )
 
 
@@ -628,7 +513,7 @@ def _cmd_npc_control(console: Console, args: argparse.Namespace) -> int:
         return 1
 
     ledger = load_campaign_canon(args.campaign)
-    gate, gate_backend = _build_gate(cfg, args)
+    gate, gate_backend = _build_gate(cfg, args, ConsoleHerald(console))
     if gate is None:
         console.print("[red]error:[/red] --ungated makes no sense for the control")
         return 1
@@ -722,7 +607,7 @@ def _cmd_npc_stance(console: Console, args: argparse.Namespace) -> int:
         return 1
 
     backend = _utility_backend(cfg, args)
-    _warn_if_thrashing(cfg, backend)
+    _warn_if_thrashing(cfg, backend, ConsoleHerald(console))
     console.print(
         f"[bold]{npc.name}[/bold] · {len(cases)} case(s) against "
         f"{len(standing)} standing belief(s) · "
@@ -791,7 +676,7 @@ def _cmd_npc_speak(console: Console, args: argparse.Namespace) -> int:
         console.print(f"[yellow]fell back[/yellow] [dim]— {route.reason}[/dim]")
 
     log = start_session_log(cfg, campaign=args.campaign)
-    gate, gate_backend = _build_gate(cfg, args)
+    gate, gate_backend = _build_gate(cfg, args, ConsoleHerald(console))
     voice = NPCVoice(backend=backend, log=log, route=route, gate=gate)
     gated = "gated" if gate is not None else "[yellow]ungated[/yellow]"
     console.print(
@@ -892,74 +777,16 @@ def _cmd_roll(console: Console, args: argparse.Namespace) -> int:
 
 # --- gm --------------------------------------------------------------------
 
-@dataclass
-class LoadedParty:
-    """What a session needs about its characters: the prompt's view, the engine's, and
-    the files they came from — kept apart because they are three different things."""
-
-    campaign: CampaignContext
-    sheets: dict[str, CharacterSheet]
-    #: Where each sheet lives, so P2.4 can write an item change back to it. A sheet with
-    #: no path is in-memory only.
-    paths: dict[str, Path]
-
-
-def _gm_campaign_context(console: Console, args: argparse.Namespace) -> LoadedParty | None:
-    """Assemble what the builder needs, plus the sheets the engine resolves against.
-
-    The party summary in the prompt is deliberately thin (the GM narrates; it does not
-    need a proficiency table), but a check has to resolve against the real scores — so
-    both come back and stay separate.
-
-    `--campaign` reads a real campaign directory: its name, the characters co-creation
-    wrote, and its canon ledger. `--character` still works and stacks on top, which is
-    what keeps a scratch sheet runnable without creating a campaign for it.
-    """
-    slug = getattr(args, "campaign", None)
-    campaign = CampaignContext(name=args.campaign_name or "Untitled campaign")
-    sheets: dict[str, CharacterSheet] = {}
-    paths: dict[str, Path] = {}
-
-    if slug:
-        try:
-            record = load_campaign(slug)
-        except (CampaignError, ValidationError) as exc:
-            console.print(f"[red]error:[/red] {exc}")
-            return None
-        campaign.name = args.campaign_name or record.name
-        campaign.ledger = load_campaign_canon(slug)
-        campaign.chronicle = load_campaign_chronicle(slug)
-        characters = campaign_dir(slug) / CHARACTERS_DIRNAME
-        for sheet in load_campaign_sheets(slug):
-            campaign.party.append(PartyMember.from_sheet(sheet))
-            sheets[sheet.name.lower()] = sheet
-            paths[sheet.name.lower()] = characters / f"{slugify(sheet.name)}.yaml"
-
-    campaign.scene = args.scene or ""
-    if args.canon:
-        campaign.ledger = CanonLedger.load(args.canon)
-
-    for path in args.character or ():
-        sheet = _load_sheet(console, path)
-        if sheet is None:
-            return None
-        if sheet.name.lower() in sheets:
-            continue
-        campaign.party.append(PartyMember.from_sheet(sheet))
-        sheets[sheet.name.lower()] = sheet
-        # A sheet passed by path is written back to that path. Unlike `--canon`, which
-        # loads a ledger for inspection, `--character` *is* where that character lives.
-        paths[sheet.name.lower()] = Path(path)
-    return LoadedParty(campaign=campaign, sheets=sheets, paths=paths)
-
 
 def _cmd_gm(console: Console, args: argparse.Namespace) -> int:
     """One narration turn against the real prompt assembly (P1.2)."""
     cfg = load_config()
     scaffolding = args.scaffolding or cfg.gameplay.scaffolding
     builder = GMPromptBuilder(scaffolding=scaffolding)
-    loaded = _gm_campaign_context(console, args)
-    if loaded is None:
+    try:
+        loaded = load_party(args)
+    except SetupError as exc:
+        console.print(exc.markup)
         return 1
     campaign = loaded.campaign
     request = builder.build(
@@ -984,7 +811,7 @@ def _cmd_gm(console: Console, args: argparse.Namespace) -> int:
             console.print(message.content, markup=False, highlight=False, soft_wrap=True)
         return 0
 
-    billing = resolve_billing(cfg, console, requested=args.billing, ask=not args.no_prompt)
+    billing = resolve_billing(cfg, ConsoleHerald(console), requested=args.billing, ask=not args.no_prompt)
     try:
         backend = build_gm_backend(cfg, billing, threshold=args.threshold)
     except GMBackendError as exc:
@@ -1110,79 +937,6 @@ class _NarrationStream:
     def _emit(self, text: str) -> None:
         if text:
             self.console.print(text, end="", markup=False, highlight=False)
-
-def _build_voice(console: Console, cfg, args, log) -> tuple[object | None, object, list]:
-    """The NPC tier for a play session: the voice, the supersession keeper, and closers.
-
-    **Fails open the whole way down.** No cast, a routing failure, a host that has gone
-    away — every one of them returns None and the session plays on with the GM voicing
-    everyone in its own prose, which is what it did for three phases. A local box being
-    off is not a reason a table cannot play, and the alternative (refusing to start) would
-    make the NPC tier a single point of failure for the entire game.
-    """
-    if getattr(args, "no_npcs", False) or not getattr(args, "campaign", None):
-        return None, StanceKeeper(log=log), []
-    book = load_campaign_npcs(args.campaign)
-    if not len(book):
-        return None, StanceKeeper(log=log), []
-
-    try:
-        backend, route = build_npc_backend(cfg, OllamaRouter.for_config(cfg))
-    except RoutingError as exc:
-        console.print(f"[yellow]NPC seat unavailable:[/yellow] {exc}")
-        console.print("[dim]the GM will voice everyone in its own prose[/dim]")
-        return None, StanceKeeper(log=log), []
-
-    closers = [backend]
-    gate, gate_backend = _build_gate(cfg, args)
-    if gate_backend is not None:
-        closers.append(gate_backend)
-    voice = NPCVoice(backend=backend, log=log, route=route, gate=gate)
-
-    # The supersession judge shares the gate's seat when there is one. `--ungated` turns
-    # off the *output* gate — what the table sees — and says nothing about whether a
-    # character may hold two contradictory beliefs at once, so the judge is built either
-    # way. It is the same seat and the same temperature; sharing the backend keeps the
-    # host holding one model.
-    judge_backend = gate_backend
-    if judge_backend is None:
-        judge_backend = _utility_backend(cfg, args)
-        closers.append(judge_backend)
-    stance = StanceKeeper(judge=StanceJudge(backend=judge_backend), log=log)
-
-    where = route.endpoint.name if route else backend.endpoint
-    gated = "gated" if gate is not None else "[yellow]ungated[/yellow]"
-    console.print(
-        f"[dim]{len(book)} NPC(s) speaking for themselves · {backend.model} on {where} ·[/dim] "
-        f"{gated}"
-    )
-    if route is not None and route.fell_back:
-        console.print(f"[yellow]fell back[/yellow] [dim]— {route.reason}[/dim]")
-
-    # The warm-up (P4.5). A 70B that is not resident costs ~68 s on its first call, and
-    # unpaid that lands on whichever player speaks to somebody first. Paying it here moves
-    # it to the one moment nobody is waiting, and printing the elapsed time makes the
-    # difference between "already loaded" and "just loaded 40 GB" a measurement rather
-    # than an inference — the 2026-09-02 (e) lesson, wired in.
-    try:
-        with console.status("[dim]warming the NPC seat…[/dim]"):
-            elapsed = voice.warm_up()
-    except Exception as exc:
-        console.print(f"[yellow]warm-up failed:[/yellow] {type(exc).__name__}: {exc}")
-        console.print("[dim]NPCs stay on; the first line will pay the load instead[/dim]")
-        return voice, stance, closers
-    console.print(f"[dim]seat warm in {elapsed} ms{_warmth(elapsed)}[/dim]")
-    return voice, stance, closers
-
-
-#: Above this, the warm-up call clearly loaded the model rather than merely answering.
-#: Not a threshold anything branches on — it decides one word of console text.
-COLD_LOAD_MS = 10_000
-
-
-def _warmth(elapsed_ms: int) -> str:
-    return " (it was cold)" if elapsed_ms >= COLD_LOAD_MS else " (already resident)"
-
 
 def _render_unvoiced(console: Console, result) -> None:
     """Say when a direction produced no line. Never silent.
@@ -1549,122 +1303,6 @@ def _run_chronicle(
         )
 
 
-def _pronouns(campaign) -> dict[str, str]:
-    """How to refer to everyone this campaign has recorded pronouns for.
-
-    Party and cast together, because the layers that read this write about both. Only
-    names with an actual entry appear — a blank stays blank all the way down, and the
-    prompts say to write around a name rather than choose for it. The cast is filtered
-    again downstream against what the session named; handing over a roster and handing
-    over a vocabulary are not the same thing (P4.1).
-    """
-    people = [(member.name, member.pronouns) for member in campaign.party]
-    people += [(npc.name, npc.pronouns) for npc in campaign.cast]
-    return {name: pronouns for name, pronouns in people if pronouns}
-
-
-def _player_known(ledger) -> list[str]:
-    """What the players already know, and only that.
-
-    One rule, one place: `for_players` is the ledger's own allow-list (P6.2), and the
-    recap and a browser must not be able to disagree about what the table knows. This
-    used to be a second copy of the same scope test, which is precisely the shape of
-    thing that drifts.
-    """
-    return [entry.text for entry in ledger.for_players()]
-
-
-def _run_recap(
-    console: Console, cfg, campaign, args: argparse.Namespace, log: SessionLog
-) -> None:
-    """"Previously on..." before the first turn (P5.3).
-
-    Best-effort like the sweep and the chronicle: an evening must not fail to start
-    because the GPU box is asleep. It runs before the NPC tier is built, which means the
-    cold load of the 70B is paid by a call the table wanted anyway rather than by the
-    throwaway warm-up — same model, same host.
-    """
-    if not len(campaign.chronicle):
-        return
-
-    backend = build_batch_backend(cfg, temperature=RECAP_TEMPERATURE)
-    recapper = Recapper(
-        backend=backend,
-        log=log,
-        party=[member.name for member in campaign.party],
-        pronouns=_pronouns(campaign),
-    )
-    console.print(
-        f"\n[dim]previously — {cfg.seats.utility_batch.model} reading the campaign "
-        f"back (a minute or two)...[/dim]"
-    )
-    try:
-        report = recapper.recap(
-            campaign.name, campaign.chronicle, known=_player_known(campaign.ledger)
-        )
-    finally:
-        backend.close()
-
-    if not report.shown:
-        if report.invented:
-            console.print(
-                f"[yellow]no recap[/yellow] — it invented {', '.join(report.invented)}"
-            )
-        elif report.error:
-            console.print(f"[yellow]no recap[/yellow] — {report.error}")
-        recapper.record(report)
-        return
-
-    console.print(f"\n[bold]Previously on {campaign.name}[/bold]")
-    console.print(f"  {report.text}\n")
-
-    if report.scene and report.scene.strip() != campaign.scene.strip():
-        report.scene_accepted = _confirm_scene(console, campaign, report.scene)
-    recapper.record(report)
-
-
-def _confirm_scene(console: Console, campaign, proposed: str) -> bool:
-    """Offer the recap's guess at where the party is standing. Silence keeps the old one.
-
-    Confirmed rather than applied, because it is a guess about the one field that decides
-    where the evening opens, and the two people who were actually there are sitting right
-    here. An interrupted or piped session keeps whatever was saved, which is what it did
-    before this existed.
-    """
-    if campaign.scene:
-        console.print(f"[dim]the scene on file: {campaign.scene}[/dim]")
-    console.print(f"[dim]where the recap thinks you are: {proposed}[/dim]")
-    try:
-        answer = Prompt.ask(
-            "  [cyan]open here?[/cyan] enter to accept, [dim]n[/dim] to keep the old "
-            "scene, or type a new one",
-            default="",
-        )
-    except (EOFError, KeyboardInterrupt):
-        return False
-
-    answer = (answer or "").strip()
-    if answer.casefold() in {"n", "no"}:
-        return False
-    campaign.scene = proposed if not answer else answer
-    return not answer
-
-
-def _canon_store(args: argparse.Namespace, campaign, log: SessionLog) -> CanonStore:
-    """Where this session's canon gets filed.
-
-    A campaign has a `canon.yaml` and the world survives the process. A scratch session
-    (`--character` with no campaign, or an explicit `--canon` file) gets an in-memory
-    store: it still logs `canon_write` events, it just has nowhere durable to put them.
-    Writing into a `--canon` file passed for inspection would be a surprise — that flag
-    loads a ledger, it does not adopt one.
-    """
-    slug = getattr(args, "campaign", None)
-    if not slug or args.canon:
-        return CanonStore(campaign.ledger, log=log)
-    return CanonStore.for_campaign(campaign_dir(slug), log=log)
-
-
 #: Width of the hit-point bar. Small enough to sit in a list, wide enough that a quarter
 #: of a bar is visibly a quarter.
 HP_BAR_WIDTH = 12
@@ -1816,8 +1454,10 @@ def _cmd_combat(console: Console, args: argparse.Namespace) -> int:
     if args.difficulty and not args.monster:
         # The budget is ours, not the DMG's — the SRD has no encounter tables — and it was
         # measured against the combat engine rather than asserted. See rules/encounter.py.
-        loaded_party = _gm_campaign_context(console, args)
-        if loaded_party is None:
+        try:
+            loaded_party = load_party(args)
+        except SetupError as exc:
+            console.print(exc.markup)
             return 1
         levels = [sheet.level for sheet in loaded_party.sheets.values()] or [1]
         try:
@@ -1862,15 +1502,17 @@ def _cmd_combat(console: Console, args: argparse.Namespace) -> int:
         console.print("[yellow]no monsters[/yellow] — pass --monster NAME or --difficulty")
         return 1
 
-    loaded = _gm_campaign_context(console, args)
-    if loaded is None:
+    try:
+        loaded = load_party(args)
+    except SetupError as exc:
+        console.print(exc.markup)
         return 1
     party = [from_sheet(sheet) for sheet in loaded.sheets.values()]
     if not party:
         console.print("[yellow]no characters[/yellow] — pass --campaign SLUG or --character PATH")
         return 1
 
-    billing = resolve_billing(cfg, console, requested=args.billing, ask=not args.no_prompt)
+    billing = resolve_billing(cfg, ConsoleHerald(console), requested=args.billing, ask=not args.no_prompt)
     backend = None if args.no_narration else build_gm_backend(cfg, billing)
     log = start_session_log(cfg, campaign=loaded.campaign.name, seed=args.seed, billing=billing)
 
@@ -2281,31 +1923,6 @@ def _acting(campaign, resume: Resume | None) -> str:
     return campaign.party[0].name
 
 
-def _announce_resume(console: Console, resume: Resume) -> None:
-    """Say what was picked up, in the terms the table would use."""
-    when = resume.save.saved_at.strftime("%Y-%m-%d %H:%M")
-    if resume.continuing:
-        console.print(
-            f"[green]resuming[/green] session {resume.session_id} — "
-            f"{resume.turns} turns, saved {when} UTC"
-        )
-        return
-    if not resume.save.closed:
-        # An open save whose log has been cleaned away: the scene and the window are
-        # still good, but this run cannot honestly claim to continue that session's
-        # record, so it starts its own and says where it came from.
-        console.print(
-            f"[yellow]resuming[/yellow] {resume.turns} turns — the previous log is gone, "
-            f"so this is a new session record"
-        )
-        return
-    console.print(
-        f"[green]picking up[/green] where the last session left off "
-        f"({resume.played} turns, ended {when} UTC) — the scene is remembered; what "
-        f"happened is the chronicle's now"
-    )
-
-
 class ConsoleTable:
     """The terminal, answering for the table (P6.1).
 
@@ -2641,8 +2258,16 @@ def _cmd_serve(console: Console, args: argparse.Namespace) -> int:
 
 
 def _cmd_play(console: Console, args: argparse.Namespace) -> int:
-    """The hot-seat front end (P1.3, OD-4). The loop itself is `game/session.py`."""
+    """The hot-seat front end (P1.3, OD-4).
+
+    Three things and no more, since P6.7b-ii: refuse early if serving cannot be done
+    safely, build the evening (`game/setup.py`), and put a terminal — and possibly a
+    browser — in front of it. The loop itself is `game/session.py`; the hundred and
+    twenty lines of construction that used to sit here are in `build_evening`, where
+    something that is not a terminal can call them.
+    """
     cfg = load_config()
+    herald = ConsoleHerald(console)
     if args.serve:
         # Pre-flight, and the result is deliberately thrown away — `_start_mirror` resolves
         # it again for real. The point is *when*: the mirror starts after the recap has
@@ -2653,90 +2278,16 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
         except TokenError as exc:
             console.print(f"[red]refusing to serve:[/red] {exc}")
             return 1
-    loaded = _gm_campaign_context(console, args)
-    if loaded is None:
-        return 1
-    campaign, loaded_sheets = loaded.campaign, loaded.sheets
-    if not campaign.party:
-        console.print(
-            "[yellow]no characters loaded[/yellow] — pass --campaign SLUG (after "
-            "`dndc create-character`) or --character PATH."
-        )
-        return 1
 
-    saves = SaveStore.for_campaign(args.campaign) if args.campaign else None
-    resume: Resume | None = None
-    if saves is not None and not args.fresh:
-        try:
-            resume = resume_from(saves, campaign, scene=args.scene or "")
-        except SaveError as exc:
-            console.print(f"[red]error:[/red] {exc}")
-            return 1
-        if resume is not None:
-            _announce_resume(console, resume)
-
-    billing = resolve_billing(cfg, console, requested=args.billing, ask=not args.no_prompt)
     try:
-        backend = build_gm_backend(cfg, billing, threshold=args.threshold)
-    except GMBackendError as exc:
-        console.print(f"[red]error:[/red] {exc}")
+        evening = build_evening(cfg, args, herald)
+    except SetupError as exc:
+        herald.say(exc.markup)
         return 1
 
-    seed = args.seed if args.seed is not None else random.randrange(MAX_SEED)
-    log = start_session_log(
-        cfg, campaign=campaign.name, seed=seed, billing=billing, resume=resume
-    )
-    if not args.no_recap:
-        _run_recap(console, cfg, campaign, args, log)
-    voice, stance, voice_closers = _build_voice(console, cfg, args, log)
-    # The roster and the tier are the same switch: the GM is shown who speaks for
-    # themselves only when somebody actually can. A roster with no seat behind it would
-    # have the GM directing characters into silence all session.
-    if voice is not None:
-        campaign.cast = list(load_campaign_npcs(args.campaign))
-
-    # The dataset is what gives a picked-up item its weight (P2.4's known gap, closed
-    # with the ingest task). A session without an ingested SRD still plays; items just
-    # weigh nothing, which is what they did before.
-    try:
-        repo = SRDRepository.load()
-    except SRDIngestError:
-        repo = None
-    items = InventoryStore(log=log, repo=repo)
-    for key, sheet in loaded_sheets.items():
-        items.add(sheet, path=loaded.paths.get(key))
-
-    engine = build_engine(
-        campaign,
-        backend,
-        log=log,
-        scaffolding=args.scaffolding or cfg.gameplay.scaffolding,
-        seed=seed,
-        max_tokens=args.max_tokens,
-        billing=billing.value,
-        prices=load_prices(cfg.pricing),
-        canon=_canon_store(args, campaign, log),
-        voice=voice,
-        stance=stance,
-    )
-    try:
-        session = PlaySession.start(
-            campaign,
-            loaded_sheets,
-            backend=backend,
-            log=log,
-            engine=engine,
-            items=items,
-            acting=acting_member(campaign, resume),
-            billing=billing.value,
-            seed=seed,
-            saves=saves,
-            resume=resume,
-            closers=voice_closers,
-        )
-    except SessionError as exc:
-        console.print(f"[red]error:[/red] {exc}")
-        return 1
+    campaign = evening.campaign
+    session, engine, items = evening.session, evening.engine, evening.items
+    log, saves = evening.log, evening.saves
 
     table = ConsoleTable(console, cfg, args, items)
     mirror, server, floor = None, None, None
@@ -2751,7 +2302,7 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
             return 1
         table = MirrorTable(table, mirror, session, floor)
 
-    console.print(f"[bold]{campaign.name}[/bold] — {backend.name}, seed {seed}")
+    console.print(f"[bold]{campaign.name}[/bold] — {evening.backend.name}, seed {evening.seed}")
     console.print(f"[dim]log -> {log.path}  ·  /help for commands[/dim]\n")
 
     try:
@@ -2994,7 +2545,7 @@ def _cmd_create_character(console: Console, args: argparse.Namespace) -> int:
         console.print(f"[red]error:[/red] {exc}")
         return 1
 
-    billing = resolve_billing(cfg, console, requested=args.billing, ask=not args.no_prompt)
+    billing = resolve_billing(cfg, ConsoleHerald(console), requested=args.billing, ask=not args.no_prompt)
     try:
         backend = build_gm_backend(cfg, billing, threshold=args.threshold)
     except GMBackendError as exc:
@@ -3116,27 +2667,11 @@ def _creation_reply(console: Console, reply, stream: bool) -> None:
 # --- sheet -----------------------------------------------------------------
 
 
-def _load_sheet(console: Console, path: str) -> CharacterSheet | None:
-    target = Path(path)
-    if not target.exists():
-        console.print(f"[red]error:[/red] no sheet at {target}")
-        return None
-    try:
-        return CharacterSheet.load(target)
-    except ValidationError as exc:
-        console.print(f"[red]invalid sheet[/red] {target}:")
-        for error in exc.errors():
-            location = ".".join(str(part) for part in error["loc"]) or "(root)"
-            console.print(f"  - {location}: {error['msg']}")
-        return None
-    except Exception as exc:  # malformed YAML
-        console.print(f"[red]could not read[/red] {target}: {exc}")
-        return None
-
-
 def _cmd_sheet_show(console: Console, args: argparse.Namespace) -> int:
-    sheet = _load_sheet(console, args.path)
-    if sheet is None:
+    try:
+        sheet = load_sheet(args.path)
+    except SetupError as exc:
+        console.print(exc.markup)
         return 1
     _render_sheet(console, sheet)
     return 0
@@ -3200,8 +2735,10 @@ def _render_sheet(console: Console, sheet: CharacterSheet) -> None:
 
 
 def _cmd_sheet_validate(console: Console, args: argparse.Namespace) -> int:
-    sheet = _load_sheet(console, args.path)
-    if sheet is None:
+    try:
+        sheet = load_sheet(args.path)
+    except SetupError as exc:
+        console.print(exc.markup)
         return 1
     console.print(f"[green]valid[/green] — {sheet.name}, level {sheet.level} "
                   f"{sheet.species} {sheet.character_class}")

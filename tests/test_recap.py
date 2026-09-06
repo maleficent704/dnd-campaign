@@ -230,7 +230,7 @@ def test_the_recap_is_never_handed_a_gm_only_fact():
     A recap is read aloud. A GM-only fact reaching it would not leak into a character's
     line where the gate might catch it — it would be announced to the table.
     """
-    from dndc.game.cli import _player_known
+    from dndc.game.setup import _player_known
     from dndc.gm.canon import CanonEntry, CanonLedger, CanonScope
 
     ledger = CanonLedger(
@@ -266,7 +266,7 @@ def picked_up(tmp_path, monkeypatch):
 
     root = tmp_path / "campaigns"
     monkeypatch.setattr(campaign_module, "default_campaigns_root", lambda: root)
-    monkeypatch.setattr(cli, "resolve_log_dir", lambda _: tmp_path / "logs")
+    monkeypatch.setattr("dndc.game.setup.resolve_log_dir", lambda _: tmp_path / "logs")
     create_campaign("Salt Road", players=["Kelly"], scaffolding="off")
     target = campaign_dir("salt-road")
     CharacterSheet(
@@ -287,8 +287,8 @@ def picked_up(tmp_path, monkeypatch):
 def play(monkeypatch, gm, batch, said, extra=()):
     from dndc.game import cli
 
-    monkeypatch.setattr(cli, "build_gm_backend", lambda *a, **k: gm)
-    monkeypatch.setattr(cli, "build_batch_backend", lambda *a, **k: batch)
+    monkeypatch.setattr("dndc.game.setup.build_gm_backend", lambda *a, **k: gm)
+    monkeypatch.setattr("dndc.game.setup.build_batch_backend", lambda *a, **k: batch)
     remaining = iter(said)
 
     class Feed:

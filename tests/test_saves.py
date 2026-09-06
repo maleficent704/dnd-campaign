@@ -265,7 +265,7 @@ def test_without_a_save_the_first_member_starts(campaign):
 def test_resuming_reopens_the_same_log_and_seq_carries_on(tmp_path, monkeypatch):
     """The npc-village rider, finally doing the job it was ported for."""
     cfg = load_config()
-    monkeypatch.setattr(cli, "resolve_log_dir", lambda _: tmp_path)
+    monkeypatch.setattr("dndc.game.setup.resolve_log_dir", lambda _: tmp_path)
 
     first = cli.start_session_log(cfg, campaign="The Salt Road", seed=1)
     first.emit(PlayerInput, player="Kelly", text="I ask the guard what he saw.")
@@ -291,7 +291,7 @@ def test_resuming_reopens_the_same_log_and_seq_carries_on(tmp_path, monkeypatch)
 
 def test_the_resumed_session_says_where_it_came_from(tmp_path, monkeypatch):
     cfg = load_config()
-    monkeypatch.setattr(cli, "resolve_log_dir", lambda _: tmp_path)
+    monkeypatch.setattr("dndc.game.setup.resolve_log_dir", lambda _: tmp_path)
 
     first = cli.start_session_log(cfg, campaign="The Salt Road", seed=1)
     resume = Resume(
@@ -315,7 +315,7 @@ def test_the_resumed_session_says_where_it_came_from(tmp_path, monkeypatch):
 
 def test_a_fresh_session_claims_no_lineage(tmp_path, monkeypatch):
     cfg = load_config()
-    monkeypatch.setattr(cli, "resolve_log_dir", lambda _: tmp_path)
+    monkeypatch.setattr("dndc.game.setup.resolve_log_dir", lambda _: tmp_path)
 
     log = cli.start_session_log(cfg, campaign="The Salt Road", seed=1)
 
@@ -358,7 +358,7 @@ def table(tmp_path, monkeypatch):
 
     root = tmp_path / "campaigns"
     monkeypatch.setattr(campaign_module, "default_campaigns_root", lambda: root)
-    monkeypatch.setattr(cli, "resolve_log_dir", lambda _: tmp_path / "logs")
+    monkeypatch.setattr("dndc.game.setup.resolve_log_dir", lambda _: tmp_path / "logs")
     create_campaign("Ford Crossing", players=["Kelly"], scaffolding="off")
     _party_sheet().save(campaign_dir(FORD) / "characters" / "brannoc.yaml")
     return tmp_path / "logs"
@@ -366,7 +366,7 @@ def table(tmp_path, monkeypatch):
 
 def play(monkeypatch, backend, said, extra=()):
     """One `dndc play` run over a scripted seat, ending when the input runs out."""
-    monkeypatch.setattr(cli, "build_gm_backend", lambda *args, **kwargs: backend)
+    monkeypatch.setattr("dndc.game.setup.build_gm_backend", lambda *args, **kwargs: backend)
 
     remaining = iter(said)
 

@@ -36,7 +36,8 @@ interface to the LAN address — the old one published an unauthenticated GUI to
 tailnet — and wrote `docs/LAN-ACCESS.md`. **Only P6.7 (hosting) is left in Phase 6**,
 split 2026-09-05 into **a** (campaigns path — done), **b** (the server owns the session),
 **c** (the deployment); **b** split again into **i** the gate (done 2026-09-05 (b)),
-**ii** session construction leaving the CLI, **iii** the lifecycle.
+**ii** session construction leaving the CLI (done 2026-09-06 — `game/setup.py`, a
+refactor verified byte-identical against `c449cdf`), **iii** the lifecycle.
 **Nothing ruled is unbuilt.**
 
 **Kelly ruled 2026-09-04, now recorded in `docs/LAN-ACCESS.md`: the LAN gate is a fixed
@@ -464,6 +465,112 @@ the drift instrument's own log is a finding worth the two-line fix.
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-09-06 — P6.7b-ii: construction leaves the terminal (Claude Code, kelly-pc)
+
+A refactor, and it is meant to be a boring one: **nothing observable moves.** `_cmd_play`
+did about a hundred and twenty lines of setup — campaign, resume, billing, backend, log,
+recap, NPC seat, SRD, inventory, engine, session — and every one of them was reachable
+only through a `rich.Console`. A browser cannot start an evening until that is a function,
+so it is one: `src/dndc/game/setup.py`, `build_evening(cfg, args, herald) -> Evening`.
+
+### The seam is a herald, and it has exactly three verbs
+
+`Herald` is what replaces the console during setup: `say` a line, show that something is
+`working`, and `ask` a question. Those are the three things construction ever did with a
+terminal. `ConsoleHerald` in the CLI is a thin wrapper over `console.print` and
+`Prompt.ask` — which is why every existing string renders exactly as it did — and
+`QuietHerald` is what a caller with nobody to talk to uses.
+
+Two small things fell out of that and both are improvements:
+
+- **`sys.stdin.isatty()` moved out of `resolve_billing`.** Whether there is anybody to ask
+  is a fact about who is listening, not about billing. It is `herald.can_ask` now, decided
+  once by the thing that can actually know.
+- **`ask` returns `None` for every way of not getting an answer** — no terminal, `^D`,
+  `^C`, a closed tab. `_confirm_scene`'s `except (EOFError, KeyboardInterrupt): return
+  False` was that rule written a second time.
+
+`QuietHerald` *keeps* what it was told rather than dropping it. Nothing reads it yet, but
+the recap's "Previously on…" and the NPC seat's warnings are precisely the lines P6.7b-iii
+will want on a page, and a construction path that has already thrown them away cannot be
+asked for them later.
+
+### The one contract that changed, deliberately
+
+`load_sheet` and `load_party` (was `_load_sheet` / `_gm_campaign_context`) used to print a
+red line and return `None`. Every caller had to remember to check, and nothing that was
+not a terminal could use them at all. They raise `SetupError` now, which carries **both**
+the plain sentence and the exact markup the CLI used to print — so the terminal's output
+is unchanged and a browser gets the same failures in words it can render. Renamed because
+the contract changed; everything that only *moved* kept its name.
+
+### Verified against HEAD, not just against the suite
+
+"Nothing observable moves" is a claim about output, so it was checked as one. A worktree
+at `c449cdf` and this tree, same inputs, same seed:
+
+- **Seven failure paths** — a missing campaign, a missing sheet through `play`, through
+  `sheet show` and through `sheet validate`, an empty party, a bad campaign through
+  `combat` — **byte-identical output.**
+- **A whole evening played to the end** (open, one turn, `/quit`, save, cost table) —
+  **byte-identical output**, and the emitted JSONL is identical event-for-event and
+  field-for-field once timestamps are removed. That last part matters more than the
+  console text: the log is the research instrument, and a refactor that quietly changed
+  it would have been the expensive kind of invisible.
+
+1601 → **1617 tests** (16 new), suite offline, 6.2 s.
+
+### What the extraction found
+
+**A `NameError` waiting in `_warn_if_thrashing`.** It was the one function in setup that
+made its own `Console()` rather than being handed one, so it had no caller-visible seam —
+and when it became `herald.say`, the parameter never got added. Nothing failed, because
+firing it needs a gate seat on the NPC seat's endpoint running a different model, and no
+test config sets that up. **A warning nothing exercises is a warning that can quietly stop
+working**, which is the P6.6 shape again in miniature. Fixed, and it now has two tests.
+
+**Seven mocks that silently stopped mocking.** Moving a function moves the module a test
+must patch: `monkeypatch.setattr(cli, "build_gm_backend", …)` kept succeeding and stopped
+intercepting, and the suite — which has been offline since Phase 0 — started reaching for
+the network and hung. It was a mock GM here, so it cost 120 seconds. On an `api` seat it
+would have cost money. Written up in race-control's troubleshooting doc, because every
+repo in this house patches by module attribute.
+
+### Known issues
+
+- **The P6.7b-i deviation still wants Kelly's eye** (the hard token refusal not applying
+  to a plain `dndc play --serve` on the LAN). Unchanged, still non-blocking.
+- `build_evening` still takes an `argparse.Namespace`. Inventing a request object before
+  P6.7b-iii knows what a browser will send would be designing against a guess.
+- Two test files now import `_seats_for_meta` / `_player_known` from `dndc.game.setup`
+  rather than `dndc.game.cli`, and seven monkeypatch targets moved the same way. **No test
+  assertion changed** — only where the thing being patched now lives.
+- `--watch-only` is still a flag rather than a property of the URL. P6.7b-iii.
+- The recap's scene question is still terminal-only — but it is now one `herald.ask` away
+  from not being. P6.7b-iii.
+- The committed campaign state (`canon.yaml`, `npcs.yaml`, the sheets) is **still
+  committed**, deferred to P6.7c with its destination.
+- **The human half of P6.6 is still not done and I still cannot do it.**
+
+### FOR DESIGN
+
+None new and nothing blocking. Carried unchanged: the change-of-mind trigger; whether the
+GM should voice PCs; whether a `blocked` line costs the turn; whether a closed save
+restores the turn window; and the (h) truth-vs-discovery scope question.
+
+### Recommended next task
+
+**P6.7b-iii — the lifecycle.** A session manager so a browser can start and end an
+evening, the start screen, and `--watch-only` becoming a property of the URL rather than a
+flag on the command line. It is the first of these three that adds behaviour rather than
+moving it, and it dissolves two items that have been carried since P6.3: the recap's
+terminal-only scene question (now one `herald.ask` from a browser) and the spectator link
+being a CLI flag on a server nobody restarts. After that, P6.7c is the container.
+
+Still not code: **an evening with Kelly and Sam at the Brakewater crossroads.**
 
 ---
 

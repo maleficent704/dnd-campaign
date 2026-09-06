@@ -710,7 +710,7 @@ def test_each_utility_job_gets_its_own_seat():
 def test_the_seat_names_are_the_ones_the_cost_rows_use():
     """`session_meta.seats` and `cost.seat` have to agree, or a log cannot answer which
     of the two seats ran — the question the split was made to answer."""
-    from dndc.game.cli import _seats_for_meta
+    from dndc.game.setup import _seats_for_meta
     from dndc.config import load_config
     from dndc.memory.chronicle import BATCH_SEAT
     from dndc.memory.sweep import INTERACTIVE_SEAT

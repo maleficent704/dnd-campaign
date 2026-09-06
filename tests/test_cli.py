@@ -171,7 +171,7 @@ def test_roll_with_advantage_shows_both_faces(capsys):
 def test_roll_can_write_a_session_log(tmp_path, monkeypatch, capsys):
     import dndc.game.cli as cli
 
-    monkeypatch.setattr(cli, "resolve_log_dir", lambda *a, **k: tmp_path)
+    monkeypatch.setattr("dndc.game.setup.resolve_log_dir", lambda *a, **k: tmp_path)
     assert main(["roll", "2d6+3", "--seed", "42", "--log"]) == 0
 
     (log_file,) = list(tmp_path.glob("*.jsonl"))

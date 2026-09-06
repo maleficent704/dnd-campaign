@@ -55,7 +55,8 @@ src/dndc/
   srd/                 SRD ingestion, validation, repository (added P0.2, ratified)
   gm/                  prompt assembly, canon ledger, NPC gating, threshold escalation
   memory/              session log / canon ledger / chronicle layers, compression jobs
-  game/                turn loop, character co-creation flow, CLI (rich)
+  game/                turn loop, session construction (`setup.py`, console-free),
+                       character co-creation flow, CLI (rich)
   logging/             JSONL event emitter + cost telemetry
 analysis/              scripts/notebooks over logs
 logs/                  gitignored; JSONL session logs
