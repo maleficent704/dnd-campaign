@@ -1,0 +1,11 @@
+# The vendored SRD is a hashed artifact, not source. Git must not rewrite its line
+# endings on checkout: SOURCE.json pins the bytes, and a checkout that changes them
+# makes `dndc srd verify` fail everywhere except the platform the pin was generated
+# on. That is what happened — the pin was CRLF, git stored LF, and the container
+# could not verify a dataset that had never actually drifted (found P6.7c).
+data/srd/raw/** -text
+
+# Shell scripts and unit files run on Linux. CRLF in a shebang line is a syntax
+# error there, and the deploy scripts are checked out on the VM.
+*.sh text eol=lf
+deploy/units/* text eol=lf
