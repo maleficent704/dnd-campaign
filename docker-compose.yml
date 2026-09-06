@@ -1,0 +1,44 @@
+services:
+  dndc:
+    build: .
+    ports:
+      # :8093 — measured free on the VM (2026-09-04, re-confirmed 2026-09-05 and again
+      # 2026-09-06). Deliberately NOT :8090, which the port map records as a dead PC
+      # service with a surviving firewall rule; `~/services/the-room` rejected that same
+      # number in writing, and "a number that already means something else on another
+      # host is a number someone will misread" is the house's reasoning, not mine.
+      #
+      # Bound to 192.168.50.46 and NOT 0.0.0.0. P6.6 measured that a wildcard publish on
+      # this box reaches the tailnet — `tailscale0` is one of the interfaces `0.0.0.0`
+      # means — and a table with a shared key is not a table that should answer a phone
+      # on cellular. See docs/LAN-ACCESS.md and race-control operations/lan-only-services.
+      - "192.168.50.46:8093:8080"
+    volumes:
+      # The campaign IS the game state: the canon ledger, the chronicle, the sheets and
+      # the save point. It lives here and not in the image, and not in the git repo —
+      # P6.7c is where that finally stopped being true (see docs/DEPLOYMENT.md).
+      - campaigns:/data/campaigns
+      # The JSONL event stream. It is the research instrument, so it outlives the
+      # container the same way the campaign does.
+      - logs:/app/logs
+    environment:
+      # What the startup line reads out. A container binds every interface of its own
+      # namespace, so without this it prints 172.17.0.x — true, unreachable, and paired
+      # with a tailnet warning about an exposure the `ports:` line above rules out.
+      # P6.6's rule is that the startup line tells the truth about exposure; this is how
+      # it does that from inside a container.
+      - DNDC_WEB_PUBLIC_URL=http://192.168.50.46:8093
+    env_file:
+      # DNDC_WEB_TOKEN (the LAN gate) and ANTHROPIC_API_KEY (the GM seat). Gitignored,
+      # never inline here and never in the image — the one house rule that does not bend.
+      - .env
+    # A running evening has closing jobs: the save, the canon sweep, the chronicle. The
+    # server catches SIGTERM and ends the evening the way `/quit` does, then waits up to
+    # STOP_GRACE (45 s) for those to finish. 60 s here so Docker is never the thing that
+    # decides — the process gets to say when it is done.
+    stop_grace_period: 60s
+    restart: unless-stopped
+
+volumes:
+  campaigns:
+  logs:

@@ -1,0 +1,12 @@
+[Unit]
+Description=Run the campaign backup daily at 05:45 UTC
+
+[Timer]
+# 05:45 — after chat-archive (05:00), the scrapbook (05:15) and The Room (05:30), so the
+# CIFS-heavy backup jobs do not contend for the same share at the same moment. This one
+# is last because it is the smallest.
+OnCalendar=*-*-* 05:45:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -218,6 +218,21 @@ class Lifecycle:
         floor.typed("/quit")
         return Started(True)
 
+    def wait(self, timeout: float) -> bool:
+        """Block until the running evening has finished, or the timeout runs out.
+
+        Exists for one caller and one moment: a container being stopped. `end` only puts
+        `/quit` on the floor, and the between-session jobs — the sweep, the chronicle,
+        the save — run on the evening's own thread afterwards. Returning immediately from
+        `end` and then killing the process would lose exactly the work that makes an
+        evening worth having played.
+        """
+        thread = self._thread
+        if thread is None:
+            return True
+        thread.join(timeout=timeout)
+        return not thread.is_alive()
+
     # --- the thread --------------------------------------------------------
 
     def _evening(self, slug: str, mirror: Mirror, floor: Floor | None) -> None:

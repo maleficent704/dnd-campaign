@@ -140,6 +140,15 @@ WEB_TOKEN_ENV = "DNDC_WEB_TOKEN"
 #: Set by the deployment to say "this exposure is bigger than one evening on the LAN", so
 #: that a missing token is a refusal to start rather than a service that comes up ungated.
 WEB_REQUIRE_TOKEN_ENV = "DNDC_WEB_REQUIRE_TOKEN"
+
+#: What to tell people the address is, when the process cannot work it out.
+#: Inside a container, the socket is bound in a namespace of its own: the address
+#: the server can see is `172.17.0.x`, which is true and useless, and the interface
+#: it binds says nothing about what is actually published — that is the `ports:`
+#: line in docker-compose.yml. P6.6's rule is that the startup line must tell the
+#: truth about exposure, and a line that names an unreachable address while warning
+#: about a tailnet it is not on breaks that rule in both directions (P6.7c).
+WEB_PUBLIC_URL_ENV = "DNDC_WEB_PUBLIC_URL"
 #: Short enough to guess is worse than absent: it reads as a control while being one.
 MIN_WEB_TOKEN = 16
 

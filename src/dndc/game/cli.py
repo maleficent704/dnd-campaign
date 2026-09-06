@@ -7,8 +7,10 @@ The play loop itself arrives in Phase 1.
 from __future__ import annotations
 
 import argparse
+import os
 import random
 import re
+import signal
 import sys
 import threading
 import time
@@ -49,6 +51,7 @@ from dndc.analysis import (
 from dndc.config import (
     EVERY_INTERFACE,
     LAN,
+    WEB_PUBLIC_URL_ENV,
     WEB_TOKEN_ENV,
     Billing,
     load_config,
@@ -112,7 +115,7 @@ from dndc.game.asking import (
 from dndc.game.floor import Floor
 from dndc.gm.tagstream import TagStream
 from dndc.web.gate import TokenError, deployment_requires, resolve_gate
-from dndc.web.lifecycle import Held, Lifecycle
+from dndc.web.lifecycle import IDLE, Held, Lifecycle
 from dndc.web.mirror import Mirror
 from dndc.web.server import Server, is_everywhere
 from dndc.web.view import table_view
@@ -173,6 +176,12 @@ from dndc.schema.sheet import SKILL_ABILITY, Ability, CharacterSheet, Skill
 from dndc.schema.srd import IngestScope
 from dndc.srd import SRDIngestError, ingest, load_dataset, validate_dataset, verify_pin
 from dndc.srd.repository import SRDRepository
+
+#: How long a stopping server waits for a running evening to finish its closing jobs.
+#: The chronicle is the slow one and it runs on a local 8B; 45 s is comfortably more than
+#: it has ever taken and comfortably less than the 60 s `stop_grace_period` in compose,
+#: so Docker never has to be the thing that decides.
+STOP_GRACE = 45.0
 
 #: Seed for analysis-context sweeps. A tightener, never a substitute for the committed
 #: baseline (Fable, 2026-08-15) — reproducibility through a seed is hostage to model
@@ -2179,7 +2188,15 @@ def _start_mirror(console: Console, cfg, evenings, args) -> "Server | None":
         console.print("[dim]playing without it — the terminal is unaffected[/dim]")
         return None
     how = "and playing from it" if evenings.can_play else "read-only"
-    console.print(f"[green]from the sofa:[/green] {server.url}  [dim]({how})[/dim]")
+    # A container binds every interface *of its own namespace*, so the address it can see
+    # is true and unreachable and the interface it binds says nothing about what is
+    # published. When the deployment knows the real address it says so here, and the
+    # wildcard warning below changes to match rather than crying tailnet at a publish
+    # that is pinned to one LAN address.
+    published = os.environ.get(WEB_PUBLIC_URL_ENV, "").strip()
+    console.print(
+        f"[green]from the sofa:[/green] {published or server.url}  [dim]({how})[/dim]"
+    )
     if server.guarded:
         # The token itself is not printed. It is fixed and it lives in `.env`, so echoing
         # it every evening would put a live credential in scrollback and in any screenshot
@@ -2192,7 +2209,12 @@ def _start_mirror(console: Console, cfg, evenings, args) -> "Server | None":
             "[dim]no key: anyone who reaches this port is at the table "
             "(docs/LAN-ACCESS.md)[/dim]"
         )
-    if server.everywhere:
+    if server.everywhere and published:
+        console.print(
+            f"[dim]bound to {EVERY_INTERFACE} inside this container; what is actually "
+            f"published is the ports: line in docker-compose.yml[/dim]"
+        )
+    elif server.everywhere:
         console.print(
             f"[yellow]bound to {EVERY_INTERFACE} — every interface, the tailnet "
             f"included[/yellow] [dim](a key is not a login; docs/LAN-ACCESS.md)[/dim]"
@@ -2284,19 +2306,44 @@ def _cmd_serve(console: Console, args: argparse.Namespace) -> int:
         if not started.accepted:
             console.print(f"[red]could not start:[/red] {started.reason}")
 
+    # `docker compose stop` sends SIGTERM, and Python's default handler ends the process
+    # without unwinding — which would drop a running evening's save, its chronicle and
+    # its sweep on the floor. Catching it turns a stop into the same ending `/quit`
+    # gives, which is the whole reason those jobs exist.
+    stopping = threading.Event()
+
+    def asked_to_stop(_signum, _frame) -> None:
+        stopping.set()
+
+    for caught in (signal.SIGTERM, signal.SIGINT):
+        try:
+            signal.signal(caught, asked_to_stop)
+        except ValueError:  # not the main thread — a test, or an embedded caller
+            pass
+
     try:
-        # The server runs on its own thread; this one exists only to be interrupted.
-        # `Event.wait()` rather than a sleep loop, so Ctrl+C lands immediately and the
-        # process does not spend the night waking up to check whether it should stop.
-        threading.Event().wait()
-    except KeyboardInterrupt:
-        console.print()
-        console.print("[dim]stopping[/dim]")
-    finally:
-        if lifecycle.phase != "idle":
-            # Give a running evening the chance to write its save and its chronicle
-            # rather than losing them to a signal. It ends the way `/quit` ends one.
+        # The server runs on its own thread; this one exists only to be told to stop.
+        # An `Event` rather than a sleep loop, so a signal lands immediately and the
+        # process does not spend the night waking up to check whether it should.
+        stopping.wait()
+    except KeyboardInterrupt:  # a caller that never installed the handler
+        pass
+
+    console.print()
+    console.print("[dim]stopping[/dim]")
+    try:
+        if lifecycle.phase != IDLE:
+            # `/quit`, and then actually wait for it. `end` only puts the line on the
+            # floor; the sweep, the chronicle and the save run on the evening's own
+            # thread afterwards, and a container that exited here would lose them.
+            console.print("[dim]finishing the evening — save, sweep, chronicle[/dim]")
             lifecycle.end()
+            if not lifecycle.wait(STOP_GRACE):
+                console.print(
+                    f"[yellow]the evening did not finish within {STOP_GRACE:.0f}s[/yellow]"
+                    " [dim]— stopping anyway; the save may be a turn behind[/dim]"
+                )
+    finally:
         server.stop()
     return 0
 

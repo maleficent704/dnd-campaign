@@ -1,0 +1,21 @@
+[Unit]
+Description=Pull dnd-campaign and redeploy if the branch moved
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/labmonitor/services/dndc
+ExecStart=/home/labmonitor/services/dndc/deploy/pull.sh
+User=labmonitor
+# For DNDC_WEB_TOKEN: the script asks the running server whether anybody is
+# playing before it recreates the container, and the server does not answer
+# without the key. That is the point of the key.
+# `-` so a missing .env does not fail the unit. The script needs DNDC_WEB_TOKEN to
+# ask the server whether anybody is playing, and refuses to redeploy when it cannot
+# tell rather than guessing.
+EnvironmentFile=-/home/labmonitor/services/dndc/.env
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

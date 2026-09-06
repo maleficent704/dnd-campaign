@@ -511,3 +511,39 @@ def test_the_second_device_is_told_why_rather_than_ignored(table):
 
     assert refused.json()["reason"] == "it is not your turn"
     assert refused.json()["accepted"] is False
+
+
+# --- the address a container should read out (P6.7c) ------------------------
+
+
+def test_a_container_says_the_address_the_deployment_gave_it(recording, monkeypatch):
+    """A process in a container binds every interface *of its own namespace*. The
+    address it can see is `172.17.0.x` — true, and unreachable from the sofa."""
+    monkeypatch.setenv(WEB_TOKEN_ENV, "k" * 24)
+    monkeypatch.setenv("DNDC_WEB_PUBLIC_URL", "http://192.168.50.46:8093")
+    _, printed = start_mirror(recording, host=EVERY_INTERFACE, floor=Floor())
+
+    assert "http://192.168.50.46:8093" in printed
+
+
+def test_a_container_is_not_warned_about_a_tailnet_it_is_not_on(recording, monkeypatch):
+    """P6.6's rule is that the startup line tells the truth about exposure. Inside a
+    container the wildcard warning is false in both directions: the bind is namespaced,
+    and what is published is the `ports:` line, which is pinned to one LAN address."""
+    monkeypatch.setenv(WEB_TOKEN_ENV, "k" * 24)
+    monkeypatch.setenv("DNDC_WEB_PUBLIC_URL", "http://192.168.50.46:8093")
+    _, printed = start_mirror(recording, host=EVERY_INTERFACE, floor=Floor())
+
+    assert "tailnet" not in printed
+    assert "docker-compose.yml" in printed
+
+
+def test_without_that_the_wildcard_warning_is_unchanged(recording, monkeypatch):
+    """The warning is not weakened for everybody else — a bare `--serve-host 0.0.0.0`
+    on the PC is still the exposure P6.6 measured reaching a phone on cellular."""
+    monkeypatch.setenv(WEB_TOKEN_ENV, "k" * 24)
+    monkeypatch.delenv("DNDC_WEB_PUBLIC_URL", raising=False)
+    _, printed = start_mirror(recording, host=EVERY_INTERFACE, floor=Floor())
+
+    assert "tailnet" in printed
+    assert "not a login" in printed

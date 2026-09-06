@@ -1,0 +1,24 @@
+# Secrets never enter the image. The token and the API key arrive at runtime through
+# `env_file:`, so a layer that contained them would be a leak with no upside.
+.env
+
+# Data, not code. The campaign lives on a volume (see docker-compose.yml); baking a copy
+# into the image would create a second home for it and the two would drift.
+campaigns/
+logs/
+
+# Generated from the pinned raw data during the build, so a stale local copy must not
+# ride along and quietly become the dataset the container uses (OD-7).
+data/srd/normalized/
+
+.git/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+tests/
+analysis/
+docs/
+build/
+dist/
+*.egg-info/

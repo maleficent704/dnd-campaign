@@ -813,6 +813,35 @@ CLI and the whole suite still run without them — the same posture `anthropic` 
     but a container does not inherit the host's, so it needs the CLI in the image plus a
     credential mount, or `api` with a key).
 
+    *(Done 2026-09-06 (c). `Dockerfile` (editable into `/app`, because `config.yaml`,
+    `.env` and `data/srd/` are found as `parents[2]` and a wheel install would put the
+    code where the data is not; SRD ingested **and verified** in the build layer, so a
+    dataset that does not match its pin fails the build). `docker-compose.yml` publishing
+    `192.168.50.46:8093` and not `0.0.0.0`, two named volumes, `stop_grace_period: 60s`.
+    `deploy.sh` whose success condition is **an anonymous 401** — a 200 there would mean
+    the table was open, and it fails loudly on one. `deploy/backup.sh`: both volumes,
+    piped straight through gzip through `age` to the NAS, every backup verified by
+    decrypting it. `deploy/pull.sh`: redeploys only if the branch moved **and** nothing is
+    playing, and refuses when it cannot tell rather than guessing — recreating the
+    container ends the evening. Four systemd units; the backup timer is live at 05:45 UTC
+    and has run.*
+
+    *Two code fixes the deployment forced: **SIGTERM** (a container stop would have
+    dropped a running evening's save, sweep and chronicle — `_cmd_serve` now ends the
+    evening and waits for the closing jobs), and **the startup line, which was lying
+    inside a container** — it printed an unreachable `172.17.0.x` and warned about a
+    tailnet the publish rules out, breaking P6.6's rule in both directions at once.
+    `DNDC_WEB_PUBLIC_URL` fixes it; the warning is unweakened everywhere else.*
+
+    ***The campaign left the repo***, which is the item carried since 2026-09-05. It went
+    last and only after three copies existed and the third was **decrypted, extracted and
+    `diff -r`'d against the source**. `.gitignore` is now `campaigns/*`; git history keeps
+    everything up to today. The VM's volume is canonical; the PC's copy is a fixture.*
+
+    ***Not done, and Kelly's:*** `.env` on the VM, then `./deploy.sh`. Copying credentials
+    between machines should happen because somebody meant it. `dndc-pull.timer` is written
+    but deliberately not enabled until the service has started once by hand.*
+
     Port: **`:8093`**, not `:8090`. Both measured free on the VM (2026-09-04, re-confirmed
     2026-09-05), but `~/services/the-room` already rejected `:8090` in writing — "a number
     that already means something else on another host is a number someone will misread",

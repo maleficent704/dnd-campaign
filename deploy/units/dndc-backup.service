@@ -1,0 +1,24 @@
+[Unit]
+Description=Nightly age-encrypted backup of the campaign and its logs to the NAS
+After=network-online.target docker.service
+Wants=network-online.target
+RequiresMountsFor=/mnt/truenas/shared
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/labmonitor/services/dndc/deploy
+ExecStart=/home/labmonitor/services/dndc/deploy/backup.sh
+# Runs as labmonitor, not root, and that is load-bearing: the age identity used to
+# verify each backup lives at ~labmonitor/.config/sops/age/keys.txt. Writing needs only
+# the public recipient, so this would work without it — it would just stop proving the
+# file it wrote is a tarball. Same reasoning as the-room-backup.service.
+User=labmonitor
+# `-` so a VM that has not had its .env placed yet still runs the backup. Neither
+# DNDC_BACKUP_RECIPIENT nor DNDC_BACKUP_DEST is required — both default in the script
+# — so the nightly job protects the campaign from its very first night, before
+# anybody has put a credential on this box.
+EnvironmentFile=-/home/labmonitor/services/dndc/.env
+Nice=15
+
+[Install]
+WantedBy=multi-user.target

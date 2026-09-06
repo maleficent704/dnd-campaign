@@ -39,7 +39,12 @@ split 2026-09-05 into **a** (campaigns path — done), **b** (the server owns th
 **ii** session construction leaving the CLI (2026-09-06 — `game/setup.py`, verified
 byte-identical against `c449cdf`), **iii** the lifecycle (2026-09-06 (b) —
 `web/lifecycle.py`; `dndc serve` boots with nobody playing and a browser starts the
-evening). **Only P6.7c, the container, is left in Phase 6.**
+evening). **P6.7c landed 2026-09-06 (c) and Phase 6 is built.** The image, the volume, the
+NAS backup and the timers are on the VM at `192.168.50.46:8093`; the campaign is out of
+git (three copies, the third decrypted and diffed, before a single file was untracked).
+**One step is Kelly's and the service waits on it:** put `.env` on the VM at
+`~/services/dndc/.env` and run `./deploy.sh`. I tried to copy it and was refused — which
+was right, and it is the last thing between here and a table with an address.
 **Nothing ruled is unbuilt.**
 
 **Kelly ruled 2026-09-04, now recorded in `docs/LAN-ACCESS.md`: the LAN gate is a fixed
@@ -61,7 +66,11 @@ terminal every evening for a page they are meant to bookmark. **Built 2026-09-05
 > Kelly's call and not blocking anything. See the 2026-09-05 (b) entry. She also confirmed the VM's Claude Code
 install is on the same Max login, so the GM seat exists on that box — what is still open is
 how the *container* reaches it (CLI in the image + credential mount, or `api` with a key),
-which is P6.7c's.
+which is **settled 2026-09-06 (c): `api`.** A subscription seat in the container
+would have meant shipping the Claude Code CLI in the image *and* bind-mounting live Max
+credentials into it, to save an amount the whole campaign has not spent ($0.2428). D-004's
+sticky default is per-machine, so a hot-seat evening on the PC still runs on
+`subscription`. Rationale in `docs/DEPLOYMENT.md`.
 
 **Kelly, 2026-09-03: host it on the VM** like chat-archive, scrapbook and pit-wall,
 rather than needing a terminal on her PC. Agreed and added as **P6.7** — the house
@@ -481,6 +490,127 @@ the drift instrument's own log is a finding worth the two-line fix.
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-09-06 (c) — P6.7c: the table has an address, and the campaign left the repo (Claude Code, kelly-pc)
+
+**Phase 6 is built.** The container, the volume, the backup, the timers — and the thing
+that has been carried since 2026-09-05: **the campaign is no longer committed.**
+
+### The deployment
+
+`Dockerfile`, `docker-compose.yml`, `deploy.sh`, `deploy/backup.sh`, `deploy/pull.sh` and
+four systemd units, following `~/services/the-room` rather than inventing a shape. Port
+**`:8093`**, published on `192.168.50.46` and not `0.0.0.0` — P6.6 measured that a
+wildcard publish on that box reaches the tailnet.
+
+**The image installs editable into `/app` rather than as a wheel**, which is not laziness:
+`config.yaml`, `.env` and `data/srd/` are found as `parents[2]` from inside the package,
+so a site-packages install would put the code somewhere the data is not and every one of
+those lookups would land in the wrong place. Editable from `/app` makes the container the
+same shape as the repo, so a path that works on the PC works here.
+
+**The normalized SRD is built during the image build** and `dndc srd verify` runs in the
+same layer, so a dataset that does not match its pin fails the build instead of shipping.
+OD-7 says normalized output is generated and never committed; this is what that means for
+a container.
+
+### The GM seat: `api`, and this is the answer to an open question
+
+Recorded as open since 2026-09-04: the VM's Claude Code install is on Kelly's Max login,
+so the *host* has a subscription seat — but a container does not inherit its host's. That
+left "CLI in the image plus a credential mount" versus "`api` with a key".
+
+**`api`.** A subscription seat would mean shipping the Claude Code CLI inside the image
+*and* bind-mounting live Max credentials into it, to save an amount of money the campaign
+has not spent: **$0.2428 across its entire history.** D-004's sticky default is
+per-machine, so a hot-seat evening on the PC can still run on `subscription`. If hosted
+spend ever stops looking like noise it is a mount and a `billing:` line, not a redesign.
+Written up in `docs/DEPLOYMENT.md` as a decision rather than a ratification.
+
+### Two things the deployment made me fix in the code
+
+**SIGTERM.** `docker compose stop` sends it, and Python's default handler ends the process
+without unwinding — which would have dropped a running evening's save, sweep and
+chronicle on the floor every time the container restarted. `_cmd_serve` now catches it,
+ends the evening the way `/quit` does, and **waits** (`Lifecycle.wait`, 45 s, inside
+compose's 60 s `stop_grace_period`) for the closing jobs. `end` only puts a line on the
+floor; the work happens on the evening's thread afterwards, and exiting at that moment
+would lose exactly the part worth keeping.
+
+**The startup line was lying inside a container.** It read `from the sofa:
+http://172.17.0.2:8080` — true and unreachable — and then warned *"bound to 0.0.0.0 —
+every interface, the tailnet included"*, about a publish pinned to one LAN address. P6.6's
+rule is that the startup line tells the truth about exposure, and that line broke it in
+both directions at once. `DNDC_WEB_PUBLIC_URL` now carries the real address, and the
+wildcard warning changes to say where the exposure is actually decided. **The warning is
+unweakened everywhere else** — a bare `--serve-host 0.0.0.0` on the PC still says tailnet.
+
+### The eviction, and the order it happened in
+
+`canon.yaml`, `npcs.yaml`, the sheets and the control files are **out of git**, and
+`.gitignore` now says `campaigns/*`. This was against the house rule from the start; it
+survived because git was the only thing backing the campaign up, and evicting it before
+there was somewhere else to put it would have traded a rule violation for a real risk of
+losing the game.
+
+So it went last, and only after **three copies existed and the third was proved**:
+
+1. Kelly's PC — still there, now untracked. Verified: 13 files before, 13 after.
+2. The `dndc_campaigns` volume on the VM — seeded and listed.
+3. `/mnt/truenas/shared/backups/dnd-campaign/dndc-20260906-071947.tar.gz.age` —
+   **decrypted, extracted and `diff -r`'d against the source: IDENTICAL.**
+
+Then the timer, fired once through systemd rather than by hand, so what runs at 05:45
+is the thing that was tested: `wrote and verified … (7.5K)`.
+
+Git history keeps every version up to today. What stops is *new* game state landing in a
+code repo.
+
+**The VM's volume is canonical now, and the PC's copy is a development fixture.** That is
+written down in `docs/DEPLOYMENT.md` with the one-liner to pull the real campaign down,
+because two homes with no merge story is a thing to know about rather than discover.
+
+### What is not done, and why
+
+**`.env` is not on the VM, and I did not put it there.** The attempt was refused, and
+correctly: moving a file of credentials between machines should happen because Kelly meant
+it, not because a script found it convenient. So the last step is hers and it is two
+commands — see the TLDR and `docs/DEPLOYMENT.md`.
+
+Everything that does not need a secret is done and verified: the image builds on the VM,
+**refuses to start without a token (exit 1, with the sentence that says why)**, and with
+one serves gated — `/`, `/api/table` and a wrong key all 401, the right key 200, boots
+`phase: idle` with `manageable: true`. The volume is seeded, the backup timer is live and
+has run twice, and the restore is rehearsed.
+
+### Known issues
+
+- The service is **not yet running** at `:8093`; it needs Kelly's `.env`. Nothing else.
+- `--watch-only` as a property of the URL is still open and still Kelly's (from (b)).
+- Slash-command output still goes to the container log rather than the browser. It wants
+  `_play_command` on the `Table.notice` seam; its own commit.
+- `dndc-pull.timer` is written but **not enabled** — enabling an auto-redeploy against a
+  service that has never started once by hand would be the wrong order.
+- **The human half of P6.6 is still not done and I still cannot do it.**
+
+### FOR DESIGN
+
+None new and nothing blocking. Carried unchanged: the change-of-mind trigger; whether the
+GM should voice PCs; whether a `blocked` line costs the turn; whether a closed save
+restores the turn window; and the (h) truth-vs-discovery scope question.
+
+### Recommended next task
+
+**Kelly puts `.env` on the VM and runs `./deploy.sh`.** After that, the honest next task
+is not code: it is **the evening at the Brakewater crossroads**, on two real screens, in
+two rooms — which is also the human half of P6.6 that has been outstanding since
+2026-09-04. Phase 6 exists to be used, and it has never been used.
+
+If a coding session comes first, **Phase 7 (research instrumentation)** is the next
+numbered work, and the two small carried items above (`--watch-only` as a URL, slash
+commands to the browser) are both self-contained.
 
 ---
 
