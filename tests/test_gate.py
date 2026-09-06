@@ -39,6 +39,7 @@ from dndc.web.gate import (
     resolve_gate,
     token_from_header,
 )
+from dndc.web.lifecycle import Held
 from dndc.web.mirror import Mirror
 from dndc.web.view import table_view
 
@@ -169,7 +170,7 @@ def build(gate, floor=None, ended=False):
         # The stream only terminates when the evening does, so a test that reads one to
         # the end has to end it first. Same reason `test_mirror.frames` does it.
         mirror.ended()
-    return TestClient(build_app(mirror, floor, gate))
+    return TestClient(build_app(Held(mirror, floor), gate))
 
 
 @pytest.fixture
@@ -190,7 +191,7 @@ def test_no_route_on_a_guarded_app_answers_an_anonymous_request(guarded):
     """
     from dndc.web.app import build_app
 
-    app = build_app(Mirror(), Floor(), Gate(GOOD))
+    app = build_app(Held(Mirror(), Floor()), Gate(GOOD))
     checked = 0  # every request below is anonymous, so no stream is ever opened
     for route in app.routes:
         path, methods = getattr(route, "path", None), getattr(route, "methods", set())

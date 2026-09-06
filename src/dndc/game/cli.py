@@ -12,7 +12,6 @@ import re
 import sys
 import threading
 import time
-from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
@@ -82,8 +81,8 @@ from dndc.game.party import resolve_member
 from dndc.game.saves import Resume
 from dndc.game.session import (
     PlaySession,
-    SessionError,
 )
+from dndc.game.evening import SCAFFOLDING_CHOICES, run_evening
 from dndc.game.setup import (
     MAX_SEED,
     SetupError,
@@ -110,9 +109,10 @@ from dndc.game.asking import (
     parse_selection,
     read,
 )
-from dndc.game.floor import WEB, Floor
+from dndc.game.floor import Floor
 from dndc.gm.tagstream import TagStream
 from dndc.web.gate import TokenError, deployment_requires, resolve_gate
+from dndc.web.lifecycle import Held, Lifecycle
 from dndc.web.mirror import Mirror
 from dndc.web.server import Server, is_everywhere
 from dndc.web.view import table_view
@@ -174,19 +174,11 @@ from dndc.schema.srd import IngestScope
 from dndc.srd import SRDIngestError, ingest, load_dataset, validate_dataset, verify_pin
 from dndc.srd.repository import SRDRepository
 
-#: How often the loop looks up from the queue when a floor is in play. Short enough that a
-#: terminal going away is noticed promptly, long enough to cost nothing while an evening
-#: sits waiting for somebody to decide what their character does.
-FLOOR_POLL = 0.25
-
 #: Seed for analysis-context sweeps. A tightener, never a substitute for the committed
 #: baseline (Fable, 2026-08-15) — reproducibility through a seed is hostage to model
 #: version and server internals, so narrowing the variance is worth having and relying
 #: on it is not.
 DEFAULT_ANALYSIS_SEED = 20260815
-
-#: Rendered into every message that has to name the levels, so they cannot drift apart.
-SCAFFOLDING_CHOICES = " | ".join(sorted(SCAFFOLDING_TEMPLATES))
 
 
 @dataclass
@@ -900,11 +892,6 @@ PLAY_HELP = """[bold]commands[/bold]
   /recap                  replay the recent window
   /quit                   end the session
 anything else is what your character says or does."""
-
-#: How often the CLI reminds players that `/scaffolding` exists, in player turns.
-#: D-006 as amended puts the fade in the players' hands, which only works if they know
-#: the handle is there — and OD-11 puts meta in the chrome, so the GM cannot mention it.
-SCAFFOLDING_HINT_EVERY = 12
 
 
 @dataclass
@@ -2161,7 +2148,7 @@ def _web_gate(cfg, args):
     )
 
 
-def _start_mirror(console: Console, cfg, mirror: Mirror, args, floor=None) -> "Server | None":
+def _start_mirror(console: Console, cfg, evenings, args) -> "Server | None":
     """Bring the sofa online, or explain why not and let the table play anyway.
 
     A failure here is not fatal by accident — it is not fatal on purpose, and the return
@@ -2180,10 +2167,9 @@ def _start_mirror(console: Console, cfg, mirror: Mirror, args, floor=None) -> "S
         return None
 
     server = Server(
-        mirror,
+        evenings,
         host=host,
         port=args.serve_port or cfg.web.port,
-        floor=floor,
         gate=gate,
     )
     try:
@@ -2192,7 +2178,7 @@ def _start_mirror(console: Console, cfg, mirror: Mirror, args, floor=None) -> "S
         console.print(f"[yellow]the mirror did not start:[/yellow] {exc}")
         console.print("[dim]playing without it — the terminal is unaffected[/dim]")
         return None
-    how = "read-only" if floor is None else "and playing from it"
+    how = "and playing from it" if evenings.can_play else "read-only"
     console.print(f"[green]from the sofa:[/green] {server.url}  [dim]({how})[/dim]")
     if server.guarded:
         # The token itself is not printed. It is fixed and it lives in `.env`, so echoing
@@ -2240,21 +2226,79 @@ def _keyboard(console: Console, session: PlaySession, floor: Floor) -> threading
 
 
 def _cmd_serve(console: Console, args: argparse.Namespace) -> int:
-    """`dndc serve` — the same evening, with the browser as its front end (P6.6).
+    """`dndc serve` — the server is the process, and an evening is a thing it does (P6.7b-iii).
 
-    Deliberately thin, and it should stay thin: it is `play --serve` with the one
-    terminal-shaped default inverted, because nothing may ask a question at a console
-    before the session exists — there may not be one. Everything after that is the same
-    code, since a served session that took a different path through the program would be
-    a second turn loop wearing a hat, which is the thing P6.1 exists to prevent.
+    This used to be `play --serve` with one default flipped, which meant the process was
+    the evening: it built one at startup and exited when that evening ended. Right for a
+    laptop on the table, wrong for a container — which boots with nobody playing, has to
+    show something anyway, and must still be up tomorrow.
+
+    So it boots a server around a `Lifecycle` and waits. **`--campaign` still starts an
+    evening immediately**, because that is how this command has been used since P6.6 and
+    taking it away to make an architectural point would be a worse command. The
+    difference is what happens when that evening ends: the process stays up, the page
+    goes back to a start screen, and the next evening does not need a restart.
 
     A hot seat is still available — run this in a terminal and the keyboard joins the
-    floor like any other device. It is no longer *required*, which is the whole
-    difference, and the reason this is the shape P6.7's container entrypoint wants.
+    floor like any other device (`keyboard_for` below). A container passes no terminal
+    and the evening simply has one fewer source, which is what `_keyboard` always said.
     """
     args.serve = True
     args.no_prompt = True  # D-004's sticky default stands; --billing still overrides it.
-    return _cmd_play(console, args)
+    cfg = load_config()
+
+    lifecycle = Lifecycle(
+        cfg,
+        args,
+        herald=ConsoleHerald(console),
+        table_for=lambda evening, mirror, floor: MirrorTable(
+            ConsoleTable(console, cfg, args, evening.items),
+            mirror,
+            evening.session,
+            floor,
+        ),
+        commands=lambda evening: (
+            lambda text: _play_command(
+                console,
+                text,
+                evening.campaign,
+                evening.engine.builder,
+                items=evening.items,
+                acting=evening.session.acting,
+            )
+        ),
+        keyboard_for=lambda evening, floor: (
+            _keyboard(console, evening.session, floor)
+            if floor is not None and sys.stdin.isatty()
+            else None
+        ),
+    )
+
+    server = _start_mirror(console, cfg, lifecycle, args)
+    if server is None:
+        return 1
+    console.print("[dim]nothing playing yet — start an evening from the page[/dim]")
+
+    if args.campaign:
+        started = lifecycle.start(args.campaign)
+        if not started.accepted:
+            console.print(f"[red]could not start:[/red] {started.reason}")
+
+    try:
+        # The server runs on its own thread; this one exists only to be interrupted.
+        # `Event.wait()` rather than a sleep loop, so Ctrl+C lands immediately and the
+        # process does not spend the night waking up to check whether it should stop.
+        threading.Event().wait()
+    except KeyboardInterrupt:
+        console.print()
+        console.print("[dim]stopping[/dim]")
+    finally:
+        if lifecycle.phase != "idle":
+            # Give a running evening the chance to write its save and its chronicle
+            # rather than losing them to a signal. It ends the way `/quit` ends one.
+            lifecycle.end()
+        server.stop()
+    return 0
 
 
 def _cmd_play(console: Console, args: argparse.Namespace) -> int:
@@ -2297,7 +2341,10 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
         # cannot tell "not allowed" from "not built", which is the honest shape for a
         # read-only server (P6.3's behaviour, kept rather than degraded).
         floor = None if args.watch_only else Floor()
-        server = _start_mirror(console, cfg, mirror, args, floor)
+        # `Held`, not `Lifecycle`: here the evening owns the process and the server is a
+        # thing it is also doing. That is the right posture for a laptop on the table and
+        # P6.7b-iii deliberately did not change it — it only added the other one.
+        server = _start_mirror(console, cfg, Held(mirror, floor), args)
         if server is None:
             return 1
         table = MirrorTable(table, mirror, session, floor)
@@ -2305,87 +2352,28 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
     console.print(f"[bold]{campaign.name}[/bold] — {evening.backend.name}, seed {evening.seed}")
     console.print(f"[dim]log -> {log.path}  ·  /help for commands[/dim]\n")
 
-    try:
-        try:
-            session.open_scene(table)
-        except SessionError as exc:
-            console.print(f"\n[red]error:[/red] {exc}")
-            return 1
-
-        keyboard = _keyboard(console, session, floor) if floor else None
-        orphaned = False
-        while True:
-            if floor is None:
-                member = session.member
-                try:
-                    raw = Prompt.ask(f"[bold cyan]{member.player} ({member.name})[/bold cyan]")
-                except (EOFError, KeyboardInterrupt):
-                    console.print("\n[dim]session ended[/dim]")
-                    break
-                text = raw.strip()
-            else:
-                # Every line arrives the same way whoever typed it, and the loop cannot
-                # tell a keyboard from a browser — which is the point. The wait is bounded
-                # so a terminal that has gone away (EOF, ^D) is noticed rather than
-                # blocking the process forever on a queue nobody will ever add to.
-                line = floor.next(timeout=FLOOR_POLL)
-                if line is None:
-                    if not keyboard.is_alive() and not orphaned:
-                        # The keyboard has gone (EOF, ^D) but the sofa has not. A served
-                        # session does not end because the terminal did — that is most of
-                        # the point of serving it, and a hosted one (P6.7) never has a
-                        # terminal to lose. `/quit` from either side still ends it, and
-                        # Ctrl+C still ends the process.
-                        orphaned = True
-                        console.print(
-                            "\n[dim]terminal closed — still serving. /quit from a device, "
-                            "or Ctrl+C here[/dim]"
-                        )
-                    continue
-                text = line.text.strip()
-                if line.source == WEB:
-                    console.print(f"\n[cyan]{line.character}[/cyan] [dim](from the couch)[/dim]: {text}")
-
-            if not text:
-                continue
-            if text.startswith("/"):
-                outcome = _play_command(
-                    console, text, campaign, engine.builder, items=items,
-                    acting=session.acting,
-                )
-                if outcome.quit:
-                    break
-                if outcome.active:
-                    session.hand_to(outcome.active)
-                table.changed()
-                continue
-
-            console.print()
-            with (floor.taking_a_turn() if floor else nullcontext()):
-                played = session.take_turn(text, table)
-            if played is None:
-                # A failed turn is not a turn: it gets no trailing spacing and no
-                # scaffolding hint, because nothing was narrated to react to.
-                continue
-            if should_hint_scaffolding(session.player_turns, engine.builder.scaffolding):
-                console.print(
-                    f"\n[dim]— GM offering you options more than you want? "
-                    f"/scaffolding {SCAFFOLDING_CHOICES}[/dim]"
-                )
-            console.print()
-    finally:
-        session.close()
-
-    # The between-session jobs run *before* the sofa is told the evening is over, because
-    # the sweep asks the table a question and P6.5 lets a device answer it. Tearing the
-    # server down first pushed that question to a mirror nobody could reach and then took
-    # silence for a decline — found live, not in a test, because every test that could
-    # have caught it owned the mirror directly and never had a socket to lose.
-    session.finish(table, sweep=not args.no_sweep, chronicle=not args.no_chronicle)
+    keyboard = _keyboard(console, session, floor) if floor else None
+    closed = run_evening(
+        evening,
+        table,
+        floor=floor,
+        herald=herald,
+        commands=lambda text: _play_command(
+            console, text, campaign, engine.builder, items=items, acting=session.acting,
+        ),
+        keyboard=keyboard,
+        sweep=not args.no_sweep,
+        chronicle=not args.no_chronicle,
+    )
+    # Told before the socket goes: a device watching an evening that failed to open
+    # should see it end rather than sit on a stream that simply stops. `run_evening` has
+    # already run the closing jobs, or skipped them because there was nothing to close.
     if mirror is not None:
         mirror.ended()
     if server is not None:
         server.stop()
+    if not closed.opened:
+        return 1
     if saves is not None:
         console.print(f"[dim]saved -> {saves.path}[/dim]")
     console.print()
@@ -2458,17 +2446,6 @@ def _inventory_command(
     for held in sheet.inventory:
         count = f" ×{held.quantity}" if held.quantity > 1 else ""
         console.print(f"  {held.name}{count}{' [dim](equipped)[/dim]' if held.equipped else ''}")
-
-
-def should_hint_scaffolding(player_turns: int, scaffolding: str) -> bool:
-    """Whether the chrome should mention `/scaffolding` after this turn.
-
-    Only a periodic nudge, and only while there is something left to turn down — at
-    `off` the command has nothing to offer and the reminder is just noise.
-    """
-    if scaffolding == "off" or player_turns <= 0:
-        return False
-    return player_turns % SCAFFOLDING_HINT_EVERY == 0
 
 
 def _switch_command(console: Console, argument: str, campaign) -> CommandResult:

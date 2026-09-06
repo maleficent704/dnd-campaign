@@ -79,6 +79,28 @@
   #question li { margin: .2rem 0; }
   #question .alt { display: block; color: var(--faint); font-size: .84rem; }
   #question .note { color: #c98b6a; font-size: .84rem; margin: 0 0 .35rem; }
+
+  /* The start screen (P6.7b-iii). A hosted server boots with nobody playing, and a
+     blank page would look broken rather than ready. */
+  #start { max-width: 42rem; margin: 2.5rem auto; padding: 0 1rem; }
+  #start h2 { font-size: 1rem; margin: 0 0 .2rem; font-weight: 600; }
+  #start p { color: var(--dim); font-size: .92rem; margin: 0 0 1.2rem; }
+  #start ul { list-style: none; margin: 0; padding: 0; }
+  #start li { border: 1px solid var(--edge); border-radius: 3px; background: var(--panel);
+              margin: 0 0 .5rem; }
+  #start button.pick { width: 100%; text-align: left; background: none; border: 0;
+                       color: var(--ink); font: inherit; padding: .7rem .85rem;
+                       cursor: pointer; }
+  #start button.pick:hover { background: #262319; }
+  #start button.pick:disabled { cursor: default; opacity: .5; }
+  #start .players { display: block; color: var(--faint); font-size: .84rem; }
+  #start .none { color: var(--faint); font-size: .9rem; font-style: italic; }
+  #start .wrong { color: #c98b6a; font-size: .88rem; margin: 0 0 1rem; }
+  #endbox { max-width: 42rem; margin: 0 auto 3rem; padding: 0 1rem; }
+  #end { background: none; border: 1px solid var(--edge); border-radius: 3px;
+         color: var(--faint); font: inherit; font-size: .84rem; padding: .35rem .7rem;
+         cursor: pointer; }
+  #end:hover { color: var(--ink); border-color: var(--dim); }
 </style>
 
 <header>
@@ -86,6 +108,13 @@
   <span class="scene" id="scene"></span>
   <span class="who" id="status">connecting</span>
 </header>
+
+<section id="start" hidden>
+  <h2>Nothing is playing</h2>
+  <p id="startwhy">Pick a campaign to begin the evening.</p>
+  <p class="wrong" id="starterror" hidden></p>
+  <ul id="campaigns"></ul>
+</section>
 
 <main>
   <div class="party" id="party"></div>
@@ -105,6 +134,8 @@
     <button id="send" type="submit">say</button>
   </form>
 </div>
+
+<div id="endbox" hidden><button id="end" type="button">end the evening</button></div>
 
 <footer id="foot">watching only — this screen cannot take a turn</footer>
 
@@ -267,8 +298,92 @@
     window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
   }
 
+  // The server says what it is doing on the same channel it says everything else on:
+  // `phase` rides in every snapshot, so a page that reconnects after an evening ended
+  // draws a start screen rather than an empty transcript it cannot explain.
+  var manageable = false;
+
+  function drawPhase(msg) {
+    if (msg.phase === undefined) return;
+    manageable = !!msg.manageable;
+    var idle = msg.phase === "idle", starting = msg.phase === "starting";
+
+    el("start").hidden = !(idle && manageable);
+    el("endbox").hidden = !(msg.phase === "playing" && manageable && msg.writable);
+    var wrong = el("starterror");
+    wrong.hidden = !msg.error;
+    wrong.textContent = msg.error || "";
+
+    if (starting) {
+      el("status").textContent = "starting the evening…";
+      el("status").className = "who";
+    } else if (idle && manageable) {
+      el("campaign").textContent = "dndc";
+      el("startwhy").textContent = "Pick a campaign to begin the evening.";
+      loadCampaigns();
+    }
+    // The say-box belongs to an evening; an idle server should not offer one.
+    if (idle) el("say").hidden = true;
+  }
+
+  function loadCampaigns() {
+    fetch("/api/campaigns").then(function (r) {
+      return r.ok ? r.json() : { campaigns: [] };
+    }).then(function (body) {
+      var list = el("campaigns");
+      list.textContent = "";
+      var found = body.campaigns || [];
+      if (!found.length) {
+        list.appendChild(text("li", "none", "no campaigns yet — dndc create-character"));
+        return;
+      }
+      found.forEach(function (c) {
+        var item = document.createElement("li");
+        var button = document.createElement("button");
+        button.className = "pick";
+        button.type = "button";
+        button.appendChild(text("span", null, c.name));
+        button.appendChild(text("span", "players", (c.players || []).join(", ")));
+        button.addEventListener("click", function () {
+          begin(c.slug, button);
+        });
+        item.appendChild(button);
+        list.appendChild(item);
+      });
+    }).catch(function () { /* the stream will bring us back */ });
+  }
+
+  function begin(slug, button) {
+    // Disabled on click and left that way: the answer arrives as a `phase` on the
+    // stream, not as this response, and a button that re-enabled itself would invite a
+    // second evening on top of the one now being built.
+    if (button) button.disabled = true;
+    el("startwhy").textContent = "starting — the recap can take a minute or two…";
+    fetch("/api/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ campaign: slug })
+    }).then(function (r) {
+      if (r.ok) return;
+      return r.json().then(function (body) {
+        el("startwhy").textContent = body.reason || "that did not start";
+        if (button) button.disabled = false;
+      });
+    }).catch(function () {
+      if (button) button.disabled = false;
+    });
+  }
+
+  el("end").addEventListener("click", function () {
+    el("end").disabled = true;
+    fetch("/api/session/end", { method: "POST" }).catch(function () {}).then(function () {
+      el("end").disabled = false;
+    });
+  });
+
   function handle(msg) {
     if (msg.kind === "table") {
+      drawPhase(msg);
       // A spectator link says so, and the input is never offered there — a device should
       // not be shown a box that every submission will be refused from.
       if (msg.writable !== undefined) canPlay = msg.writable;

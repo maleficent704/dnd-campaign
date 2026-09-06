@@ -52,6 +52,15 @@ These hold structurally rather than by policy, which is the only kind worth writ
   "not built", because there is nothing to tell apart (P6.4).
 - **There is no filesystem or shell surface.** The routes are `GET /`, `GET /api/table`,
   `GET /api/events`, and — unless `--watch-only` — `POST /api/turn` and `POST /api/answer`.
+  A **hosted** server (`dndc serve`, P6.7b-iii) adds three more: `GET /api/campaigns`,
+  `POST /api/session` and `POST /api/session/end`. `dndc play --serve` does not build
+  those at all, for the same reason a spectator link does not build the write routes —
+  its evening was started by a command and there is nothing here to start or end.
+- **A hosted server can start an evening, which means it can spend money.** Anyone who
+  reaches the port and passes the gate can press Start, and the GM seat bills for what
+  follows. That is not new in kind — anyone at the table could always take turns — but a
+  device that can begin an evening nobody is sitting at is worth knowing about, and it is
+  one more reason `DNDC_WEB_REQUIRE_TOKEN=1` is what the container sets.
 
 ## `0.0.0.0` is not "the LAN"
 
@@ -117,6 +126,7 @@ machine. The commands are in `race-control/docs/operations/lan-only-services.md`
 | the other sofa, and nothing else | nothing — `host: lan` is the default, and open |
 | just to look at it yourself | `--serve-host 127.0.0.1` |
 | a screen that cannot play | `--watch-only` — no write route is built |
+| a server that outlives the evening | `dndc serve` — boots idle, a browser starts one |
 | a key on the LAN as well | `DNDC_WEB_TOKEN=…` in `.env`; enforced as soon as it is set |
 | to be sure a key is enforced | `--require-token` — refuses to start without one |
 | the tailnet on purpose (phone, away from home) | `--serve-host 0.0.0.0` — **now requires a key**, and read the rest of this file first |
@@ -201,3 +211,32 @@ the LAN. That evening is bound to one interface, lasts as long as somebody is in
 and is the posture this house has chosen for every service it runs; forcing a key there
 would have broken the evening Kelly and Sam actually play in exchange for nothing. If that
 reading is wrong, one line in `_web_gate` makes a key mandatory everywhere.
+
+
+## What a hosted server exposes that a played one does not (P6.7b-iii)
+
+`dndc serve` boots with nobody playing and waits. That is what a container needs, and it
+moves one thing across the trust boundary that was not there before: **the ability to
+begin an evening.**
+
+- `GET /api/campaigns` lists what this household could play — names and players, not
+  content. Behind the gate like everything else, because the shape of a family's evenings
+  is not a stranger's business.
+- `POST /api/session` starts one. It answers `202` and does the work on another thread,
+  because building an evening takes as long as the recap takes and no browser should hold
+  a socket across that. A second start while one is running is a `409` with a sentence.
+- `POST /api/session/end` ends one by putting `/quit` on the floor — the same path a
+  person at the table uses, so the sweep, the chronicle and the save all run.
+
+**One evening at a time, and that is a rule rather than a limit.** Every piece of campaign
+state in this project is single-threaded by construction; two evenings would be two
+writers on one canon ledger.
+
+**What did not change.** A spectator server still builds no write route, and a
+`dndc play --serve` still builds no session route — both decided once, when the app is
+built, because a route table cannot be rebuilt between evenings. "Not built, not refused"
+survives in both places.
+
+**Still a CLI flag, not a URL:** `--watch-only`. A watch-only *link* would need the write
+routes to exist and be refused per viewer, which is weaker than not building them. Open
+for Kelly; see the Open block in `docs/PROGRESS.md`.

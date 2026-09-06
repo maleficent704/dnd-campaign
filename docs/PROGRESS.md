@@ -35,9 +35,11 @@ looked at the UI 2026-09-03 and approved it.** P6.6 changed the bind default fro
 interface to the LAN address — the old one published an unauthenticated GUI to the
 tailnet — and wrote `docs/LAN-ACCESS.md`. **Only P6.7 (hosting) is left in Phase 6**,
 split 2026-09-05 into **a** (campaigns path — done), **b** (the server owns the session),
-**c** (the deployment); **b** split again into **i** the gate (done 2026-09-05 (b)),
-**ii** session construction leaving the CLI (done 2026-09-06 — `game/setup.py`, a
-refactor verified byte-identical against `c449cdf`), **iii** the lifecycle.
+**c** (the deployment). **b** is complete**:** **i** the gate (2026-09-05 (b)),
+**ii** session construction leaving the CLI (2026-09-06 — `game/setup.py`, verified
+byte-identical against `c449cdf`), **iii** the lifecycle (2026-09-06 (b) —
+`web/lifecycle.py`; `dndc serve` boots with nobody playing and a browser starts the
+evening). **Only P6.7c, the container, is left in Phase 6.**
 **Nothing ruled is unbuilt.**
 
 **Kelly ruled 2026-09-04, now recorded in `docs/LAN-ACCESS.md`: the LAN gate is a fixed
@@ -46,12 +48,17 @@ code that file used to recommend, which would have made a family re-read a code 
 terminal every evening for a page they are meant to bookmark. **Built 2026-09-05 (b)** as
 `web/gate.py` — on every route including the event stream, which is what made it a cookie.
 
-> **One deviation wants Kelly's eye, non-blocking.** "An absent token must refuse to start"
-> is applied to a `0.0.0.0` bind, `--require-token` and `DNDC_WEB_REQUIRE_TOKEN` — not to a
-> plain `dndc play --serve` on the LAN, which stays open the way every other service in
-> this house is, because forcing a key on the evening she and Sam actually play would cost
-> something and buy nothing. Setting `DNDC_WEB_TOKEN` turns it on there too. If that
-> narrowing is wrong it is one line in `_web_gate`. See the 2026-09-05 (b) entry. She also confirmed the VM's Claude Code
+> **Settled in practice, 2026-09-06: Kelly has put `DNDC_WEB_TOKEN` in `.env`** (32
+> chars, URL-safe; verified live — anonymous and wrong-key requests get 401, a `?k=` link
+> becomes the cookie, the stream and both write routes are covered). Because the key is
+> set, it is now enforced on a plain LAN evening too, which is what her ruling asked for.
+>
+> The deviation it closes is narrower than it was and is recorded rather than resolved: I
+> applied "an absent token must refuse to *start*" to a `0.0.0.0` bind, `--require-token`
+> and `DNDC_WEB_REQUIRE_TOKEN`, but not to a plain `dndc play --serve`. The only remaining
+> difference is what happens if that line ever leaves `.env` — mine starts open and says
+> so on the startup line, the strict reading refuses. One line in `_web_gate` either way;
+> Kelly's call and not blocking anything. See the 2026-09-05 (b) entry. She also confirmed the VM's Claude Code
 install is on the same Max login, so the GM seat exists on that box — what is still open is
 how the *container* reaches it (CLI in the image + credential mount, or `api` with a key),
 which is P6.7c's.
@@ -63,6 +70,15 @@ architecture doc already says services live on the VM and "nothing has to live
 with no way to start a session shows an empty page forever. It also forces a fix that
 is overdue on its own: **campaign saves are game data and should not be in the code
 repo.**
+
+**One new question for Kelly, non-blocking, from P6.7b-iii (2026-09-06 (b)):
+should `--watch-only` become a property of the URL?** It is the one item of P6.7b-iii I
+deferred rather than built. Today a spectator server does not *build* the write routes at
+all — `POST /api/turn` is a 404, and a device cannot tell "not allowed" from "not built"
+(P6.3's protection by absence). A watch-only *link* would mean the routes exist for the
+players and get refused per viewer, which is strictly weaker. The gain is a read-only link
+you can hand somebody without restarting the server. **That is a security trade to pick,
+not to receive**, so it is here rather than in a commit. P6.7c does not need it.
 
 **One new question, non-blocking, from P6.2 (h):** the ledger records that a fact is
 true but not that the party found it out, so The Salt Road has six `world` facts the
@@ -465,6 +481,130 @@ the drift instrument's own log is a finding worth the two-line fix.
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-09-06 (b) — P6.7b-iii: a server that outlives its evenings (Claude Code, kelly-pc)
+
+**P6.7b is complete.** The gate (i), construction leaving the CLI (ii), and now the
+lifecycle. Only P6.7c — the container — is left in Phase 6.
+
+### The inversion, and where it deliberately does not apply
+
+Until today the evening **was** the process: `dndc play --serve` built one, served it, and
+exited when it ended. That is the right shape for a laptop on the table and the wrong one
+for a container, which boots with nobody playing, has to show something anyway, and must
+still be up tomorrow.
+
+So `dndc serve` is now server-first: it boots a `Lifecycle` and waits. **`dndc play
+--serve` is untouched** — there the evening still owns the process, and `web/lifecycle.py`
+holds a `Held` that says so. One app, one set of routes, two postures; `build_app` asks
+the same small interface either way.
+
+`dndc serve --campaign salt-road` still starts that evening immediately, because that is
+how the command has been used since P6.6 and taking it away to make an architectural point
+would be a worse command. What changed is what happens when the evening ends: the process
+stays up, the page goes back to a start screen, and the next one needs no restart.
+
+### What a browser can now do
+
+`GET /api/campaigns`, `POST /api/session`, `POST /api/session/end`, and a `phase` on every
+snapshot (`idle` / `starting` / `playing`) so the page knows which screen to draw.
+`starting` exists because the recap alone can take a minute or two, and a page that said
+"idle" through all of it would invite a second click on a button that was already working.
+
+**Ending goes through `/quit` on the floor**, not into the session. That is already how an
+evening ends, and a second way to end one would be a second way for the sweep, the
+chronicle and the save to get skipped.
+
+### Two things I did not do, and one is for Kelly
+
+**`--watch-only` is still a CLI flag and not a property of the URL.** It is the third item
+in iii's description and I am deferring it deliberately rather than quietly. Today a
+spectator server does not *build* the write routes — `POST /api/turn` returns 404, and a
+device cannot tell "not allowed" from "not built" (P6.3, "protection by absence"). Making
+watch-only a property of the URL means the routes must exist for the players and be
+refused per viewer, which is strictly weaker. **That is a trade Kelly should pick, not
+receive.** Nothing is blocked either way, and P6.7c does not need it.
+
+Everything *else* about that boundary survived intact, and I checked rather than assumed:
+`can_play` and `can_manage` are asked once when the app is built, so a spectator server
+still has no write route at all and a `Held` server has no session routes at all.
+
+**Slash-command output still goes to whoever is running the process, not to the browser.**
+`/help` typed from the couch prints to the container log. Pre-existing since P6.4 and more
+visible now; `_play_command` wants the `Table.notice` seam, which is its own commit.
+
+### A real bug, found by writing the test rather than the code
+
+Each evening gets its own `Mirror`, because a `Mirror` is one-shot by design. That is
+right for a process about to exit and wrong for one that is not, in **two** ways, and I
+only saw the second when a test would not pass:
+
+1. Reusing an ended mirror answers every reconnect with "this evening is over", forever —
+   a three-second poll loop wearing a screen. Fixed by installing a fresh mirror when the
+   evening finishes.
+2. **Worse, and the one the test found:** `start` swaps the idle mirror out, so a browser
+   already watching the idle server is subscribed to a mirror nothing will ever be pushed
+   to again — and since nothing ends it, that stream never drops either. The person who
+   pressed the button would have watched a start screen all night while their evening ran
+   beside them. Fixed by ending the outgoing mirror so `EventSource` reconnects.
+
+### Verified live, on a real socket
+
+The suite proves the state machine; this is the thing a person actually does. Real
+uvicorn, real `httpx`, mock GM seat:
+
+```
+boot               phase=idle    manageable=True writable=False table=None
+GET /api/campaigns ['Ford Crossing']
+turn while idle    409 nothing is playing
+POST /api/session  202
+second start       409 an evening is already starting
+playing            campaign='ford-crossing'  acting='Brannoc'
+turn from browser  202
+POST .../end       202
+after the evening  phase=idle    writable=False manageable=True
+start another      202          ← the server outlived its evening
+save written       True
+logs written       2            ← one per evening
+```
+
+1617 → **1647 tests** (30 new), offline, 6.8 s.
+
+### Known issues
+
+- **The `--watch-only`-as-URL trade above wants Kelly.** Non-blocking.
+- Two tests in `test_serving.py` were rewritten rather than moved: they asserted that
+  `_cmd_serve` delegates to `_cmd_play`, which is exactly the delegation this task
+  removes. They now assert the invariant they were protecting — one builder, one loop,
+  both injected into the `Lifecycle` — which is a stronger claim than the old one.
+- Nine monkeypatch targets moved with the code they patch (`should_hint_scaffolding`, and
+  the `build_app`/`Server` call sites). **Six of them were `_explode` guards that would
+  have passed vacuously** had I not moved them — the fail-open shape written up in
+  race-control this morning, met the same day.
+- The committed campaign state is **still committed**, deferred to P6.7c with its
+  destination. Unchanged.
+- **The human half of P6.6 is still not done and I still cannot do it.**
+
+### FOR DESIGN
+
+None new and nothing blocking. Carried unchanged: the change-of-mind trigger; whether the
+GM should voice PCs; whether a `blocked` line costs the turn; whether a closed save
+restores the turn window; and the (h) truth-vs-discovery scope question.
+
+### Recommended next task
+
+**P6.7c — the deployment.** Dockerfile with `dndc serve` as the entrypoint (which is now a
+command that can actually be one), `docker-compose.yml` bound to `192.168.50.46:8093`,
+`env_file:` carrying `DNDC_WEB_TOKEN` and `DNDC_WEB_REQUIRE_TOKEN=1`, `deploy.sh`,
+`dndc-pull.timer`, a backup timer and the NAS mirror, the lab-control-panel allowlist slot
+and the race-control inventory rows. **It is also where the committed campaign data is
+finally evicted**, which is the one thing on this list that has been carried since
+2026-09-05 and should not be carried again — the volume and the NAS mirror are what make
+that safe, and they arrive together.
+
+Still not code: **an evening with Kelly and Sam at the Brakewater crossroads.**
 
 ---
 

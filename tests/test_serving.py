@@ -37,6 +37,7 @@ from dndc.schema.sheet import (
     HitPoints,
     Proficiencies,
 )
+from dndc.web.lifecycle import Held
 from dndc.web.mirror import Mirror
 from dndc.web.server import WILDCARD, Server, lan_address, resolve_host
 from dndc.web.view import table_view
@@ -173,7 +174,7 @@ def test_lan_address_is_a_real_address_and_not_a_hostname():
 
 
 def server(host: str) -> Server:
-    return Server(Mirror(), host=host, port=8765)
+    return Server(Held(Mirror(), Floor()), host=host, port=8765)
 
 
 def test_the_server_keeps_what_was_asked_for_and_what_it_resolved_to():
@@ -212,9 +213,11 @@ class Recorded:
 
     seen: list[tuple[str, int]] = []
 
-    def __init__(self, mirror, host, port, floor=None, gate=None):
+    def __init__(self, evenings, host, port, gate=None):
         Recorded.seen.append((host, port))
-        self.host, self.port, self.floor = host, port, floor
+        self.evenings = evenings
+        self.host, self.port = host, port
+        self.floor = evenings.floor
         self.gate = gate
         self.everywhere = host in WILDCARD
         self.guarded = gate is not None and gate.guarded
@@ -240,7 +243,7 @@ def start_mirror(recording, host=None, port=None, floor=None):
 
     console = Console(record=True, width=100)
     args = argparse.Namespace(serve_host=host, serve_port=port, require_token=False)
-    server = cli._start_mirror(console, load_config(), Mirror(), args, floor)
+    server = cli._start_mirror(console, load_config(), Held(Mirror(), floor), args)
     return server, console.export_text()
 
 
@@ -323,7 +326,7 @@ def test_a_mirror_that_will_not_start_is_not_fatal(monkeypatch):
     console = Console(record=True, width=100)
     args = argparse.Namespace(serve_host=None, serve_port=None, require_token=False)
 
-    assert cli._start_mirror(console, load_config(), Mirror(), args, None) is None
+    assert cli._start_mirror(console, load_config(), Held(Mirror(), Floor()), args) is None
     assert "did not start" in console.export_text()
 
 
@@ -364,27 +367,46 @@ def test_the_address_flags_default_to_deferring_to_config():
         assert args.serve_port is None
 
 
-def test_serve_is_the_same_loop_and_not_a_second_one(monkeypatch):
+def test_serve_is_the_same_loop_and_not_a_second_one():
+    """Rewritten by P6.7b-iii, asserting the thing it always meant.
+
+    It used to check that `_cmd_serve` handed its args to `_cmd_play`. That was a true
+    statement about the implementation and a proxy for what was worth protecting: a
+    served evening must not be a second turn loop wearing a hat. P6.7b-iii removes the
+    delegation, because a hosted server has to outlive its evenings and `_cmd_play`
+    exits with one — so this asserts the invariant itself. Both roads build with
+    `build_evening` and run with `run_evening`, and there is one of each.
+    """
+    import dndc.game.cli as cli
+    from dndc.game.evening import run_evening
+    from dndc.game.setup import build_evening
+    from dndc.web.lifecycle import Lifecycle
+
+    assert cli.run_evening is run_evening
+    assert cli.build_evening is build_evening
+    injected = Lifecycle.__init__.__kwdefaults__
+    assert injected["build"] is build_evening
+    assert injected["run"] is run_evening
+
+
+def test_serve_still_asks_nothing_at_a_console_that_may_not_exist(monkeypatch):
+    """D-004's sticky default still applies; `--billing` still overrides it.
+
+    It matters more now than it did. A container has no console at all, so the first
+    thing that asked it a question would hang the boot rather than fail it — and this
+    command is the container's entrypoint.
+    """
+    from rich.console import Console
+
     from dndc.game import cli
 
-    captured = {}
-    monkeypatch.setattr(cli, "_cmd_play", lambda console, args: captured.setdefault("args", args))
+    # The socket never opens, so the command returns before its wait-forever.
+    monkeypatch.setattr(cli, "_start_mirror", lambda *a, **k: None)
     args = parser().parse_args(["serve", "--campaign", "x"])
-    cli._cmd_serve(None, args)
 
-    assert captured["args"] is args
-    assert args.serve is True
-
-
-def test_serve_asks_nothing_at_a_console_that_may_not_exist(monkeypatch):
-    """D-004's sticky default still applies; `--billing` still overrides it."""
-    from dndc.game import cli
-
-    monkeypatch.setattr(cli, "_cmd_play", lambda console, args: 0)
-    args = parser().parse_args(["serve", "--campaign", "x"])
-    cli._cmd_serve(None, args)
-
+    assert cli._cmd_serve(Console(record=True), args) == 1
     assert args.no_prompt is True
+    assert args.serve is True
 
 
 def test_serve_can_still_be_a_spectator_link():
@@ -462,7 +484,7 @@ def table():
 
     mirror, floor = Mirror(), Floor()
     mirror.show(table_view(campaign(), acting="Corin Vale"))
-    app = build_app(mirror, floor)
+    app = build_app(Held(mirror, floor))
     return TestClient(app), TestClient(app), floor
 
 

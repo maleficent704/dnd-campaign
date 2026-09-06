@@ -782,6 +782,29 @@ CLI and the whole suite still run without them — the same posture `anthropic` 
       evening, the start screen, and `--watch-only` becoming a property of the URL rather
       than a flag on the command line. Needs i and ii.
 
+      *(Done 2026-09-06 (b), except the third item — see below. `web/lifecycle.py` holds
+      one evening at a time: `Lifecycle` for a hosted server that can start one, `Held`
+      for a `dndc play --serve` whose evening the CLI already owns. One interface, so
+      `build_app` has one set of routes rather than two, and the mirror and floor are read
+      off it **per request** — a hosted server gets a fresh pair each evening and a route
+      that had closed over the first would serve a finished evening forever. `dndc serve`
+      is now server-first and waits; `--campaign` still starts one immediately, because
+      that is how the command has been used since P6.6. New routes: `GET /api/campaigns`,
+      `POST /api/session`, `POST /api/session/end`, plus a `phase` on every snapshot
+      (`idle`/`starting`/`playing`) and a start screen keyed off it. Ending goes through
+      `/quit` on the floor so the sweep, the chronicle and the save run exactly as they do
+      when somebody types it. `can_play` and `can_manage` are asked once at build time, so
+      a spectator server still has **no write route at all** and a `Held` server has no
+      session routes at all — P6.3's "not built, not refused" is intact. Found and fixed
+      two mirror bugs, one of which would have left the person who pressed Start watching
+      a start screen all night. 30 tests, 1647 total; verified live on a real uvicorn
+      socket across two consecutive evenings in one process.)*
+
+      **Deferred, and it wants Kelly:** `--watch-only` as a property of the URL. It trades
+      P6.3's protection-by-absence for a per-viewer refusal, which is strictly weaker, and
+      that is a choice to make rather than to receive. See the Open block in PROGRESS.md.
+      P6.7c does not need it.
+
   - **P6.7c — the deployment.** Dockerfile, `docker-compose.yml` bound to
     `192.168.50.46:<port>`, `deploy.sh`, `dndc-pull.timer`, backup + NAS mirror timers, a
     lab-control-panel allowlist slot, race-control inventory. Also where the committed

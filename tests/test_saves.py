@@ -398,7 +398,7 @@ def test_a_session_that_dies_leaves_an_open_save(table, monkeypatch):
 
     # Raised after the turn has been saved: a process that stops between one turn and
     # the next prompt, which is what a crash actually looks like.
-    monkeypatch.setattr(cli, "should_hint_scaffolding", _explode)
+    monkeypatch.setattr("dndc.game.evening.should_hint_scaffolding", _explode)
     with pytest.raises(RuntimeError, match="the process died"):
         play(monkeypatch, MockBackend(["The ford is running high."]), ["I look at it."])
 
@@ -417,14 +417,14 @@ def test_resuming_writes_into_the_same_log_and_seq_carries_on(table, monkeypatch
     from dndc.logging import next_seq_for
     from dndc.models.mock import MockBackend
 
-    monkeypatch.setattr(cli, "should_hint_scaffolding", _explode)
+    monkeypatch.setattr("dndc.game.evening.should_hint_scaffolding", _explode)
     with pytest.raises(RuntimeError):
         play(monkeypatch, MockBackend(["The ford is running high."]), ["I look at it."])
 
     log = table / _logs(table)[0]
     stopped = next_seq_for(log)
 
-    monkeypatch.setattr(cli, "should_hint_scaffolding", lambda *a, **k: False)
+    monkeypatch.setattr("dndc.game.evening.should_hint_scaffolding", lambda *a, **k: False)
     assert play(monkeypatch, MockBackend(["He hauls the boy out."]), ["I wade in."]) == 0
 
     # One evening, one record: no second file, and the counter never restarted.
@@ -437,11 +437,11 @@ def test_resuming_writes_into_the_same_log_and_seq_carries_on(table, monkeypatch
 def test_the_resumed_prompt_still_holds_the_turns_from_before_the_crash(table, monkeypatch):
     from dndc.models.mock import MockBackend
 
-    monkeypatch.setattr(cli, "should_hint_scaffolding", _explode)
+    monkeypatch.setattr("dndc.game.evening.should_hint_scaffolding", _explode)
     with pytest.raises(RuntimeError):
         play(monkeypatch, MockBackend(["The ford is running high."]), ["I look at it."])
 
-    monkeypatch.setattr(cli, "should_hint_scaffolding", lambda *a, **k: False)
+    monkeypatch.setattr("dndc.game.evening.should_hint_scaffolding", lambda *a, **k: False)
     second = MockBackend(["He hauls the boy out."])
     play(monkeypatch, second, ["I wade in."])
 
@@ -464,11 +464,11 @@ def test_a_finished_session_starts_a_new_log_next_time(table, monkeypatch):
 def test_fresh_leaves_the_save_alone_and_opens_a_new_scene(table, monkeypatch):
     from dndc.models.mock import MockBackend
 
-    monkeypatch.setattr(cli, "should_hint_scaffolding", _explode)
+    monkeypatch.setattr("dndc.game.evening.should_hint_scaffolding", _explode)
     with pytest.raises(RuntimeError):
         play(monkeypatch, MockBackend(["The ford is running high."]), ["I look at it."])
 
-    monkeypatch.setattr(cli, "should_hint_scaffolding", lambda *a, **k: False)
+    monkeypatch.setattr("dndc.game.evening.should_hint_scaffolding", lambda *a, **k: False)
     second = MockBackend(["A different road entirely."])
     assert play(monkeypatch, second, ["I look."], extra=["--fresh"]) == 0
 

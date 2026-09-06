@@ -454,7 +454,7 @@ def test_quit_still_ends_the_loop(play_context):
 )
 def test_the_chrome_hints_periodically_never_the_gm(turns, level, expected):
     """OD-11's split: the GM may not mention the interface, so the CLI must."""
-    from dndc.game.cli import should_hint_scaffolding
+    from dndc.game.evening import should_hint_scaffolding
 
     assert should_hint_scaffolding(turns, level) is expected
 

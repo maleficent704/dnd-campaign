@@ -32,6 +32,7 @@ from dndc.schema.sheet import (
     HitPoints,
     Proficiencies,
 )
+from dndc.web.lifecycle import Held
 from dndc.web.mirror import Mirror
 from dndc.web.view import table_view
 
@@ -249,7 +250,7 @@ def served():
     mirror = Mirror()
     mirror.show(table_view(campaign(), acting="Corin Vale"))
     floor = Floor()
-    return TestClient(build_app(mirror, floor)), mirror, floor
+    return TestClient(build_app(Held(mirror, floor))), mirror, floor
 
 
 def test_an_answer_posted_while_a_question_stands_is_accepted():
@@ -287,7 +288,7 @@ def test_a_spectator_link_cannot_answer_either():
 
     from dndc.web.app import build_app
 
-    client = TestClient(build_app(Mirror(), None))
+    client = TestClient(build_app(Held(Mirror(), None)))
 
     assert client.post("/api/answer", json={"text": "all"}).status_code == 404
 

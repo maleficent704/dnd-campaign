@@ -21,6 +21,7 @@ from dndc.schema.sheet import (
     HitPoints,
     Proficiencies,
 )
+from dndc.web.lifecycle import Held
 from dndc.web.mirror import Mirror
 from dndc.web.view import table_view
 
@@ -181,7 +182,7 @@ def served(writable: bool = True):
     mirror = Mirror()
     mirror.show(table_view(campaign(), acting="Corin Vale"))
     floor = Floor() if writable else None
-    return TestClient(build_app(mirror, floor)), mirror, floor
+    return TestClient(build_app(Held(mirror, floor))), mirror, floor
 
 
 def test_a_turn_posted_by_the_acting_player_is_accepted():

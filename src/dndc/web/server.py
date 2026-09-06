@@ -21,7 +21,6 @@ import socket
 import threading
 
 from dndc.config import EVERY_INTERFACE, LAN
-from dndc.web.mirror import Mirror
 
 #: Binds that mean "every interface", and therefore also the tailnet.
 WILDCARD = frozenset({EVERY_INTERFACE, "::", "*"})
@@ -47,9 +46,13 @@ def is_everywhere(host: str) -> bool:
 class Server:
     """A uvicorn instance in a thread, and the address to tell people about."""
 
-    def __init__(self, mirror: Mirror, host: str, port: int, floor=None, gate=None) -> None:
-        self.mirror = mirror
-        self.floor = floor
+    def __init__(self, evenings, host: str, port: int, gate=None) -> None:
+        #: The evening this server is showing, if it is showing one — a `Lifecycle` for a
+        #: hosted server that can start one, or a `Held` for a `dndc play --serve` whose
+        #: evening the CLI already owns (P6.7b-iii). The mirror and floor come off this
+        #: per request rather than being held here, because a hosted server gets a fresh
+        #: pair every evening.
+        self.evenings = evenings
         #: The LAN gate (P6.7b), or None for an open table. Resolved by the caller,
         #: because whether a token is *required* is a fact about the exposure and the
         #: deployment, not about this class.
@@ -83,7 +86,7 @@ class Server:
         from dndc.web.app import build_app
 
         config = uvicorn.Config(
-            build_app(self.mirror, self.floor, self.gate),
+            build_app(self.evenings, self.gate),
             host=self.host,
             port=self.port,
             log_level="warning",

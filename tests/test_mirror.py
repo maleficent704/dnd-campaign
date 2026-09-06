@@ -21,6 +21,7 @@ from dndc.schema.sheet import (
     HitPoints,
     Proficiencies,
 )
+from dndc.web.lifecycle import Held
 from dndc.web.mirror import BACKLOG, Mirror
 from dndc.web.view import table_view
 
@@ -262,7 +263,7 @@ def client():
 
     mirror = Mirror()
     mirror.show(table_view(campaign(), acting="Corin Vale"))
-    return TestClient(build_app(mirror)), mirror
+    return TestClient(build_app(Held(mirror))), mirror
 
 
 def test_the_page_is_served_and_needs_no_build_step(client):

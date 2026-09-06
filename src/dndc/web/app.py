@@ -27,7 +27,7 @@ import queue
 from pathlib import Path
 
 from dndc.web.gate import COOKIE, QUERY, Gate
-from dndc.web.mirror import KEEPALIVE, Mirror
+from dndc.web.mirror import KEEPALIVE
 
 #: The page, as a file rather than a string in Python. No build step and no template
 #: engine: it is one document, it is read once, and a diff of it should read as HTML.
@@ -51,23 +51,30 @@ class WebNotInstalled(RuntimeError):
     """The `web` extra is not installed. Raised with the command that fixes it."""
 
 
-def build_app(mirror: Mirror, floor=None, gate: Gate | None = None):
-    """A FastAPI app serving one mirror, and optionally taking turns for one floor.
+def build_app(evenings, gate: Gate | None = None):
+    """A FastAPI app serving whatever evening `evenings` currently has, if any.
 
-    Takes both rather than making either: the session owns them, the server borrows them,
-    and there is exactly one of each so a second front end cannot start a second campaign.
+    `evenings` is a `Lifecycle` — a hosted server that can start one — or a `Held`, a
+    `dndc play --serve` whose evening the CLI's own thread already owns. One interface,
+    so there is one set of routes rather than two, and **the mirror and the floor are
+    read off it per request** rather than captured here. A hosted server gets a fresh
+    pair every evening, and a route that had closed over the first pair would go on
+    serving a finished evening while a live one ran beside it. That is P6.7a's single
+    resolution point, in a second place.
 
-    `floor=None` is a genuinely read-only server, and it is not a degraded mode — it is
-    what `--serve` gave before P6.4 and what a spectator link should still give. The write
-    route does not exist when there is no floor, rather than existing and refusing, so a
-    device cannot tell the difference between "not allowed" and "not built".
+    **Two questions are asked once, here, because a route table cannot be rebuilt between
+    evenings.** `can_play` decides whether the write routes exist at all: a spectator
+    server says no and gets no write path whatsoever, so P6.3's "not built, not refused"
+    survives intact and a device still cannot tell "not allowed" from "not built".
+    `can_manage` decides the same for starting and ending an evening — `Held` says no,
+    because its evening was started by a command and ends when somebody says `/quit`, and
+    a route that could only ever refuse would put a POST on a spectator link for nothing.
 
     `gate=None` is an open table, which is what an evening on the LAN has always been and
     still is (P6.6's posture, and `docs/LAN-ACCESS.md`). It is not the same shape as
-    `floor=None`: a gate that is absent must still leave every route present, because
-    which routes exist is a fact about the *session*, and who may reach them is a fact
-    about the *exposure*. Collapsing the two would mean a hosted spectator link quietly
-    becoming unauthenticated the moment somebody turned the token off.
+    either of those: a gate that is absent must still leave every route present, because
+    which routes exist is a fact about the *server*, and who may reach them is a fact
+    about the *exposure*.
     """
     gate = gate or Gate(None)
     try:
@@ -105,15 +112,28 @@ def build_app(mirror: Mirror, floor=None, gate: Gate | None = None):
             status_code=401,
         )
 
-    def snapshot() -> dict:
-        """The mirror's state, plus whether this server takes turns.
+    def snapshot(mirror=None) -> dict:
+        """The mirror's state, whether this server takes turns, and what it is doing.
 
         The device is told rather than left to find out by trying. A page that probes by
         POSTing an empty turn works, but it means every spectator link starts by making a
         request designed to be refused — and a screen should not have to guess at what it
         is connected to.
+
+        `mirror` is passed in by the event stream, which subscribed to one in particular
+        and must snapshot *that* one: between subscribing and drawing, a hosted server
+        may already have moved on to the next evening.
         """
-        return {**mirror.snapshot(), "writable": floor is not None}
+        current = mirror if mirror is not None else evenings.mirror
+        return {
+            **current.snapshot(),
+            "writable": evenings.floor is not None,
+            # Whether this server can be *asked* to start one, which is not the same
+            # question and is why the page needs both: a spectator link is unwritable and
+            # unmanageable, a hosted idle server is unwritable and manageable.
+            "manageable": evenings.can_manage,
+            **evenings.state(),
+        }
 
     @app.get("/", response_class=HTMLResponse)
     def page(request: Request) -> HTMLResponse:
@@ -150,7 +170,57 @@ def build_app(mirror: Mirror, floor=None, gate: Gate | None = None):
             return refused()
         return snapshot()
 
-    if floor is not None:
+    if evenings.can_manage:
+
+        @app.get("/api/campaigns")
+        def campaigns(request: Request):
+            """What this server could start, for the start screen.
+
+            Behind the gate like everything else. A list of campaign names is not the
+            campaign, but it is the shape of this household's evenings, and there is no
+            reason a stranger should have it.
+            """
+            if not admitted(request):
+                return refused()
+            return {"campaigns": evenings.campaigns()}
+
+        @app.post("/api/session")
+        def begin(body: dict, request: Request) -> JSONResponse:
+            """Start an evening (P6.7b-iii).
+
+            202 rather than 200: the request is accepted and the work happens on another
+            thread. Building one takes as long as the recap takes — a minute or two on a
+            cold 70B — and a browser must not hold a socket open across that. The page
+            watches `phase` on the stream instead, which is the channel it already
+            watches everything else on.
+            """
+            if not admitted(request):
+                return refused()
+            started = evenings.start(str(body.get("campaign", "")))
+            if started.accepted:
+                return JSONResponse({"accepted": True}, status_code=202)
+            return JSONResponse(
+                {"accepted": False, "reason": started.reason}, status_code=409
+            )
+
+        @app.post("/api/session/end")
+        def finish(request: Request) -> JSONResponse:
+            """End the evening, by the same route a person at the table ends one.
+
+            This puts `/quit` on the floor rather than reaching into the session, so the
+            sweep, the chronicle and the save run exactly as they do when somebody types
+            it. A second way to end an evening would be a second way to skip them.
+            """
+            if not admitted(request):
+                return refused()
+            ended = evenings.end()
+            if ended.accepted:
+                return JSONResponse({"accepted": True}, status_code=202)
+            return JSONResponse(
+                {"accepted": False, "reason": ended.reason}, status_code=409
+            )
+
+    if evenings.can_play:
 
         @app.post("/api/turn")
         def turn(body: dict, request: Request) -> JSONResponse:
@@ -167,6 +237,11 @@ def build_app(mirror: Mirror, floor=None, gate: Gate | None = None):
             """
             if not admitted(request):
                 return refused()
+            floor, mirror = evenings.floor, evenings.mirror
+            if floor is None:
+                return JSONResponse(
+                    {"accepted": False, "reason": "nothing is playing"}, status_code=409
+                )
             offer = floor.offer(
                 character=str(body.get("character", "")),
                 text=str(body.get("text", "")),
@@ -189,6 +264,11 @@ def build_app(mirror: Mirror, floor=None, gate: Gate | None = None):
             """
             if not admitted(request):
                 return refused()
+            floor = evenings.floor
+            if floor is None:
+                return JSONResponse(
+                    {"accepted": False, "reason": "nothing is playing"}, status_code=409
+                )
             offer = floor.answer(str(body.get("text", "")))
             if offer.accepted:
                 return JSONResponse({"accepted": True}, status_code=202)
@@ -211,10 +291,16 @@ def build_app(mirror: Mirror, floor=None, gate: Gate | None = None):
         if not admitted(request):
             return refused()
 
+        # Resolved once, here, and then held: this stream belongs to *this* evening. A
+        # hosted server may install the next one while this socket is still open, and a
+        # generator that re-resolved would quietly start narrating a different evening
+        # down a connection nobody had told.
+        mirror = evenings.mirror
+
         def stream():
             watcher = mirror.subscribe()
             try:
-                yield _sse(json.dumps(snapshot()))
+                yield _sse(json.dumps(snapshot(mirror)))
                 while True:
                     try:
                         message = watcher.queue.get(timeout=POLL_SECONDS)
