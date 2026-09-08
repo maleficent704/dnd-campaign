@@ -5,7 +5,13 @@ Description=Run the campaign backup daily at 05:45 UTC
 # 05:45 — after chat-archive (05:00), the scrapbook (05:15) and The Room (05:30), so the
 # CIFS-heavy backup jobs do not contend for the same share at the same moment. This one
 # is last because it is the smallest.
-OnCalendar=*-*-* 05:45:00
+#
+# Pinned to UTC 2026-09-07. A bare OnCalendar= is evaluated in HOST LOCAL time, so this line
+# silently moves when the host timezone changes — and the VM moved to America/New_York that
+# day. UTC is what the Description above always claimed, so stating it is a no-op that keeps
+# this job where the staggering comment says it is.
+# race-control planning/active/2026-08-21-system-review-improvements.md Track K.
+OnCalendar=*-*-* 05:45:00 UTC
 Persistent=true
 
 [Install]
