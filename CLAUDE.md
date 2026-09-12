@@ -112,6 +112,11 @@ Infrastructure docs live in race-control/docs/ (mirrored to \\TRUENAS\shared\lab
 - Services: docs/inventory/software-services.md
 - All projects: docs/project-index.md
 - Doc lifecycle & strategy: docs/planning/_workflow.md
+- **Changing how this deploys on the VM:** docs/operations/hosting-a-service-on-the-vm.md
+  — which account runs it, secrets, bind address. This project is that page's worked
+  example. **If the GM or NPC seat ever shells out to `claude` instead of calling the
+  API**, read §5 first and register the `$HOME` in `lab-agents/claude_installs.py`
+  before the first run, or nothing watches its credential.
 
 For this PC, paths are direct: `C:\dev\race-control\docs\`
 
