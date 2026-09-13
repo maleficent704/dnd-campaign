@@ -853,3 +853,64 @@ CLI and the whole suite still run without them — the same posture `anthropic` 
 Canon-drift metrics, ruling-fairness analysis over `gm_adjudication`, NPC
 knowledge-leak detection, cost-per-session dashboards; analysis scripts in
 `analysis/`.
+
+## Phase 8 — No terminal, for anything
+
+**Kelly, 2026-09-13:** *"Rather than me having to run commands to run python scripts to
+run our backend apps we add tiles to the pit-wall with buttons that run them so I don't
+have to remember what is needed, and we also include a link to the UI. I want to make
+sure we have it documented that I would want something like that for the DnD campaign,
+that makes it easy to do character creation, start a campaign etc without having to run
+the scripts."*
+
+The house already has the pattern and a worked precedent: **Pit Wall → Triggers**, a
+button that POSTs to `lab-control-panel` (`:8082`), which owns the whole sequence.
+`POST /api/thread-librarian/refresh` is the example to copy — one endpoint, one button,
+no memory of a command line required.
+
+**Most of this is not Pit Wall work.** Sorting it that way is the point of writing it
+down, because the tile is the cheap half and the reason it feels blocked is the other one.
+
+- **P8.1 — the Pit Wall tile.** A link to `http://192.168.50.46:8093` and a status line.
+  Cheapest piece, biggest daily return, and it needs nothing from this repo — the status
+  is already served: `GET /api/table` returns `phase` (`idle` / `starting` / `playing`)
+  and `campaign`, which is exactly a tile's worth of information.
+
+  Two design notes so nobody re-derives them:
+
+  - **The link needs the gate token**, or it lands on the closed page. Render it as
+    `…:8093/?k=<DNDC_WEB_TOKEN>` from Pit Wall's **server-side** code with the token in
+    Pit Wall's own gitignored `.env`, the same shape as `LAB_CONTROL_TOKEN`. One click
+    turns it into the `HttpOnly` cookie (P6.7b-i) and the bookmark works thereafter —
+    which is the whole reason the gate is a fixed token rather than a per-session code.
+  - **Talk to `dndc` directly, not through `lab-control-panel`.** That service exists for
+    systemd/docker control with passwordless sudo; `dndc` already has its own gated HTTP
+    API and its own token. Routing game actions through the control plane would put a
+    second front door on the table and widen `lab-control-panel`'s blast radius for
+    nothing. The one thing that *does* belong there is starting/stopping the **container**
+    (`POST /api/service/<name>/<action>`), which it already does generically.
+
+- **P8.2 — character creation in the browser.** **This is the real gap and the only part
+  that needs building here.** `dndc create-character` is `_cmd_create_character`: a
+  conversational, guided co-creation flow (OD-6) that interviews a player, handles the
+  stat mechanics for them, and collaborates on a backstory. It is **terminal-only** —
+  there is no web route for it, and P6.7b-iii's start screen deliberately only *starts an
+  evening on a campaign that already has characters*.
+
+  It is a bigger job than it sounds, and the reason is the shape rather than the size: the
+  turn loop got a browser because P6.1 had already separated it from the console and
+  P6.7b-ii/iii finished the job. Creation never had that separation — it is a `Console`
+  and a `Prompt` all the way down. Expect the same three steps: a console-free
+  construction seam, a driving loop that takes lines off a `Floor`, then the routes.
+
+  Until that exists, "make a character" means a terminal, and no tile can hide that.
+
+- **P8.3 — starting an evening from the tile.** Mostly already true and worth checking
+  before building: `POST /api/session` exists, and the start screen at `/` already lists
+  campaigns and starts one. The open question is whether a Pit Wall button adds anything
+  over a link to a page that already has the button. Probably not, and "probably not" is
+  cheaper to write down than to discover twice.
+
+**Sequencing:** P8.1 is independent and could be done any evening. P8.2 is the one that
+removes the terminal, and it wants Phase 6's lesson applied rather than a second
+front-end shape invented alongside it.

@@ -599,10 +599,38 @@ whether the GM should voice PCs; whether a `blocked` line costs the turn; whethe
 save restores the turn window; the (h) truth-vs-discovery scope question; and
 `--watch-only` as a property of the URL.
 
+### Phase 8 recorded (same session, second commit)
+
+Kelly, after the above: she wants **Pit Wall tiles with buttons** for the backend apps
+rather than remembering commands, plus a link to the UI — and asked that the want be
+documented for this project specifically, covering character creation and starting a
+campaign.
+
+Written up as **Phase 8 in `docs/TASKS.md`**, with the division that makes it actionable:
+
+- **P8.1, the tile, is cheap and needs nothing from this repo.** `GET /api/table` already
+  returns `phase` and `campaign`. Two notes recorded so they are not re-derived: the link
+  must carry `?k=<token>` rendered from Pit Wall's *server side* or it lands on the closed
+  page, and game actions should hit `dndc`'s own gated API rather than being routed
+  through `lab-control-panel`, which exists for systemd/docker control and should not grow
+  a second front door onto the table.
+- **P8.2, character creation in the browser, is the real gap** and the only part that
+  needs building here. `_cmd_create_character` is a guided conversational flow (OD-6) that
+  is `Console` and `Prompt` all the way down, with no web route — P6.7b-iii's start screen
+  deliberately only starts an evening on a campaign that *already has characters*. It
+  wants the same three steps the turn loop got: a console-free construction seam, a loop
+  that takes lines off a `Floor`, then routes.
+- **P8.3** is probably already done and worth checking before building — `POST
+  /api/session` exists and the start screen has the button.
+
+Cross-referenced from race-control `project-index.md` under both `dnd-campaign` and
+`pit-wall`, so whoever picks up the Pit Wall side finds it.
+
 ### Recommended next task
 
 **Play.** The table works, the seat is safe on both machines, and the only thing Phase 6
-has never had is an evening on it.
+has never had is an evening on it. **P8.1** is the cheapest useful thing after that, and
+**P8.2** is the one that actually retires the terminal.
 
 ---
 

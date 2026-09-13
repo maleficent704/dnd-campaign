@@ -145,12 +145,21 @@ def test_the_next_evening_gets_a_mirror_of_its_own():
 
 def test_the_evening_that_ran_was_told_it_ended():
     """The finished mirror is ended and the fresh one is not — the two must not be
-    confused, because ending the fresh one is what causes the reconnect loop above."""
-    manager = lifecycle()
-    started = None
+    confused, because ending the fresh one is what causes the reconnect loop above.
+
+    Held open while the mirror is captured, and that is not decoration: with an
+    instant `run` the evening could finish before the test read `manager.mirror`, so it
+    would capture the *fresh* idle mirror, see `over is False`, and fail about once a
+    run. Found flaky 2026-09-13; the race was in the test, not the lifecycle.
+    """
+    release = threading.Event()
+    manager = lifecycle(run=lambda *a, **k: (release.wait(WAIT), Closed(True))[1])
 
     assert manager.start("salt-road").accepted
-    started = manager.mirror
+    until(lambda: manager.phase == PLAYING, "reached playing")
+    started = manager.mirror  # safe to read: the evening cannot finish until released
+
+    release.set()
     until(lambda: manager.phase == IDLE, "finished")
 
     assert started.over is True
