@@ -49,6 +49,13 @@ THROTTLE_WARNING = (
     "mid-scene. Switch with `--billing api` if that would spoil the evening."
 )
 
+#: The second layer, under `--restricted`. Deny, not allow: a deny beats an allow, and an
+#: allow cannot subtract one. `Task` is here because a subagent would arrive with its own
+#: tool grant and route straight around this line. Not exhaustive by construction — that
+#: is what `--restricted` is for, since a list only names the tools that existed when it
+#: was written.
+DENIED_TOOLS = "Bash,Read,Write,Edit,NotebookEdit,WebFetch,WebSearch,Task,Glob,Grep"
+
 DEFAULT_TIMEOUT_SECONDS = 300
 
 
@@ -95,6 +102,28 @@ class SubscriptionBackend(GMBackend):
             "--model",
             request.model or self.model,
         ]
+        # The GM narrates. It has never needed a tool and must never be able to reach
+        # one — the prompt carries whatever a player typed into the browser, and headless
+        # Claude Code inherits the invoking $HOME's permissions. Both this house's
+        # identities grant `Bash(*)` with the dangerous-mode prompt skipped, so without
+        # these flags a line at the table could run shell commands. Verified by side
+        # effect on the VM 2026-09-13 — it created a file — and verified blocked after.
+        #
+        # `--restricted` is the load-bearing one, and an enumerated deny is not enough on
+        # its own: asked to touch a file with `Bash` denied, the seat correctly refused
+        # and then *named* `Monitor` as another tool in that environment that runs shell
+        # commands and was not on the list. It declined to use it. A control cannot rest
+        # on that. `--restricted` removes every code-running tool as a class and ignores
+        # the user, project and local settings files outright, so the `Bash(*)` grant is
+        # never read rather than being argued with.
+        #
+        # The deny list stays as the second layer: `--restricted` *confines* the file
+        # tools to the working directory rather than removing them, and a GM needs none.
+        # A deny rather than an allow-list, because allow-rules are additive and cannot
+        # subtract a grant another rule already made — `--allowedTools` looks like a
+        # restriction and is not. See race-control `operations/llm-agents.md`.
+        command += ["--restricted", "--strict-mcp-config"]
+        command += ["--disallowedTools", DENIED_TOOLS]
         if request.full_system:
             # Replace Claude Code's default system prompt rather than appending to it —
             # the GM persona is the whole prompt, and replacing trims the payload.

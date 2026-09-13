@@ -23,19 +23,86 @@ precedent rather than re-litigating it.
 D-004 gives two adapters and the container uses `api`, with `ANTHROPIC_API_KEY` arriving
 through `env_file:`.
 
-The alternative was real: the VM's Claude Code install is on the same Max login (Kelly,
-2026-09-04), so the *host* has a subscription seat. But a container does not inherit its
-host's, so `subscription` would have meant shipping the Claude Code CLI inside the image
-**and** bind-mounting the Max credentials into it — a much larger image and a live
-credential on a mount, to save an amount of money the campaign has not yet spent. Total
-API billing across the whole campaign to date is **$0.2428**.
+**This section was rewritten on 2026-09-13. The reasons it gave before were wrong**, and
+they were wrong in the direction that matters — they made the choice look like a
+convenience call when it is a security one. Kept visible rather than quietly replaced,
+because a future session re-reading the old argument would have concluded the decision
+was cheap to reverse. It is not.
 
-Nothing is lost by this: D-004's sticky default is per-machine, so a hot-seat evening on
-Kelly's PC can still run on `subscription`. If the hosted spend ever stops looking like
-noise, the change is a credential mount and a `billing:` line, not a redesign.
+What the old version said, and why each half fails:
 
-**Flagged rather than assumed** — it was recorded as open in PROGRESS.md and this is the
-answer, not a ratification.
+- *"`subscription` would mean shipping the Claude Code CLI inside the image."* **False.**
+  Claude Code on the VM is a single standalone ELF binary already on the box, under
+  `~/.local/share/claude/versions/`. Nothing needs shipping.
+- *"...to save an amount of money the campaign has not yet spent ($0.2428)."* **An
+  argument for the wrong side.** A subscription seat draws the Max pool and costs nothing
+  in dollars, so cost, if it counted at all, favoured `subscription`.
+
+### The real reason
+
+**A `claude -p` seat is a tool-using process, and the GM prompt carries text typed by
+whoever is at the table.**
+
+Until 2026-09-13, `models/subscription.py` built `claude -p <prompt> --output-format json
+--model … --system-prompt …` and passed **no tool restriction at all**. Headless Claude
+Code therefore inherited whatever the invoking `$HOME` permitted, and the VM's
+`labmonitor` identity grants `Bash(*)`, `Read`, `Write`, `Edit` with
+`skipDangerousModePermissionPrompt: true`.
+
+Verified by side effect that day — not by asking the model, which
+`race-control/operations/llm-agents.md` warns produces confident false positives, a trap
+this session walked into on its first attempt — a headless prompt under that identity
+**created a file on disk**. Bash really ran.
+
+**That hole is now closed**, and it was closed for both machines rather than just the VM,
+because the PC's `settings.json` allows `Bash(*)` too: the adapter passes `--restricted
+--strict-mcp-config` plus a `--disallowedTools` deny list. `--restricted` is the
+load-bearing one — it removes code-running tools as a *class* and ignores the settings
+files outright. An enumerated deny was not enough on its own: probed with `Bash` denied,
+the seat refused and then named `Monitor` as another shell-running tool that was not on
+the list. It declined to use it; a control cannot rest on that.
+
+A real narration was measured through the hardened seat afterwards — unchanged prose, and
+cache-write fell from the ~33–40k this project recorded to **7,465 tokens**, because the
+tool definitions are no longer in the payload.
+
+None of that makes the hosted subscription seat safe *by itself*, because the tool grant
+was only half the problem. Pointing the hosted GM seat at the VM's existing Claude Code
+would still build this:
+
+> anyone on the LAN holding the table token types a line into the browser → it is
+> flattened into the `claude -p` prompt → that process runs arbitrary shell commands,
+> unprompted → as `labmonitor`, which is in the `docker` group and holds every SSH key
+> and token on the box.
+
+— or it would have, before the hardening. With `--restricted` the shell route is shut,
+but the seat would still run *as* `labmonitor`, inside that `$HOME`, sharing its
+credential and its transcripts, one flag away from the old behaviour if anyone ever edits
+the command. **Defence in depth is not a reason to put the exposed thing on the
+root-equivalent account**, and that is the inversion
+`race-control/planning/backlog/2026-08-10-agent-privilege-separation.md` exists to remove.
+
+The API seat has none of this, because **a model call is not a tool call** — an `api` GM
+can be talked into bad prose and nothing else.
+
+### What it would take to do it safely
+
+Not impossible, and not what was rejected. The house already has the pattern —
+`sysadmin-run`, "one Claude credential and nothing else… the `claude -p` child of such an
+agent." The GM seat wants its own minimal identity: no sudo, no docker group, no keys, a
+`settings.json` that denies every tool (a GM narrating prose needs none), registered in
+`lab-agents/claude_installs.py` **before first use**, with the container running as that
+uid and mounting that `$HOME`.
+
+One detail that would bite anyone who tries it: **mount `~/.local`, never a version
+path.** Claude Code self-updates and deletes old versions — measured 2.1.267 → 2.1.270 in
+three days — so a pinned-version bind mount breaks within a week, and Docker silently
+recreates the missing source as a root-owned directory rather than failing.
+
+**Decided 2026-09-13 (Kelly): stay on `api`.** The safe version is a new unix account, an
+interactive login only she can perform, and doc changes in four places — to save roughly
+two cents an evening. D-004's sticky default is per-machine, so a hot-seat evening on the
+PC still runs on `subscription` whenever she wants a Claude Code GM.
 
 ## The one step that is not automated
 

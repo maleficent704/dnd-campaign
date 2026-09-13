@@ -66,11 +66,16 @@ terminal every evening for a page they are meant to bookmark. **Built 2026-09-05
 > Kelly's call and not blocking anything. See the 2026-09-05 (b) entry. She also confirmed the VM's Claude Code
 install is on the same Max login, so the GM seat exists on that box — what is still open is
 how the *container* reaches it (CLI in the image + credential mount, or `api` with a key),
-which is **settled 2026-09-06 (c): `api`.** A subscription seat in the container
-would have meant shipping the Claude Code CLI in the image *and* bind-mounting live Max
-credentials into it, to save an amount the whole campaign has not spent ($0.2428). D-004's
-sticky default is per-machine, so a hot-seat evening on the PC still runs on
-`subscription`. Rationale in `docs/DEPLOYMENT.md`.
+which is **settled 2026-09-06 (c): `api` — and the reason was rewritten 2026-09-13,
+because the one recorded here was wrong.** It said a subscription seat would mean shipping
+the CLI into the image (false — it is a standalone binary already on the box) to save
+$0.2428 (an argument for the wrong side — the Max pool costs no dollars). **The real
+reason is that `claude -p` is a tool-using process and the GM prompt carries text a player
+typed**, so a hosted subscription seat on `labmonitor` would have been LAN-input to a
+root-equivalent account. The tool exposure itself is now fixed in the adapter for both
+machines (`--restricted`); the seat placement is what keeps it on `api`. D-004 is
+untouched and a hot-seat evening on the PC still runs on `subscription`. Full reasoning,
+including what a safe VM seat would take, in `docs/DEPLOYMENT.md`.
 
 **Kelly, 2026-09-03: host it on the VM** like chat-archive, scrapbook and pit-wall,
 rather than needing a terminal on her PC. Agreed and added as **P6.7** — the house
@@ -490,6 +495,114 @@ the drift instrument's own log is a finding worth the two-line fix.
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-09-13 — The GM seat brings no tools, and P6.7c's recorded reason was wrong (Claude Code, kelly-pc)
+
+No phase work. Kelly asked whether the hosted table could use the VM's Claude Code as its
+GM seat — the VM does have a native install on the Max login, which I had described
+dismissively in P6.7c. She was right and I was wrong. Chasing it turned up a live defect
+in this repo, so this session is a correction and a fix rather than a feature.
+
+### What P6.7c recorded, and why both halves were wrong
+
+`docs/DEPLOYMENT.md` justified the `api` seat with two arguments:
+
+- *"`subscription` would mean shipping the Claude Code CLI inside the image."* **False.**
+  It is a single standalone ELF already on the box under `~/.local/share/claude/versions/`.
+- *"...to save an amount the campaign has not spent ($0.2428)."* **An argument for the
+  wrong side.** A subscription seat draws the Max pool and costs nothing in dollars.
+
+The decision was right and the reasoning was not, which is the worse failure: a future
+session reading that page would have concluded the choice was cheap to reverse. Rewritten
+in place, with the old argument left visible and marked wrong.
+
+### The real reason, and the defect it exposed
+
+**`models/subscription.py` passed no tool restriction whatsoever.** Headless Claude Code
+inherits the invoking `$HOME`'s permissions, and both this house's identities grant
+`Bash(*)` with `skipDangerousModePermissionPrompt: true`. The GM prompt carries whatever
+a player typed into the browser. So the seat could run shell commands on a line from the
+table — **on Kelly's PC as well**, which is where she actually plays, not only on the VM.
+
+I recommended the PC as the safe alternative before checking that. It had the same
+mechanism and a smaller blast radius, which is not the same as being safe.
+
+**Fixed:** the adapter now passes `--restricted --strict-mcp-config` and a
+`--disallowedTools` deny list. Two tests, 1653 total.
+
+### Three things worth carrying
+
+**1. I verified it wrong the first time.** The probe asked the model to run `id -un` and
+report the output; it answered `labmonitor` and I called that proof. `race-control`'s own
+`operations/llm-agents.md` warns in as many words: *"Verify by side effect, never by asking
+the agent"* — a model infers a plausible answer without running anything. Redone properly
+(touch a file, look for the file), the finding held. But the first pass was the exact
+false positive the house had already paid for once.
+
+**2. An enumerated deny list is not a control.** Probed with `Bash` denied, the seat
+refused — and then volunteered that **`Monitor`**, another tool in that environment that
+executes shell commands, was not on the list and would have worked. It chose not to use
+it. That is good manners, not a boundary. A deny list only names the tools that existed
+when it was written.
+
+**3. `--restricted` is the structural answer and nothing in this house uses it.** It
+removes code-running tools as a *class* and **ignores the user, project and local settings
+files** — so the `Bash(*)` grant is never read rather than argued with. Measured: a
+`Write` refused while `settings.json` allowed `Write`. It is in 2.1.270 on both machines,
+appears in no agent under `~/agents/`, and appeared in no race-control doc until today.
+
+Side-effect results, both directions:
+
+```
+no restriction (what this repo shipped)   touch probe -> FILE CREATED
+--disallowedTools Bash,…                  blocked, but Monitor named as an unlisted route
+--restricted alone                        blocked, and the settings grant ignored
+```
+
+**A bonus nobody was looking for:** a real narration through the hardened seat produced
+unchanged prose with cache-write down from the ~33–40k tokens this project recorded to
+**7,465** — the tool definitions are most of that payload. The locked-down seat is also
+the cheaper one against the pool.
+
+### Decision (Kelly, 2026-09-13): the hosted table stays on `api`
+
+The hardening shuts the shell route, but it does not make a `labmonitor` seat correct: the
+process would still run as the root-equivalent account, in its `$HOME`, sharing its
+credential and transcripts, one edit away from the old behaviour. The safe version is a
+dedicated minimal identity on the `sysadmin-run` pattern — tools denied, registered in
+`claude_installs.py` before first use, container running as that uid — which costs a new
+unix account and an interactive login only Kelly can perform, to save about two cents an
+evening. Not worth it now; written down so it can be picked up without re-deriving.
+
+One trap recorded for whoever does: **mount `~/.local`, never a version path.** Claude
+Code self-updates and deletes old versions (2.1.267 → 2.1.270 in three days), and Docker
+recreates a missing bind-mount source as a root-owned directory rather than failing. I did
+exactly this mid-investigation and left a root-owned directory inside labmonitor's install
+tree; removed, and `claude --version` confirmed unaffected.
+
+### Known issues
+
+- **The Gardener and the sysadmin-bot still bound themselves with enumerated
+  `--disallowedTools` lists** and would benefit from `--restricted` plus a deliberate
+  `--tools`. Different repo, not touched here. Jotted.
+- `hosting-a-service-on-the-vm.md` recorded `labmonitor` as uid 1000; it is 1001. Fixed.
+- **Phase 6 has still never been used for an actual evening.** Unchanged, and now the
+  oldest thing on this list.
+
+### FOR DESIGN
+
+None new and nothing blocking. D-004 is untouched — both adapters still exist and the
+sticky default is still per-machine. Carried unchanged: the change-of-mind trigger;
+whether the GM should voice PCs; whether a `blocked` line costs the turn; whether a closed
+save restores the turn window; the (h) truth-vs-discovery scope question; and
+`--watch-only` as a property of the URL.
+
+### Recommended next task
+
+**Play.** The table works, the seat is safe on both machines, and the only thing Phase 6
+has never had is an evening on it.
 
 ---
 

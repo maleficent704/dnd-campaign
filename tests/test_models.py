@@ -730,3 +730,50 @@ def test_a_seed_reaches_the_ollama_options_only_when_set():
 
     assert seeded.payload(GMRequest(system="s", messages=()))["options"]["seed"] == 7
     assert "seed" not in plain.payload(GMRequest(system="s", messages=()))["options"]
+
+
+# --- the GM seat brings no tools (2026-09-13) -------------------------------
+
+
+def test_the_subscription_seat_denies_every_tool():
+    """A `claude -p` GM inherits the invoking `$HOME`'s permissions, and both of this
+    house's identities grant `Bash(*)`. The prompt carries whatever a player typed into
+    the browser, so without this a line at the table could run shell commands — verified
+    by side effect on the VM, 2026-09-13."""
+    from dndc.models.subscription import DENIED_TOOLS, SubscriptionBackend
+
+    command = SubscriptionBackend(model="claude-sonnet-5").command(request())
+
+    assert "--disallowedTools" in command
+    denied = command[command.index("--disallowedTools") + 1]
+    assert denied == DENIED_TOOLS
+    for tool in ("Bash", "Write", "Edit", "WebFetch", "Task"):
+        assert tool in denied.split(","), f"{tool} is not denied"
+
+
+def test_it_is_a_deny_and_not_an_allow_list():
+    """`--allowedTools` is additive and cannot subtract a grant another rule made, so it
+    looks like a restriction and is not. Only a deny beats an allow."""
+    from dndc.models.subscription import SubscriptionBackend
+
+    command = SubscriptionBackend(model="claude-sonnet-5").command(request())
+
+    assert "--allowedTools" not in command
+
+
+def test_the_seat_runs_restricted_rather_than_trusting_the_list():
+    """The load-bearing flag, and the reason the deny list is only a second layer.
+
+    Asked to touch a file with `Bash` denied, the VM's seat refused and then *named*
+    `Monitor` — another tool in that environment that runs shell commands and was not on
+    the list. It declined to use it; a control cannot rest on that. `--restricted`
+    removes code-running tools as a class and ignores the user, project and local
+    settings files, so the `Bash(*)` grant is never read rather than argued with.
+    """
+    from dndc.models.subscription import SubscriptionBackend
+
+    command = SubscriptionBackend(model="claude-sonnet-5").command(request())
+
+    assert "--restricted" in command
+    # The GM has no use for an MCP server either, and `--restricted` alone keeps them.
+    assert "--strict-mcp-config" in command
