@@ -169,9 +169,49 @@ Restore is in the script's own header, where somebody looking for it will be.
 
 ## Updating
 
-`dndc-pull.timer` every 15 minutes. It redeploys only if the branch actually moved **and
-nothing is playing** — recreating the container ends the evening, and a table mid-turn
-beats a table on the newest commit. Otherwise it waits for the next tick.
+**Nothing in this house deploys on push.** There is no webhook, no Actions runner, no
+deploy hook on the VM — verified 2026-09-13 against the listening sockets and the full
+unit list. Every service polls: `pit-wall-pull.timer`, `mkiu-site-pull.timer` and
+`lab-delegator-pull.timer` all run `OnUnitActiveSec=15min`. From the outside that is
+indistinguishable from push-triggered deploy, which is why it gets misremembered as one.
+
+`dndc-pull.timer` follows that pattern: every 15 minutes, redeploying only if the branch
+actually moved **and nothing is playing** — recreating the container ends the evening, and
+a table mid-turn beats a table on the newest commit. Otherwise it waits for the next tick.
+
+`pull.sh` has **three** outcomes rather than two, and the third is the point:
+
+| state | action |
+|---|---|
+| branch did not move | exit |
+| service not answering at all | deploy — a down service has no evening to lose |
+| service up, phase unreadable | **refuse**, and say to check `DNDC_WEB_TOKEN` |
+| phase is not `idle` | refuse |
+
+"Cannot tell" is not "safe to restart". Treating it as such would be a control that
+reports success and protects nothing.
+
+### ⚠️ The timer was written in P6.7c but never installed
+
+Recorded 2026-09-13, after this page had claimed the timer as fact for a week.
+`systemctl is-enabled dndc-pull.timer` answered **`not-found`** — not `disabled`: the unit
+files were never copied out of `deploy/units/` into `/etc/systemd/system/` at all, while
+their sibling `dndc-backup.timer` made the trip and has been running nightly. So the
+deployed clone sat three commits behind origin with nothing to catch it up, and this
+section asserted the mechanism that would have.
+
+To install (needs sudo, and **do it after `.env` holds the real token** — `pull.sh` reads
+`DNDC_WEB_TOKEN` from that same file to ask the server whether anybody is playing, and
+refuses to act when it cannot tell):
+
+```bash
+sudo cp ~/services/dndc/deploy/units/dndc-pull.{service,timer} /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now dndc-pull.timer
+```
+
+Until that is done, the deployed clone only moves when somebody runs `./deploy.sh` by
+hand, and it will drift silently — which is exactly how this was found.
 
 ## What a hosted table exposes
 

@@ -498,6 +498,90 @@ the drift instrument's own log is a finding worth the two-line fix.
 
 ---
 
+## 2026-09-13 (b) — The puller that was written but never installed (Claude Code, kelly-pc)
+
+No phase work; an ops session that started as a question from Kelly and found a gap.
+
+While wiring a Pit Wall tile in another session, Kelly was told the deployed clone was
+three commits behind origin and that `dndc-pull.timer` was not enabled. She asked the
+right follow-up: *"does everything still use pull timers I thought it auto deployed when
+we pushed"*.
+
+### What was actually true
+
+**Nothing in this house deploys on push**, and nothing ever did. Verified against the VM's
+listening sockets and full unit list: no webhook, no Actions runner, no deploy hook. Every
+service polls on a 15-minute timer. The behaviour — push, wait a quarter hour, it is live
+— is indistinguishable from push-triggered deploy from the outside, which is exactly why
+it gets misremembered as one.
+
+The part worth recording is the *shape* of dndc's gap:
+
+```
+pit-wall-pull.timer        enabled / active
+mkiu-site-pull.timer       enabled / active
+lab-delegator-pull.timer   enabled / active
+dndc-pull.timer            not-found / inactive
+```
+
+**`not-found`, not `disabled`.** The unit files were written in P6.7c and never copied out
+of `deploy/units/` into `/etc/systemd/system/` — while their sibling `dndc-backup.timer`
+made the trip and has run nightly since. So the failure was not a decision anyone made; it
+was a step nobody took, and nothing surfaced it for a week.
+
+### The correction to make
+
+`docs/DEPLOYMENT.md` asserted the timer as a live fact: *"`dndc-pull.timer` every 15
+minutes."* It described a control that had never been installed — the same failure shape
+this project keeps naming, this time in our own documentation. Rewritten with what is
+actually true, the three-outcome table from `pull.sh`, and the install commands.
+
+**This is also non-compliance with a ratified standard, not a local preference.**
+race-control Track D (*"Pull-based deploys as the standard"*, ratified 2026-08-23) makes
+pulling the sanctioned deploy channel, and its stated reason is privilege separation
+rather than convenience: *"any agent's — and any Claude's — only deploy capability becomes
+push to GitHub; the puller has no intelligence to subvert."* dndc was missed because Track
+D's rollout list (pit-wall, chat-archive, roundtable) was written two weeks before dndc
+became a service.
+
+Noted against myself: the hand-deploy I ran over SSH earlier in this session to catch the
+clone up **is precisely the ritual Track D exists to abolish**. It was the right call for
+a clone already drifting, and it is not the mechanism that should have been needed.
+
+### Also established, for the Pit Wall tile
+
+The tile needs nothing from this repo and never did. `GET /api/table` was already serving
+`phase` and `campaign` on the seven-day-old container, before any deploy — checked before
+touching anything. "Phase 8" is a TASKS.md entry, a plan rather than code, so a clone
+missing it was missing no behaviour. Bearer-token auth on that endpoint confirmed working
+(200), which is the path `pull.sh` uses to ask whether anybody is playing.
+
+### Known issues
+
+- **The VM still runs on a throwaway token.** `?k=temporary-probe-token-not-kellys`
+  answers 200 — the string this repo's own security probe set on 2026-09-13, and
+  `ANTHROPIC_API_KEY` is still the placeholder. A Pit Wall tile built before that is fixed
+  would bake a dead token into a second service's `.env`. **Fix `.env` before wiring the
+  tile, and before enabling the puller** — `pull.sh` reads `DNDC_WEB_TOKEN` from that same
+  file to read the phase, and refuses to act when it cannot.
+- `dndc-pull.timer` install needs sudo; commands are in DEPLOYMENT.md. Not done here —
+  a standing job that redeploys a service is Kelly's to authorise.
+- **Phase 6 has still never been used for an actual evening.** Unchanged, still oldest.
+
+### FOR DESIGN
+
+None new and nothing blocking. Carried unchanged: the change-of-mind trigger; whether the
+GM should voice PCs; whether a `blocked` line costs the turn; whether a closed save
+restores the turn window; the (h) truth-vs-discovery scope question; and `--watch-only` as
+a property of the URL.
+
+### Recommended next task
+
+**Play** — unchanged, and now with one chore in front of it: `.env`, then the puller, then
+the tile can be built against something real.
+
+---
+
 ## 2026-09-13 — The GM seat brings no tools, and P6.7c's recorded reason was wrong (Claude Code, kelly-pc)
 
 No phase work. Kelly asked whether the hosted table could use the VM's Claude Code as its
