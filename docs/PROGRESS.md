@@ -498,6 +498,101 @@ the drift instrument's own log is a finding worth the two-line fix.
 
 ---
 
+## 2026-09-13 (c) — A ceiling of 1024 that reported success and delivered nothing (Claude Code, kelly-pc)
+
+The first session that existed to get a table playing rather than to build one. Kelly and
+Sam made characters; the evening found a live defect on the way.
+
+### Ravenwood
+
+New campaign, `ravenwood`, players Kelly and Sam. **Vess Quickwick** (Kelly) and
+**Marrow** (Sam). `the-salt-road` is untouched and archived — Corin Vale and Brother
+Hammond intact, plus a snapshot at `~/services/dndc/salt-road-snapshot-20260913.tar.gz`.
+
+Two things worth recording about how that went, because both cost real time:
+
+- **The campaign was nearly cleaned rather than replaced.** The plan was to delete the two
+  unplayed PCs and their six `character`-scope canon entries from `the-salt-road`. Reading
+  the entries before deleting them stopped it: Corin was *"the front man for a crew of
+  grifters"* and Hammond *"spent six years in a doomsday cult whose prophet was later
+  exposed as a con man"* and *"has taken a personal vow never to lie."* That is exactly the
+  unhinged partnership Kelly had sat down to invent. A fresh campaign then made the
+  destructive edit unnecessary altogether — the better answer was the one that deleted
+  nothing.
+- **Creation's canon write is not append-only from outside.** `finish()` does
+  `CanonLedger.load()` → `add()` → `save()` on a campaign-wide ledger, and
+  `_save_backgrounds()` has the same shape. Copying a character between machines is
+  therefore one new file plus **two whole-file overwrites of shared state**, not a file
+  copy. It happens to be safe when both sides are identical, which is exactly what makes
+  it dangerous later.
+
+### The defect: 1024, and a call that reported `complete` with no text
+
+Creation appeared to freeze on the third answer. It had not frozen. `/proc/<pid>/syscall`
+showed `read(0)` — blocked on stdin, waiting for the next line. The session log said why:
+
+```
+turn 1    226 output tokens   text delivered
+turn 2    516 output tokens   text delivered
+turn 3   1024 output tokens   text: ""
+```
+
+1024 exactly is a ceiling, not a stopping point. The model spent the whole budget reasoning
+about a *matched pair* of characters and never emitted a text block; `_to_response` joined
+zero text blocks into `""`. The event log recorded `status: "complete"`, the cost line
+billed $0.019, and the loop re-prompted in silence. **A control that reports success and
+protects nothing**, this time in our own adapter.
+
+**The fix is a deletion, not an addition.** `models/base.py` had already settled on
+`DEFAULT_MAX_TOKENS = 8192`; `cli.py` ignored it and hardcoded `default=1024` in three
+places, undercutting the agreed figure eightfold. All three now defer to the constant.
+Two tests, 1655 total.
+
+**`serve` is what made it urgent.** It inherits `play_flags`, the container CMD passes no
+override, and a browser has no prompt to redraw — a truncated turn would simply have done
+nothing, mid-evening, with no error anywhere. Found while verifying the Pit Wall tile,
+roughly an hour before the table was due to be used.
+
+### Still open, deliberately not done here
+
+**An empty or truncated response is still silent.** Raising the ceiling removes the
+realistic case; it does not make the failure visible. That guard sits in the shared GM call
+path used by every seat, which is not a thing to change an hour before an evening. Also
+missing: `gm_narration` never records `stop_reason`, which is why diagnosing this needed a
+token count instead of a field. Jotted to the race-control inbox.
+
+### Track D closed out
+
+`dndc-pull.timer` is installed, `enabled / active`, running every 15 minutes and exiting 0.
+The Pit Wall tile is live and was verified end-to-end from inside the pit-wall container:
+its configured token against `/api/table` returns 200. The tile's own server route does the
+right things — token server-side, `?k=` on the link, and a 401 reported as a wrong token
+rather than a down service.
+
+One honest gap: every puller run so far has taken the `local_head == remote_head` early
+exit, so the **phase-check path has never executed**. Its token lookup was verified by hand
+instead. This commit is the first that will exercise it for real.
+
+### Known issues
+
+- Empty/truncated GM responses remain silent (above).
+- **Phase 6 has still never been used for an actual evening.** Unchanged — but for the
+  first time everything it needs is in place.
+
+### FOR DESIGN
+
+None new and nothing blocking. Carried unchanged: the change-of-mind trigger; whether the
+GM should voice PCs; whether a `blocked` line costs the turn; whether a closed save
+restores the turn window; the (h) truth-vs-discovery scope question; and `--watch-only` as
+a property of the URL.
+
+### Recommended next task
+
+**Play.** Two characters, a campaign, a gated table, a tile to reach it from, and a puller
+that keeps it current. Nothing is in the way.
+
+---
+
 ## 2026-09-13 (b) — The puller that was written but never installed (Claude Code, kelly-pc)
 
 No phase work; an ops session that started as a question from Kelly and found a gap.

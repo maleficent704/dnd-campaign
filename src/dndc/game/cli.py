@@ -144,6 +144,7 @@ from dndc.memory import (
 )
 from dndc.models import (
     BATCH_SEAT,
+    DEFAULT_MAX_TOKENS,
     GM_SEAT,
     INTERACTIVE_SEAT,
     GMBackendError,
@@ -2914,7 +2915,7 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument(
         "--threshold", action="store_true", help="use the Opus escalation model (OD-3)"
     )
-    create.add_argument("--max-tokens", type=int, default=1024)
+    create.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS)
 
     gm = commands.add_parser("gm", help="one GM narration turn")
     gm.add_argument("prompt")
@@ -2950,7 +2951,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--threshold", action="store_true",
         help="use the Opus escalation model (authored threshold moment, OD-3)",
     )
-    gm.add_argument("--max-tokens", type=int, default=1024)
+    gm.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS)
     gm.add_argument("--log", action="store_true", help="record to a JSONL session log")
 
     # `play` and `serve` are the same session with a different front end in front of it,
@@ -3003,7 +3004,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-recap", action="store_true",
         help="skip the \"previously on...\" at pickup on the batch utility seat (P5.3)",
     )
-    play_flags.add_argument("--max-tokens", type=int, default=1024)
+    play_flags.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS)
     play_flags.add_argument(
         "--watch-only", action="store_true",
         help="a spectator link: no write route exists at all (P6.4)",

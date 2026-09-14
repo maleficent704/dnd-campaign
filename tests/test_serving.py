@@ -348,6 +348,47 @@ def test_serve_takes_the_same_options_as_play():
     assert set(serve) - set(play) == set()
 
 
+def test_no_command_undercuts_the_backends_token_ceiling():
+    """Every entry point defers to DEFAULT_MAX_TOKENS rather than carrying a literal.
+
+    Regression, 2026-09-14: `create-character`, `gm` and the shared play/serve flags
+    each hardcoded `default=1024` while `models/base.py` had already settled on 8192.
+    A real character-creation turn spent the whole 1024 reasoning, emitted no text
+    block at all, and `_to_response` joined zero blocks into `""`. The event log
+    recorded `status: "complete"` and the cost line billed for it, so the table saw a
+    prompt that looked frozen and no error anywhere.
+
+    `serve` is the one that made it urgent: it inherits these flags, the container
+    CMD passes no override, and a browser has no prompt to redraw — a truncated turn
+    would simply do nothing.
+    """
+    from dndc.models import DEFAULT_MAX_TOKENS
+
+    for argv in (
+        ["create-character", "--campaign", "x", "--player", "K"],
+        ["gm", "--campaign", "x", "the party opens the door"],
+        ["play", "--campaign", "x"],
+        ["serve", "--campaign", "x"],
+    ):
+        args = parser().parse_args(argv)
+        assert args.max_tokens == DEFAULT_MAX_TOKENS, (
+            f"{argv[0]} carries its own ceiling ({args.max_tokens}) instead of "
+            f"deferring to DEFAULT_MAX_TOKENS ({DEFAULT_MAX_TOKENS})"
+        )
+
+
+def test_the_token_ceiling_leaves_room_for_a_reasoned_turn():
+    """8192, not 1024. The number is the point, not just that it is shared.
+
+    Measured on the failing turn: 1024 output tokens bought zero text. Sonnet-5 can
+    spend a four-figure budget reasoning before it writes anything, and creation ends
+    with the longest outputs in the flow -- a stat block and a backstory.
+    """
+    from dndc.models import DEFAULT_MAX_TOKENS
+
+    assert DEFAULT_MAX_TOKENS >= 4096
+
+
 def test_play_still_has_to_be_asked_to_serve():
     assert parser().parse_args(["play", "--campaign", "x"]).serve is False
     assert parser().parse_args(["play", "--campaign", "x", "--serve"]).serve is True
