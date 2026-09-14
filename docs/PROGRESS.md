@@ -15,6 +15,34 @@ blockers into this list.
 
 ### Open now
 
+**One decision is open: OD-17.** Nothing ruled is unbuilt; the status below is context
+for judging it, not outstanding work.
+
+**OD-17 — What should a two-screen table do with the turn?**
+
+OD-4 deferred this — *"hotseat until Phase 6 GUI"* — and Phase 6 shipped shared screens
+with a shared hotseat, so the question is still open rather than answered. Three shapes,
+none obviously right:
+
+- **explicit handoff** (today): `/switch`, now visible. Honest, and someone must remember.
+- **claim**: a device says "I'm Vess" and keeps her. Fits two rooms; needs an identity the
+  token gate deliberately does not have — everyone holding the key is the same person.
+- **auto-rotate**: order comes off the party. Simple, and wrong the moment one character
+  should act twice.
+
+`--watch-only` as a property of the URL is the neighbouring question and has the same
+shape.
+
+*What is blocked:* nothing. The table plays today with an explicit, visible `/switch`.
+
+*Worth knowing before ruling:* the entry that raised it recommended **playing again
+first** — this ruling wants an evening's evidence more than it wants a decision.
+
+*Provenance:* raised 2026-09-13, carried unchanged through 2026-09-14, and tagged
+`FOR DESIGN:` in both entries — but never promoted into this list, so it was greppable
+and invisible at the same time. This file's own rule is that tagging and promoting are
+two steps; only the first had happened. Promoted and numbered 2026-09-14.
+
 **Nothing ruled is unbuilt. Phase 4 is complete** — P4.1–P4.7 landed 2026-09-02 (b)–(g)
 and 2026-09-03. The GM directs, NPCs answer for themselves on toto-llm, their drafts are
 gated, changes of mind supersede the beliefs they replace, and the tier has been verified
@@ -658,6 +686,11 @@ Rest]` is not a valid tag and rich leaves it alone. It proved nothing until it u
 rich actually eats.
 
 ### FOR DESIGN: what should a two-screen table do with the turn?
+
+> **Promoted to OD-17 on 2026-09-14** and now lives in *Open decisions for Fable*
+> at the top of this file. It was tagged here and never promoted, which made it
+> greppable and invisible at the same time — the design connector reads the list, not
+> the tags.
 
 OD-4 deferred this — *"hotseat until Phase 6 GUI"* — and Phase 6 shipped shared screens
 with a shared hotseat, so the question is still open rather than answered. Three shapes,
