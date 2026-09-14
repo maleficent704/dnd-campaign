@@ -235,9 +235,10 @@ def test_the_recap_is_never_handed_a_gm_only_fact():
 
     ledger = CanonLedger(
         entries=[
-            CanonEntry(id="a", text="The road north is closed.", scope=CanonScope.PLAYER_KNOWN),
+            CanonEntry(id="a", text="The road north is closed.", scope=CanonScope.WORLD,
+                       discovered=True, discovered_in="20260903-2100"),
             CanonEntry(id="b", text="Corin grew up on the coast.", scope=CanonScope.CHARACTER,
-                       subject="Corin Vale"),
+                       subject="Corin Vale", discovered=True),
             CanonEntry(id="c", text="The reeve was paid to close it.", scope=CanonScope.GM_ONLY),
             CanonEntry(id="d", text="A cellar runs under the waystation.", scope=CanonScope.WORLD),
         ]

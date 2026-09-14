@@ -229,6 +229,12 @@ class CanonOperation(str, Enum):
     CREATE = "create"
     #: Replaces an earlier entry, which is named in `supersedes`.
     SUPERSEDE = "supersede"
+    #: The party found out something the ledger already held (D-008 item 32). Also carries
+    #: `supersedes`, because a reveal is written as a replacement — but it is not a
+    #: supersede: supersession says *the world changed*, a reveal says the world did not
+    #: change and the party caught up. Collapsing the two would make "what does this party
+    #: know, and when did they learn it" unanswerable from the log.
+    REVEAL = "reveal"
     #: New narration contradicted an existing entry and **the entry was kept**. The
     #: ledger never quietly updates itself to match drift — measuring drift is the point,
     #: and a ledger that follows the model has nothing left to measure against.
@@ -264,7 +270,8 @@ class CanonWrite(_Event):
 
     type: Literal[EventType.CANON_WRITE] = EventType.CANON_WRITE
     entry_id: str
-    #: A `CanonScope` value: world | player_known | gm_only | npc_belief | character.
+    #: A `CanonScope` value: world | gm_only | npc_belief | character. (`player_known` was
+    #: retired 2026-09-14 — see `discovered` below and D-008 item 30.)
     scope: str
     operation: CanonOperation = CanonOperation.CREATE
     statement: str
@@ -276,6 +283,11 @@ class CanonWrite(_Event):
     #: model proposed and the humans rejected measures the proposer, and only exists as a
     #: measurement if the rejection is written down.
     confirmed: bool = True
+    #: Whether the party knows it, as of this row (D-008 item 32). The second axis: `scope`
+    #: says who a fact is true for, this says whether anyone at the table has found out.
+    #: On a `reveal` row it is always true, and that row is where "when did they learn it"
+    #: is answered from.
+    discovered: bool = False
 
 
 class StanceStatus(str, Enum):

@@ -32,7 +32,7 @@ def ledger() -> CanonLedger:
         entry("gm-smuggler", "The harbourmaster is the smuggling ring's paymaster.",
               scope=CanonScope.GM_ONLY, tags=("harbour",)),
         entry("player-ledger", "The party found a ledger in the customs house.",
-              scope=CanonScope.PLAYER_KNOWN, tags=("harbour",)),
+              discovered=True, discovered_in="20260902-101500", tags=("harbour",)),
         entry("belief-maren", "Maren thinks the harbourmaster is merely greedy.",
               scope=CanonScope.NPC_BELIEF, subject="Maren", tags=("harbour",)),
         entry("belief-dess", "Dess thinks the tide charts have been altered.",
@@ -152,18 +152,36 @@ def test_gm_only_never_reaches_an_npc_even_when_named_outright(ledger):
 
 
 def test_what_the_players_know_is_not_what_this_character_has_heard(ledger):
-    """The least obvious exclusion and the most load-bearing: handing over `player_known`
-    would leak the party's own discoveries back into the world reacting to them.
+    """The least obvious exclusion and the most load-bearing: handing over what the party
+    discovered would leak their own findings back into the world reacting to them.
 
     `player-ledger` carries the `harbour` tag Maren was granted, and is still refused —
-    which is the case that matters, because the sweep writes this scope automatically and
-    nobody chose that tag with an NPC in mind.
+    which is the case that matters, because the sweep writes into this set automatically
+    and nobody chose that tag with an NPC in mind.
+
+    The test is on `discovered` + `discovered_in` since 2026-09-14 (D-008 item 30). It was
+    the `player_known` scope; the set is identical and the field now means what it says.
     """
     assert "player-ledger" not in {e.id for e in ledger.for_npc(maren())}
 
 
-def test_player_known_is_refused_even_when_named_outright(ledger):
+def test_a_discovered_fact_is_refused_even_when_named_outright(ledger):
     assert "player-ledger" not in {e.id for e in ledger.for_npc(maren(knows=("player-ledger",)))}
+
+
+def test_a_fact_known_from_the_start_is_not_what_this_exclusion_is_about(ledger):
+    """`discovered_in` is the whole distinction. A co-creation backstory fact is discovered
+    with no session behind it — there was no moment of finding out — and it is an ordinary
+    grantable fact rather than one of the party's own findings."""
+    from dndc.gm.canon import CanonEntry
+
+    always = CanonEntry(
+        id="world-tollhouse", text="The tollhouse has stood since the old bridge.",
+        discovered=True, tags=("harbour",),
+    )
+    book = CanonLedger(entries=list(ledger.entries) + [always])
+
+    assert "world-tollhouse" in {e.id for e in book.for_npc(maren())}
 
 
 def test_another_characters_beliefs_never_reach_them(ledger):
@@ -204,12 +222,13 @@ def test_a_knows_id_that_does_not_exist_is_reported(ledger):
 
 
 @pytest.mark.parametrize(
-    ("entry_id", "scope"), [("gm-smuggler", "gm_only"), ("player-ledger", "player_known")]
+    ("entry_id", "marker"),
+    [("gm-smuggler", "gm_only"), ("player-ledger", "found out in play")],
 )
-def test_naming_an_unreachable_fact_is_reported_with_the_fix(ledger, entry_id, scope):
+def test_naming_an_unreachable_fact_is_reported_with_the_fix(ledger, entry_id, marker):
     """Silently refusing it is right; silently refusing it *without saying so* would leave
     an author believing a character knows something they do not."""
-    (issue,) = [i for i in npc_issues(maren(knows=(entry_id,)), ledger) if scope in i]
+    (issue,) = [i for i in npc_issues(maren(knows=(entry_id,)), ledger) if marker in i]
     assert "npc_belief" in issue and "Maren" in issue
 
 

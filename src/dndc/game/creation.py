@@ -447,6 +447,10 @@ class CreationSession:
                     text=fact,
                     scope=CanonScope.CHARACTER,
                     subject=self.sheet.name,
+                    # Known from the start, and `discovered_in` stays absent to say so
+                    # (D-008 item 30): the player wrote this about their own character in
+                    # the interview. There is no session in which they found it out.
+                    discovered=True,
                 )
             )
         return entries

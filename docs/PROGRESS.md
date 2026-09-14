@@ -15,33 +15,27 @@ blockers into this list.
 
 ### Open now
 
-**One decision is open: OD-17.** Nothing ruled is unbuilt; the status below is context
-for judging it, not outstanding work.
+**Nothing is open for Fable. One thing is owed by the table.**
 
-**OD-17 — What should a two-screen table do with the turn?**
+**OD-17 is ruled and its third part is an evening, not a build.** Fable rejected
+auto-rotate permanently, scoped soft-claim as a client-side per-device *default* that never
+becomes an identity, and made the build conditional on evidence: one real two-device
+evening on explicit `/switch`, counting wrong-character actions and stop-and-switch
+moments. **The instrument is written and blank** —
+`docs/playtests/2026-09-14-od17-two-screen-turn-control.md`. Near-zero friction closes
+OD-17 with no build, and that outcome is explicitly allowed to win. Full ruling in
+`DESIGN-DECISIONS.md`.
 
-OD-4 deferred this — *"hotseat until Phase 6 GUI"* — and Phase 6 shipped shared screens
-with a shared hotseat, so the question is still open rather than answered. Three shapes,
-none obviously right:
+**`--watch-only` as a URL property: ruled, not built.** Protection by absence stands; a
+second watch-only instance on another port already serves the real case at no security
+cost. The question leaves this list.
 
-- **explicit handoff** (today): `/switch`, now visible. Honest, and someone must remember.
-- **claim**: a device says "I'm Vess" and keeps her. Fits two rooms; needs an identity the
-  token gate deliberately does not have — everyone holding the key is the same person.
-- **auto-rotate**: order comes off the party. Simple, and wrong the moment one character
-  should act twice.
-
-`--watch-only` as a property of the URL is the neighbouring question and has the same
-shape.
-
-*What is blocked:* nothing. The table plays today with an explicit, visible `/switch`.
-
-*Worth knowing before ruling:* the entry that raised it recommended **playing again
-first** — this ruling wants an evening's evidence more than it wants a decision.
-
-*Provenance:* raised 2026-09-13, carried unchanged through 2026-09-14, and tagged
-`FOR DESIGN:` in both entries — but never promoted into this list, so it was greppable
-and invisible at the same time. This file's own rule is that tagging and promoting are
-two steps; only the first had happened. Promoted and numbered 2026-09-14.
+**One item is FOR DESIGN and was created by implementing the ruling, not carried into
+it** — see the 2026-09-14 (b) entry. Splitting truth from discovery makes a third state
+expressible that the one-field model could not represent: *a fact the party learned which
+an NPC has also always known*. `for_npc` still refuses it, because that is the no-change
+direction and the safe one, but the refusal is now a choice rather than a consequence.
+Nothing is blocked; the table plays either way.
 
 **Nothing ruled is unbuilt. Phase 4 is complete** — P4.1–P4.7 landed 2026-09-02 (b)–(g)
 and 2026-09-03. The GM directs, NPCs answer for themselves on toto-llm, their drafts are
@@ -113,20 +107,15 @@ with no way to start a session shows an empty page forever. It also forces a fix
 is overdue on its own: **campaign saves are game data and should not be in the code
 repo.**
 
-**One new question for Kelly, non-blocking, from P6.7b-iii (2026-09-06 (b)):
-should `--watch-only` become a property of the URL?** It is the one item of P6.7b-iii I
-deferred rather than built. Today a spectator server does not *build* the write routes at
-all — `POST /api/turn` is a 404, and a device cannot tell "not allowed" from "not built"
-(P6.3's protection by absence). A watch-only *link* would mean the routes exist for the
-players and get refused per viewer, which is strictly weaker. The gain is a read-only link
-you can hand somebody without restarting the server. **That is a security trade to pick,
-not to receive**, so it is here rather than in a commit. P6.7c does not need it.
+*(`--watch-only` as a URL property, raised from P6.7b-iii 2026-09-06 (b): **ruled
+2026-09-14, not built.** Protection by absence stands as deployed. Recorded in
+`DESIGN-DECISIONS.md`.)*
 
-**One new question, non-blocking, from P6.2 (h):** the ledger records that a fact is
-true but not that the party found it out, so The Salt Road has six `world` facts the
-party demonstrably knows and zero `player_known` ones. A device will look thin until
-that is settled. Four options are laid out in the (h) entry; my view is a second axis
-on `CanonEntry` rather than a prompt change or an inference.
+*(The P6.2 (h) scope question — truth and discovery competing for one field: **ruled
+2026-09-14 and built the same day.** Fable took option (2), the second axis on
+`CanonEntry`. D-008 items 30–33; `discovered` / `discovered_in`, the `[[LEARNED:]]` verb,
+`CanonOperation.reveal`, and `player_known` retired to a legacy alias. The Salt Road's six
+facts are backfilled — the device shows 12 of 15 entries where it showed 6.)*
 
 P5.5 (2026-09-03 (f)) closed the one defect Phase 5 found in itself: nothing recorded a
 player character's pronouns, so every layer re-derived them from prose and the chronicler
@@ -134,7 +123,20 @@ player character's pronouns, so every layer re-derived them from prose and the c
 recorded on the sheet now. **Kelly and Sam: the two Salt Road sheets were backfilled from
 the logs rather than asked about, and either is one line to change.**
 
-Three questions are open, none blocking:
+All three of the questions below are **ruled as of 2026-09-14** and kept here with their
+original framing, because each ruling is about the evidence in it. Full text in
+`DESIGN-DECISIONS.md`.
+
+> **1 — leave it.** Nine correct declines under deliberate pressure are judgment, not a
+> defect. **Reopen condition, exactly:** an NPC line that concedes in words with no
+> `[[BELIEF]]` tag following.
+>
+> **2 — ruled by Kelly, not Fable: describe, never quote.** Fable reserved it as table-feel
+> about chairs it has never sat in and recorded a lean for the middle option; Kelly took
+> it. Built the same day in `system_core.md`.
+>
+> **3 — the neutral position is now permanent.** Zero blocks across 31 live-and-control
+> cases. What a block costs gets decided when a block exists, against its own transcript.
 
 > **1. Should a GM declare a change of mind before the character has conceded it out
 > loud?** (New, 2026-09-03.) P4.6 works and the GM never used it: across nine turns built
@@ -523,6 +525,128 @@ the drift instrument's own log is a finding worth the two-line fix.
 ### Ruled — awaiting implementation
 
 - All of D-001…D-008 (initial architecture). Implementation = Phases 0–7 per TASKS.md.
+
+---
+
+## 2026-09-14 (c) — Fable's rulings applied: truth and discovery are two axes now (Claude Code, kelly-pc)
+
+Fable ruled six things overnight and Kelly ruled the seventh this morning. This session
+records all of them and builds the two that needed building. **1701 tests.**
+
+### What was ruled, and what it cost to apply
+
+| | Ruling | Build |
+|---|---|---|
+| **OD-17** auto-rotate | rejected permanently | none |
+| **OD-17** claim | soft per-device default, never an identity | none — conditional |
+| **OD-17** whether to build | one two-device evening decides it | **the instrument** |
+| `--watch-only` as URL | not built | none |
+| **P6.2 (h)** scope | option (2), a second axis on `CanonEntry` | **the axis** |
+| **Q1** change of mind | leave it, with an exact reopen condition | none |
+| **Q3** blocked line | neutral position is permanent | none |
+| **Q2** quoting PCs | *Kelly:* describe, never quote | `system_core.md` |
+
+Four of the eight are "leave it", which is worth saying out loud: a ruling that changes no
+code is still a ruling, and three of these close questions that had been carried in the
+open list for eleven days.
+
+### The axis (D-008 items 30–33)
+
+`world` and `player_known` were one field answering two questions. The 2026-09-03 (h)
+measurement was the argument: The Salt Road held **six `world` facts the party
+demonstrably found out and zero `player_known` ones**, so the device showed the two
+backstories and nothing about the situation the party was standing in.
+
+- **`CanonEntry.discovered` and `discovered_in`.** The axis and its provenance. Absent
+  `discovered_in` with `discovered: true` is a real state — *known from the start* — not a
+  missing value, and it is how a co-creation backstory fact differs from something learned
+  in session four.
+- **`[[LEARNED: <fact>]]`**, the tenth `[[TAG:]]` verb. Two verbs rather than a field on
+  `[[CANON]]`, on the `[[GAIN]]`/`[[LOSE]]` precedent: whether the party watched a thing
+  happen is not recoverable from the sentence.
+- **One verb, two behaviours, decided by the ledger rather than by the GM.** A fact it does
+  not hold is established discovered. A fact it *does* hold is a **reveal** — through
+  supersession, never mutation, so the original stays on file pointing at its replacement
+  and what was withheld is still legible. **This is the only way a `gm_only` secret is ever
+  unsealed**, and it has to move the entry out of that scope or `for_players` goes on
+  hiding something nobody is hiding.
+- **`CanonOperation.reveal`** rather than reusing `supersede`. Supersession says *the world
+  changed*; a reveal says the world did not change and the party caught up. Collapsing them
+  makes "what does this party know, and when did they learn it" unanswerable from the log.
+- **`for_players` is two conditions that must both hold**, not one widened one: the P6.2
+  allow-list *and* the axis. A `gm_only` row somehow marked discovered still cannot reach a
+  screen.
+
+**`CanonScope.PLAYER_KNOWN` is retired to a legacy alias** — normalised to `world` +
+`discovered` at the tag and again at the model, so an old file loads and nothing writes one
+again.
+
+### Two things found while implementing it
+
+**The sweep had been making a discovery claim for two phases without a word for it.**
+`SWEEP_SCOPE = player_known` is pinned as *a constant in the code rather than a rule in the
+prompt*, on the reasoning that the sweep reads narration and narration is by definition
+what the table was told. That is the axis, written in 2026-08-12 with only a scope to say
+it in. It is `world` + `discovered` now, forced the same way, and all three guarantees the
+constant buys are intact. **I had written the opposite into D-008 first** — that nothing
+had ever emitted `player_known` — and corrected it before the commit. The data claim was
+right (zero instances in both campaigns); the claim about the code was wrong.
+
+**A guarantee had to be preserved by hand rather than by luck.** `for_npc` excluded
+`player_known` *unconditionally* — described in its own docstring as the least obvious and
+most load-bearing exclusion, because the sweep fills that bucket automatically and a coarse
+tag reaching into it would open a leak that grows by itself. Retiring the scope would have
+dissolved that silently. The exclusion is now on `entry.found_in_play` (`discovered` **with**
+a `discovered_in` session), which is the same set: the writers that used to pick that scope
+are exactly the ones that set a session, and a backstory fact known from the start is not
+in it.
+
+**FOR DESIGN — and this one is new, created by implementing the ruling rather than carried
+into it.** Splitting the axis makes a third state expressible that the one-field model
+could not represent: **a fact the party learned which an NPC has also always known.** The
+innkeeper who obviously knows the bridge is out. Today `for_npc` refuses it, because that
+is the no-change direction and the safe one — but the refusal is now a *choice* rather than
+a consequence of the schema, and this project's own line about the neighbouring question
+applies: a security trade to pick, not to receive. Nothing is blocked either way.
+
+### The backfill
+
+Not optional, and nearly shipped as a regression. Ravenwood's five `character` facts were
+written before the axis existed, so they would have defaulted to undiscovered and gone
+**invisible on the devices of the campaign Kelly is actually playing**.
+
+`scripts/backfill_discovery.py`, deliberately not written as a general migration:
+`character` scope is decided by rule, every `world` fact by an explicit hand-audited id,
+because *the party knows this* is not a property a script can read off a row. An id not
+listed is left undiscovered. Idempotent — a second run reports zero changes.
+
+Verified against the real ledgers through the real loader:
+
+```
+ravenwood        5 of 5 entries reach a device   (was 0 — they would have vanished)
+the-salt-road   12 of 15                         (was 6; the 3 npc_beliefs stay hidden)
+smoke-test-1     2 of 2
+```
+
+**Applied on the VM: not yet.** The volume is backed up
+(`~/services/dndc/campaigns-before-discovery-axis-20260914.tar.gz`) and the migrated files
+are staged at `/tmp/*.canon.yaml`, but the permission classifier declined the `docker cp`.
+Three commands are in Kelly's TLDR. **Until they run, Ravenwood's screens show no canon at
+all** — which is worse than the thin screen this task existed to fix, so it is the first
+thing to do.
+
+### Known issues
+
+- **The backfill is staged and not applied.** Above.
+- An empty NPC line is still silent (carried from 2026-09-14 (b); jotted).
+- **Phase 6 has had exactly one evening on it.** Unchanged, and now the thing two separate
+  rulings are waiting on.
+
+### Recommended next task
+
+**Play, with the OD-17 sheet open.** It is the only thing that can close OD-17, the axis
+wants a real evening to show whether the GM actually reaches for `[[LEARNED:]]`, and Q2's
+prompt change is a feel question that only reads true at a table.
 
 ---
 

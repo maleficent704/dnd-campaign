@@ -40,13 +40,21 @@ def sheet(name: str = "Corin Vale", pronouns: str = "she/her") -> CharacterSheet
     )
 
 
-def entry(scope: CanonScope, text: str, subject: str = "") -> CanonEntry:
+def entry(
+    scope: CanonScope, text: str, subject: str = "", discovered: bool = False
+) -> CanonEntry:
     return CanonEntry(
         id=f"{scope.value}-{abs(hash(text)) % 9999}",
         scope=scope,
         text=text,
         subject=subject or None,
+        discovered=discovered,
     )
+
+
+def found(scope: CanonScope, text: str, subject: str = "") -> CanonEntry:
+    """A fact the party has discovered — the only kind a device may be sent."""
+    return entry(scope, text, subject, discovered=True)
 
 
 def ledger(*entries: CanonEntry) -> CanonLedger:
@@ -105,20 +113,38 @@ def test_what_the_party_established_does_reach_them():
 
 
 def test_a_character_fact_reaches_them_too():
-    """Co-creation's own output, about their own people (D-005)."""
-    view = table_view(campaign(entry(CanonScope.CHARACTER, "Corin grew up on the coast road.")))
+    """Co-creation's own output, about their own people (D-005). Written discovered,
+    because the player wrote it about their own character."""
+    view = table_view(campaign(found(CanonScope.CHARACTER, "Corin grew up on the coast road.")))
 
     assert "coast road" in view.model_dump_json()
+
+
+def test_a_world_fact_the_party_found_out_reaches_them():
+    """The 2026-09-03 (h) finding, fixed. Six facts about the town they were standing in
+    were `world` and true and invisible, because `world` and `player_known` were one field
+    doing two jobs. Discovery is its own axis now (D-008 item 30)."""
+    view = table_view(campaign(found(CanonScope.WORLD, "The mill wheel is stopped.")))
+
+    assert "mill wheel" in view.model_dump_json()
+
+
+def test_a_world_fact_nobody_has_found_out_still_does_not():
+    """And the other half, which is most of a campaign: the ledger is the world, not the
+    party's notes."""
+    view = table_view(campaign(entry(CanonScope.WORLD, UNDISCOVERED)))
+
+    assert "undercroft" not in view.model_dump_json()
 
 
 def test_every_scope_at_once_and_only_two_survive():
     view = table_view(
         campaign(
-            entry(CanonScope.GM_ONLY, SECRET),
+            found(CanonScope.GM_ONLY, SECRET),
             entry(CanonScope.WORLD, UNDISCOVERED),
-            entry(CanonScope.NPC_BELIEF, BELIEF, subject="the guard"),
-            entry(CanonScope.PLAYER_KNOWN, "The wheel is stopped."),
-            entry(CanonScope.CHARACTER, "Corin grew up on the coast road."),
+            found(CanonScope.NPC_BELIEF, BELIEF, subject="the guard"),
+            found(CanonScope.WORLD, "The wheel is stopped."),
+            found(CanonScope.CHARACTER, "Corin grew up on the coast road."),
         )
     )
 
@@ -127,13 +153,23 @@ def test_every_scope_at_once_and_only_two_survive():
     assert "drowned" not in body and "undercroft" not in body and "certain" not in body
 
 
+def test_a_secret_marked_discovered_still_cannot_reach_a_screen():
+    """Both conditions must hold, which is why they are two (D-008 item 33). `gm_only` is
+    outside the allow-list, so a row that somehow carried the axis is still refused — the
+    scope whose entire definition is that this must not happen."""
+    view = table_view(campaign(found(CanonScope.GM_ONLY, SECRET)))
+
+    assert "drowned" not in view.model_dump_json()
+
+
 def test_a_superseded_fact_does_not_come_back():
     """`active()` is what `for_players` reads. A retired fact is history, not news."""
-    live = entry(CanonScope.PLAYER_KNOWN, "The ferry runs at dawn.")
+    live = found(CanonScope.WORLD, "The ferry runs at dawn.")
     dead = CanonEntry(
-        id="player_known-old",
-        scope=CanonScope.PLAYER_KNOWN,
+        id="world-old",
+        scope=CanonScope.WORLD,
         text="The ferry runs at noon.",
+        discovered=True,
         superseded_by=live.id,
     )
 
@@ -274,20 +310,37 @@ def test_every_scope_this_build_knows_is_decided_one_way_or_the_other():
     allow-list, the default is already the safe one. This test is what turns that default
     into a conversation instead of a silence.
     """
-    allowed = {CanonScope.PLAYER_KNOWN, CanonScope.CHARACTER}
-    withheld = {CanonScope.GM_ONLY, CanonScope.WORLD, CanonScope.NPC_BELIEF}
+    allowed = {CanonScope.WORLD, CanonScope.CHARACTER}
+    withheld = {CanonScope.GM_ONLY, CanonScope.NPC_BELIEF}
+    # Retired to a legacy alias (D-008 item 30) — normalised to `world` on construction,
+    # so it is decided by being unrepresentable rather than by being listed.
+    retired = {CanonScope.PLAYER_KNOWN}
 
-    assert allowed | withheld == set(CanonScope), (
+    assert allowed | withheld | retired == set(CanonScope), (
         "a new canon scope exists and nobody has said whether a player's device may see it"
     )
 
-    context = campaign(*[entry(scope, f"a {scope.value} fact") for scope in CanonScope])
+    context = campaign(*[found(scope, f"a {scope.value} fact") for scope in allowed | withheld])
     body = table_view(context).model_dump_json()
 
     for scope in withheld:
         assert f"a {scope.value} fact" not in body
     for scope in allowed:
         assert f"a {scope.value} fact" in body
+
+
+def test_the_allow_list_is_not_the_whole_test_any_more():
+    """The other half of the same pin: an allowed scope is still withheld undiscovered.
+    Without this, a future edit could satisfy the enumeration above by widening the scope
+    list and quietly put the undiscovered world back on a screen."""
+    context = campaign(
+        *[entry(scope, f"an unfound {scope.value} fact") for scope in (CanonScope.WORLD,
+                                                                       CanonScope.CHARACTER)]
+    )
+    body = table_view(context).model_dump_json()
+
+    assert "an unfound world fact" not in body
+    assert "an unfound character fact" not in body
 
 
 def test_the_two_allow_lists_disagree_about_player_known_and_that_is_the_point():

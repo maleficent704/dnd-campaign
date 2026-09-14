@@ -4,7 +4,7 @@ The sweep exists because the first P2.2 live run established four facts about th
 and tagged none of them. What is defended here is not that a small model finds facts —
 it will, and imperfectly — but that an imperfect writer cannot damage the ledger:
 
-* it can only ever write `player_known`, whatever it claims;
+* it can only ever write a discovered world fact, whatever it claims;
 * it never receives a `gm_only` fact, so it cannot echo one to the table;
 * it cannot propose anything that is not in the session it read — the guard the second
   live run made necessary, when `llama3.1:8b` answered with the prompt's own examples;
@@ -114,25 +114,29 @@ def test_a_scope_the_sweep_claims_is_discarded():
     )
     report = sweep(backend).propose(session())
     assert len(report.proposals) == 2
-    assert {p.scope for p in report.proposals} == {CanonScope.PLAYER_KNOWN}
+    assert {p.scope for p in report.proposals} == {CanonScope.WORLD}
 
 
-def test_what_it_proposes_is_filed_as_player_known_whatever_it_claimed(tmp_path):
+def test_what_it_proposes_is_filed_as_a_discovered_world_fact_whatever_it_claimed(tmp_path):
     backend = MockBackend(["[[CANON: gm_only — The mill burned down last winter.]]"])
     store = CanonStore(CanonLedger(), path=tmp_path / CANON_FILENAME)
     subject = sweep(backend, store)
 
     written = subject.record(subject.propose(session()).proposals)
-    assert [entry.scope for entry in written] == [CanonScope.PLAYER_KNOWN]
+    assert [entry.scope for entry in written] == [CanonScope.WORLD]
+    # And the axis the scope used to stand in for. Both halves, because either alone would
+    # pass while the sweep quietly wrote the wrong kind of fact.
+    assert [entry.discovered for entry in written] == [True]
 
 
 def test_a_fact_the_ledger_already_holds_is_not_proposed():
     ledger = CanonLedger(
         entries=[
             CanonEntry(
-                id="pk-bell",
+                id="world-bell",
                 text="The cracked bell above the door has not been rung.",
-                scope=CanonScope.PLAYER_KNOWN,
+                discovered=True,
+                discovered_in="20260813-2000",
             )
         ]
     )
@@ -253,7 +257,8 @@ def test_a_gm_only_fact_is_never_sent_to_the_local_model():
     ledger = CanonLedger(
         entries=[
             CanonEntry(id="gm-1", text="The reeve took the bribe.", scope=CanonScope.GM_ONLY),
-            CanonEntry(id="pk-1", text="The gate is barred.", scope=CanonScope.PLAYER_KNOWN),
+            CanonEntry(id="pk-1", text="The gate is barred.", discovered=True,
+                       discovered_in="20260813-2000"),
         ]
     )
     backend = MockBackend(["NONE"])
@@ -378,7 +383,11 @@ def test_a_sweep_fact_survives_the_process(tmp_path):
     subject.record(subject.propose(session()).proposals)
 
     reloaded = CanonStore.for_campaign(tmp_path)
-    assert reloaded.holds("Halda Orrin keeps the waystation.", CanonScope.PLAYER_KNOWN)
+    assert reloaded.holds("Halda Orrin keeps the waystation.", CanonScope.WORLD)
+    # The axis survives the YAML round trip too — it is the half that decides whether the
+    # fact ever reaches a screen, and a default of False would lose it silently.
+    (entry,) = [e for e in reloaded.ledger.active() if "Halda" in e.text]
+    assert entry.discovered is True
 
 
 def test_the_sweep_call_is_logged_as_a_free_local_cost_row(tmp_path):

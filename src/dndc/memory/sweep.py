@@ -12,12 +12,17 @@ proposals are read out at the end of the evening, so seconds matter and over-pro
 does not (Fable, 2026-08-14). Three things keep a small model from quietly corrupting
 the thing the whole project exists to measure:
 
-**It can only ever write `player_known`.** Not a rule in the prompt — a constant in the
-code. The sweep reads narration, and narration is by definition what the table was told,
-so `player_known` is the only scope its evidence supports. It therefore cannot mint a
-secret, cannot put words in an NPC's mouth, and cannot declare world truth that nobody at
-the table has seen. Same posture as OD-11 and OD-12: protection by construction, not by
-instruction, because an instruction a model follows on turn 3 is one it drops on turn 90.
+**It can only ever write a discovered world fact.** Not a rule in the prompt — two
+constants in the code. The sweep reads narration, and narration is by definition what the
+table was told, so `world` + `discovered` is the only thing its evidence supports. It
+therefore cannot mint a secret, cannot put words in an NPC's mouth, and cannot declare
+world truth that nobody at the table has seen. Same posture as OD-11 and OD-12: protection
+by construction, not by instruction, because an instruction a model follows on turn 3 is
+one it drops on turn 90.
+
+Until 2026-09-14 this was one constant, `SWEEP_SCOPE = player_known` — a discovery claim
+wearing a scope's clothes, written two phases before the axis had a name. The guarantee is
+unchanged; it is now stated in the field that means it (D-008 items 30–32).
 
 **It never sees `gm_only` canon.** Its proposals are printed to the table for
 confirmation, so anything it reads is one echo away from the players' screen. A model
@@ -55,9 +60,14 @@ from dndc.models import INTERACTIVE_SEAT
 from dndc.models.base import GMBackend, GMBackendError, GMRequest, Message, Role
 from dndc.schema.events import CanonSource, Cost
 
-#: The only scope a sweep may write. See the module docstring — this being a constant
-#: rather than a prompt instruction is the point.
-SWEEP_SCOPE = CanonScope.PLAYER_KNOWN
+#: The only scope a sweep may write, and the only discovery state. See the module
+#: docstring — these being constants rather than prompt instructions is the point.
+SWEEP_SCOPE = CanonScope.WORLD
+
+#: Forced true, and not a judgement call the local model gets to make. The sweep's source
+#: *is* the transcript the players read, so a fact it extracts was by construction narrated
+#: to the table — which is why this is not the inference Fable's ruling excluded.
+SWEEP_DISCOVERED = True
 
 #: Turns per call. A small model reading eight turns finds more than the same model
 #: reading forty, and local inference is free, so the pass is chunked rather than
@@ -292,6 +302,7 @@ class CanonSweep:
                 session=session,
                 established_by=self._provenance(),
                 source=CanonSource.SWEEP,
+                discovered=SWEEP_DISCOVERED,
             )
             if entry is not None:
                 written.append(entry)

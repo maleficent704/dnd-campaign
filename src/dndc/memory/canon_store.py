@@ -92,12 +92,17 @@ class CanonStore:
         turn: int | None = None,
         established_by: str | None = None,
         source: CanonSource = CanonSource.GM_TAG,
+        discovered: bool = False,
     ) -> CanonEntry | None:
         """File a new fact. Returns None if the ledger already holds it.
 
         Restatement is the common case, not an error: the GM says "the waystation at
         Ashmill" every other turn. Suppressing it silently is right — there is no new
         information, so there is nothing for Phase 7 to measure.
+
+        `discovered` is the second axis (D-008 item 30) and defaults to *not known*, which
+        is the safe direction: a fact reaches a player's screen only by somebody saying it
+        has been found out, never by nobody having said otherwise.
         """
         if self.holds(text, scope):
             return None
@@ -109,6 +114,8 @@ class CanonStore:
             subject=subject,
             session=session,
             turn=turn,
+            discovered=discovered,
+            discovered_in=session if discovered else None,
         )
         self.ledger.add(entry)
         self._emit(entry, CanonOperation.CREATE, established_by=established_by, source=source)
@@ -232,9 +239,22 @@ class CanonStore:
         turn: int | None = None,
         source: CanonSource = CanonSource.GM_TAG,
     ) -> list[CanonEntry]:
-        """Everything the GM declared this turn. Only the genuinely new comes back."""
+        """Everything the GM declared this turn. Only the genuinely new comes back.
+
+        A `[[LEARNED:]]` tag naming a fact the ledger **already holds** is not a
+        restatement to suppress — it is a reveal, and it is the one case here that changes
+        an entry the GM did not write this turn (D-008 item 31).
+        """
         written = []
         for tag in tags:
+            if tag.discovered:
+                revealed = self.reveal(
+                    tag.text, session=session, turn=turn, established_by=tag.raw or None,
+                    source=source,
+                )
+                if revealed is not None:
+                    written.append(revealed)
+                    continue
             entry = self.establish(
                 tag.text,
                 scope=tag.scope,
@@ -243,10 +263,64 @@ class CanonStore:
                 turn=turn,
                 established_by=tag.raw or None,
                 source=source,
+                discovered=tag.discovered,
             )
             if entry is not None:
                 written.append(entry)
         return written
+
+    def reveal(
+        self,
+        text: str,
+        session: str | None = None,
+        turn: int | None = None,
+        established_by: str | None = None,
+        source: CanonSource = CanonSource.GM_TAG,
+    ) -> CanonEntry | None:
+        """The party found out something the ledger already held (D-008 items 31–32).
+
+        Returns None when the ledger holds no such fact, which means the caller should
+        establish it instead — a `[[LEARNED:]]` about something new is the ordinary case
+        and not an error.
+
+        **Through supersession, never by mutation.** Entries are frozen and the ledger's
+        whole discipline is that a row does not quietly change its mind; a reveal writes a
+        replacement and leaves the original on file pointing at it, so what was withheld
+        stays legible afterwards. It is also the only correct way to move a `gm_only` fact,
+        which has to leave that scope when the party learns it — otherwise `for_players`
+        goes on hiding something nobody is hiding any more.
+
+        A fact already standing as discovered is left alone: the party cannot learn
+        something twice, and a second `[[LEARNED:]]` on it is the restatement case.
+        """
+        wanted = normalise(text)
+        for entry in self.ledger.active():
+            if normalise(entry.text) != wanted:
+                continue
+            if entry.discovered:
+                return None
+            replacement = CanonEntry(
+                id=self.ledger.mint_id(CanonScope.WORLD, entry.text),
+                text=entry.text,
+                scope=CanonScope.WORLD,
+                subject=entry.subject,
+                session=entry.session,
+                turn=entry.turn,
+                tags=entry.tags,
+                discovered=True,
+                discovered_in=session,
+            )
+            self.ledger.supersede(entry.id, replacement)
+            self._emit(
+                replacement,
+                CanonOperation.REVEAL,
+                established_by=established_by,
+                supersedes=entry.id,
+                source=source,
+            )
+            self.save()
+            return replacement
+        return None
 
     # --- reads --------------------------------------------------------------
 
@@ -294,4 +368,5 @@ class CanonStore:
             supersedes=supersedes,
             source=source,
             confirmed=confirmed,
+            discovered=entry.discovered,
         )

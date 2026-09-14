@@ -44,7 +44,6 @@ def test_a_bare_tag_is_a_world_fact():
         ("[[CANON: gm only - The reeve took the bribe.]]", CanonScope.GM_ONLY, None),
         ("[[CANON: GM_ONLY: The reeve took the bribe.]]", CanonScope.GM_ONLY, None),
         ("[[CANON: npc_belief (Miller) — The road is safe.]]", CanonScope.NPC_BELIEF, "Miller"),
-        ("[[CANON: player_known — The gate is barred.]]", CanonScope.PLAYER_KNOWN, None),
         ("[[CANON: character (Corin Vale) — He keeps his father's knife.]]", CanonScope.CHARACTER, "Corin Vale"),
     ],
 )
@@ -89,7 +88,14 @@ def test_the_scope_alternatives_are_generated_from_the_enum():
     """A new scope must not be parseable in one place and unknown in the other."""
     for scope in CanonScope:
         tag = find_canon_tags(f"[[CANON: {scope.value} — a fact]]")[0]
+        if scope is CanonScope.PLAYER_KNOWN:
+            # Retired 2026-09-14 (D-008 item 30): still parseable, because the GM prompt
+            # said this word for two phases and a model reading an old transcript will use
+            # it again — and it means exactly what `[[LEARNED:]]` means.
+            assert tag.scope is CanonScope.WORLD and tag.discovered is True
+            continue
         assert tag.scope is scope
+        assert tag.discovered is False
 
 
 def test_the_tag_marker_is_the_one_the_stream_filter_hides():
@@ -352,3 +358,175 @@ def test_canon_survives_the_process(tmp_path):
     )
     second.run("Remind me who runs this place.", player="Kelly")
     assert "Halda Orrin" in second.backend.calls[-1].system_volatile
+
+
+# --- the second axis: truth and discovery (D-008 items 30-33) ---------------
+
+
+def test_a_learned_tag_is_a_discovered_world_fact():
+    """The tenth `[[TAG:]]` verb. Two verbs rather than a field on `[[CANON]]`, on the
+    `[[GAIN]]`/`[[LOSE]]` precedent: whether the party watched a thing happen is not
+    recoverable from the sentence."""
+    (tag,) = find_canon_tags("[[LEARNED: The bridge at Aldermoor is out.]]")
+
+    assert tag.discovered is True
+    assert tag.scope is CanonScope.WORLD
+    assert tag.text == "The bridge at Aldermoor is out."
+
+
+def test_a_plain_canon_tag_declares_nothing_about_discovery():
+    (tag,) = find_canon_tags("[[CANON: The bridge at Aldermoor is out.]]")
+
+    assert tag.discovered is False
+
+
+def test_a_learned_tag_is_a_world_fact_whatever_scope_it_claims():
+    """`gm_only` discovered is a contradiction in terms and `npc_belief` is one private
+    mind. Overruled rather than refused: this parser's hard rule is that it never loses a
+    fact to a formatting slip."""
+    (tag,) = find_canon_tags("[[LEARNED: gm_only — The reeve took the bribe.]]")
+
+    assert (tag.scope, tag.discovered) == (CanonScope.WORLD, True)
+    assert tag.text == "The reeve took the bribe."
+
+
+def test_both_verbs_are_stripped_before_the_players_see_the_reply():
+    prose = strip_canon_tags(
+        "The road bends. [[LEARNED: The bridge is out.]] [[CANON: gm_only — A cellar.]] Rain."
+    )
+
+    assert prose == "The road bends. Rain."
+
+
+def test_the_two_verbs_parse_out_of_one_reply():
+    tags = find_canon_tags(
+        "[[CANON: gm_only — The reeve took the bribe.]]"
+        + chr(10)
+        + "[[LEARNED: The gate is barred.]]"
+    )
+
+    assert [tag.discovered for tag in tags] == [False, True]
+
+
+def test_a_learned_fact_lands_discovered_and_says_which_session(tmp_path):
+    subject = store(tmp_path)
+
+    (entry,) = subject.record_tags(
+        find_canon_tags("[[LEARNED: The gate is barred.]]"), session="20260914-0700", turn=3
+    )
+
+    assert entry.discovered is True
+    assert entry.discovered_in == "20260914-0700"
+    assert entry.scope is CanonScope.WORLD
+
+
+def test_an_undeclared_fact_is_not_known_to_anybody(tmp_path):
+    """The safe direction, and the whole reason the default is False: a fact reaches a
+    screen by somebody saying it has been found out, never by nobody saying otherwise."""
+    subject = store(tmp_path)
+
+    (entry,) = subject.record_tags(
+        find_canon_tags("[[CANON: A sealed vault lies under the undercroft.]]"),
+        session="20260914-0700",
+    )
+
+    assert entry.discovered is False
+    assert entry.discovered_in is None
+    assert subject.ledger.for_players() == []
+
+
+# --- the reveal -------------------------------------------------------------
+
+
+def test_learning_something_the_ledger_already_held_is_a_reveal(tmp_path):
+    """Through supersession, never by mutation: the original stays on file pointing at its
+    replacement, so what was withheld is still legible afterwards."""
+    subject = store(tmp_path)
+    secret = subject.establish(
+        "The reeve was paid to close the road.", scope=CanonScope.GM_ONLY, session="s1"
+    )
+
+    (revealed,) = subject.record_tags(
+        find_canon_tags("[[LEARNED: The reeve was paid to close the road.]]"), session="s2"
+    )
+
+    assert revealed.discovered is True
+    assert revealed.discovered_in == "s2"
+    # It had to leave `gm_only`, or `for_players` would go on hiding something nobody is
+    # hiding any more.
+    assert revealed.scope is CanonScope.WORLD
+    assert subject.ledger.get(secret.id).superseded_by == revealed.id
+
+
+def test_a_revealed_secret_reaches_the_table(tmp_path):
+    """The point of the whole exercise, end to end."""
+    subject = store(tmp_path)
+    subject.establish("The reeve was paid.", scope=CanonScope.GM_ONLY, session="s1")
+    assert subject.ledger.for_players() == []
+
+    subject.record_tags(find_canon_tags("[[LEARNED: The reeve was paid.]]"), session="s2")
+
+    assert [entry.text for entry in subject.ledger.for_players()] == ["The reeve was paid."]
+
+
+def test_a_reveal_is_logged_as_a_reveal_and_not_as_a_supersede(tmp_path):
+    """Supersession says *the world changed*; a reveal says the world did not change and
+    the party caught up. Collapsing them makes "when did they learn it" unanswerable."""
+    log = SessionLog.open(tmp_path)
+    subject = store(tmp_path, log=log)
+    subject.establish("The reeve was paid.", scope=CanonScope.GM_ONLY, session="s1")
+
+    subject.record_tags(find_canon_tags("[[LEARNED: The reeve was paid.]]"), session="s2")
+
+    rows = [row for row in read_log(log.path) if row.type is EventType.CANON_WRITE]
+    assert [row.operation for row in rows] == [CanonOperation.CREATE, CanonOperation.REVEAL]
+    assert [row.discovered for row in rows] == [False, True]
+    assert rows[-1].supersedes == rows[0].entry_id
+
+
+def test_learning_the_same_thing_twice_changes_nothing(tmp_path):
+    """The party cannot find something out again; a second tag is the restatement case."""
+    subject = store(tmp_path)
+    subject.record_tags(find_canon_tags("[[LEARNED: The gate is barred.]]"), session="s1")
+    before = len(subject.ledger.entries)
+
+    written = subject.record_tags(
+        find_canon_tags("[[LEARNED: The gate is barred.]]"), session="s2"
+    )
+
+    assert written == []
+    assert len(subject.ledger.entries) == before
+
+
+def test_a_reveal_survives_the_process(tmp_path):
+    subject = store(tmp_path)
+    subject.establish("The reeve was paid.", scope=CanonScope.GM_ONLY, session="s1")
+    subject.record_tags(find_canon_tags("[[LEARNED: The reeve was paid.]]"), session="s2")
+
+    reloaded = CanonStore.for_campaign(tmp_path)
+
+    (live,) = reloaded.ledger.active()
+    assert (live.scope, live.discovered, live.discovered_in) == (CanonScope.WORLD, True, "s2")
+
+
+# --- the retired scope ------------------------------------------------------
+
+
+def test_the_retired_scope_is_normalised_on_the_way_in():
+    """`player_known` was a scope doing an axis's job (D-008 item 30). An old `canon.yaml`
+    still loads; nothing can write one again."""
+    entry = CanonEntry(id="old-1", text="The gate is barred.", scope=CanonScope.PLAYER_KNOWN)
+
+    assert entry.scope is CanonScope.WORLD
+    assert entry.discovered is True
+
+
+def test_a_fact_known_from_the_start_has_no_session_behind_it():
+    """A real state, not a missing value: there was no moment of finding out."""
+    backstory = CanonEntry(
+        id="character-1", text="Corin grew up on the coast road.",
+        scope=CanonScope.CHARACTER, discovered=True,
+    )
+
+    assert backstory.known is True
+    assert backstory.found_in_play is False

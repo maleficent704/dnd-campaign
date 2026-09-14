@@ -28,8 +28,12 @@ from dataclasses import dataclass
 
 from dndc.gm.canon import CanonScope
 
-#: The whole tag. Non-greedy body so two tags in one reply parse as two.
-CANON_PATTERN = re.compile(r"\[\[\s*CANON\s*:(?P<body>.*?)\]\]", re.IGNORECASE | re.DOTALL)
+#: The whole tag. Non-greedy body so two tags in one reply parse as two. `LEARNED` is the
+#: same grammar with the discovery axis set (D-008 item 31) — one pattern rather than two
+#: so a reply cannot have a fact read by one parser and missed by the other.
+CANON_PATTERN = re.compile(
+    r"\[\[\s*(?P<verb>CANON|LEARNED)\s*:(?P<body>.*?)\]\]", re.IGNORECASE | re.DOTALL
+)
 
 #: Built from the enum rather than written out, so a new scope cannot be parseable in
 #: one place and unknown in the other. `npc_belief` also matches `npc belief`/`npc-belief`.
@@ -56,13 +60,21 @@ class CanonTag:
     #: Whose belief, for `npc_belief`; an optional subject tag elsewhere.
     subject: str | None = None
     raw: str = ""
+    #: Written as `[[LEARNED: ...]]` — the party has found this out (D-008 item 31). The
+    #: store turns it into a new discovered fact or, when the ledger already holds the
+    #: statement, into a reveal.
+    discovered: bool = False
 
 
 def find_canon_tags(text: str) -> list[CanonTag]:
     """Every canon declaration in a GM reply, in the order it made them."""
     tags = []
     for match in CANON_PATTERN.finditer(text):
-        tag = _parse_body(match.group("body"), raw=match.group(0))
+        tag = _parse_body(
+            match.group("body"),
+            raw=match.group(0),
+            discovered=match.group("verb").casefold() == "learned",
+        )
         if tag is not None:
             tags.append(tag)
     return tags
@@ -89,23 +101,43 @@ def _tidy(text: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
-def _parse_body(body: str, raw: str) -> CanonTag | None:
-    """A tag with no statement left in it is not a fact; it is a formatting artifact."""
+def _parse_body(body: str, raw: str, discovered: bool = False) -> CanonTag | None:
+    """A tag with no statement left in it is not a fact; it is a formatting artifact.
+
+    A `[[LEARNED:]]` is always a world fact whatever scope word it carries. The other
+    scopes are not things a party can be told: `gm_only` discovered is a contradiction in
+    terms, `npc_belief` is one character's private mind, and `character` facts are the
+    player's own and known by construction. So the scope head is read and then overruled,
+    rather than the tag being refused — this parser's one hard rule is that it never loses
+    a fact to a formatting slip, and a GM writing `[[LEARNED: world — ...]]` has done
+    nothing wrong.
+    """
     head = _HEAD.match(body)
     if head is None:
         statement = body.strip()
         if not statement:
             return None
-        return CanonTag(text=statement, scope=CanonScope.WORLD, raw=raw)
+        return CanonTag(
+            text=statement, scope=CanonScope.WORLD, raw=raw, discovered=discovered
+        )
 
     statement = body[head.end():].strip()
     if not statement:
         return None
+    scope = _scope(head.group("scope"))
+    if scope is CanonScope.PLAYER_KNOWN:
+        # The retired scope (D-008 item 30) means exactly what `[[LEARNED:]]` means, so a
+        # GM that writes it gets what it asked for. Normalised here rather than at the
+        # ledger so everything downstream — id minting, the restatement check, the event —
+        # sees one shape. It stays parseable because the GM prompt said this word for two
+        # phases and a model that read an old transcript will use it again.
+        scope, discovered = CanonScope.WORLD, True
     return CanonTag(
         text=statement,
-        scope=_scope(head.group("scope")),
-        subject=(head.group("subject") or None),
+        scope=CanonScope.WORLD if discovered else scope,
+        subject=None if discovered else (head.group("subject") or None),
         raw=raw,
+        discovered=discovered,
     )
 
 

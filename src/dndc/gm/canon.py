@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Iterable, Iterator, Sequence
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from dndc.schema.npc import COMMON_KNOWLEDGE_TAG, NPC
 
@@ -34,7 +34,10 @@ class CanonScope(str, Enum):
 
     #: Objectively true in the world, whether or not anyone knows it.
     WORLD = "world"
-    #: Established in play — the players have seen or been told this.
+    #: **Legacy, retired 2026-09-14 (D-008 item 30.)** Discovery is an axis now, not a
+    #: scope: `CanonEntry` normalises this on construction to `world` + `discovered`, so
+    #: an old ledger still loads and nothing can write one again. Kept in the enum because
+    #: deleting a persisted value breaks files rather than fixing them; never emitted.
     PLAYER_KNOWN = "player_known"
     #: True, and deliberately withheld: the twist, the villain, the trap.
     GM_ONLY = "gm_only"
@@ -49,10 +52,13 @@ class CanonScope(str, Enum):
 #: here becomes unreachable by every NPC in every campaign, in one edit.
 _NEVER_FOR_NPCS = frozenset({CanonScope.GM_ONLY, CanonScope.PLAYER_KNOWN})
 
-#: The only scopes a player's own device may be sent (P6.2). An allow-list for the same
-#: reason `_NEVER_FOR_NPCS` is a deny-list of absolutes: this is the guarantee, and it is
-#: one edit to change for every campaign at once.
-_FOR_PLAYERS = frozenset({CanonScope.PLAYER_KNOWN, CanonScope.CHARACTER})
+#: The only scopes a player's own device may be sent (P6.2), now one of *two* conditions
+#: rather than the whole test — see `for_players` and D-008 item 33. Still an allow-list
+#: for the same reason `_NEVER_FOR_NPCS` is a deny-list of absolutes: this is the
+#: guarantee, and it is one edit to change for every campaign at once. `gm_only` is absent
+#: and stays absent, so an entry somehow marked discovered at that scope still cannot
+#: reach a screen.
+_FOR_PLAYERS = frozenset({CanonScope.WORLD, CanonScope.CHARACTER})
 
 
 class CanonEntry(BaseModel):
@@ -73,10 +79,60 @@ class CanonEntry(BaseModel):
     #: they are the record of what was true before, which is what drift is measured
     #: against — but they leave the prompt.
     superseded_by: str | None = None
+    #: **Have the players found this out?** The second axis (D-008 item 30), independent of
+    #: `scope`: "is this true" and "have they found out" are separate questions, and every
+    #: fact learned in play answers both. Default false, which is what `gm_only` means and
+    #: what an authored world starts as.
+    discovered: bool = False
+    #: The session they learned it in. Absent with `discovered` set means *known from the
+    #: start* — a co-creation backstory fact, or something hand-authored as common
+    #: knowledge — which is a real state and not a missing value.
+    discovered_in: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _retire_player_known(cls, data):
+        """`player_known` was a scope doing an axis's job. Normalise it out, on the way in.
+
+        Retired by D-008 item 30. The value stays in the enum so an old `canon.yaml` still
+        loads; this is what stops it ever being written again, and it is on the model
+        rather than in the loader so a hand-edited file and a programmatic write get the
+        same treatment. Nothing in either live campaign had one — the enum has zero
+        instances across both — so this migrates nothing in practice and is here for the
+        file somebody hand-writes next year.
+
+        `before` rather than `after` because the model is frozen: rewriting the input is
+        the only way to normalise without returning a copy out of a validator, which
+        pydantic does not support through `__init__`.
+        """
+        if not isinstance(data, dict):
+            return data
+        scope = data.get("scope")
+        if scope in (CanonScope.PLAYER_KNOWN, CanonScope.PLAYER_KNOWN.value):
+            data = dict(data)
+            data["scope"] = CanonScope.WORLD
+            data["discovered"] = True
+        return data
 
     @property
     def active(self) -> bool:
         return self.superseded_by is None
+
+    @property
+    def known(self) -> bool:
+        """Standing, and the party knows it. The test `for_players` is built from."""
+        return self.active and self.discovered
+
+    @property
+    def found_in_play(self) -> bool:
+        """Discovered *during a session*, as against known from the start.
+
+        The distinction is `discovered_in`: a co-creation backstory fact is discovered with
+        no session behind it, because there was no moment of finding out. This is the set
+        `for_npc` excludes unconditionally — what the party established is not what the
+        innkeeper heard — and it is the same set the retired `player_known` scope named.
+        """
+        return self.discovered and self.discovered_in is not None
 
     def render(self) -> str:
         """One prompt line. `gm_only` is marked, because the GM must not leak it."""
@@ -137,13 +193,26 @@ class CanonLedger(BaseModel):
         - **`gm_only`.** The twist, the villain, the trap. If a character genuinely knows
           a secret, that is a *belief* of theirs and belongs in an `npc_belief` entry with
           their name on it — which this view does return.
-        - **`player_known`.** The least obvious and the most load-bearing. What the party
-          has established is not what this innkeeper has heard, and the exclusion has to be
-          unconditional rather than merely default because **the end-of-session sweep writes
-          this scope automatically** (P2.3 forces it in code). So it is the one bucket that
-          fills up with everything the party did and learned without anyone authoring it,
-          and letting a coarse tag reach into it would open a leak that grows by itself.
-          A thing the world also knows is a `world` fact, or that character's belief.
+        - **Anything the party found out in play** — `discovered` with a `discovered_in`
+          session on it. The least obvious and the most load-bearing. What the party has
+          established is not what this innkeeper has heard, and the exclusion has to be
+          unconditional rather than merely default because **the end-of-session sweep
+          writes into this set automatically** (P2.3 forces it in code). So it is the one
+          bucket that fills up with everything the party did and learned without anyone
+          authoring it, and letting a coarse tag reach into it would open a leak that grows
+          by itself. A thing the world also knows is an undiscovered `world` fact, or that
+          character's belief.
+
+          Until 2026-09-14 this said `player_known`, the scope. The set is the same one —
+          `discovered_in` is set by exactly the writers that used to pick that scope, and a
+          co-creation fact known from the start has no session and is not in it — but the
+          test is now on the axis that means it (D-008 item 30). **`FOR DESIGN:` this is
+          preserved rather than chosen.** Splitting the axis makes a third state expressible
+          for the first time — a fact the party learned *and* the innkeeper has always
+          known — which the one-field model could not represent and which this exclusion
+          still refuses. Keeping the old behaviour is the no-change direction and the safe
+          one; whether an NPC should be authorable into a discovered fact is a gating
+          question under D-003, and it is a trade to pick rather than to receive.
         - **Another character's beliefs.** `npc_belief` entries belong to their subject
           alone. A village where everyone can see what everyone else privately thinks has
           no secrets left in it.
@@ -156,7 +225,7 @@ class CanonLedger(BaseModel):
 
         visible: list[CanonEntry] = []
         for entry in self.active():
-            if entry.scope in _NEVER_FOR_NPCS:
+            if entry.scope in _NEVER_FOR_NPCS or entry.found_in_play:
                 continue
             if entry.scope is CanonScope.NPC_BELIEF:
                 if entry.subject and entry.subject.casefold() == subject:
@@ -169,24 +238,30 @@ class CanonLedger(BaseModel):
     def for_players(self) -> list[CanonEntry]:
         """What the table may be shown — `for_npc`'s sibling, and the same kind of rule.
 
-        An allow-list, not a deny-list, so a scope added to this project in future is
-        invisible to a player's screen until somebody decides otherwise. That direction of
-        default is the whole design: a new kind of fact should have to earn its way onto a
-        device, rather than appear there because nobody remembered to exclude it.
+        **Two conditions that must both hold** (D-008 item 33), not one widened one.
 
-        Two scopes are true and still excluded, and the reasons are different.
+        *The scope allow-list*, unchanged in shape from P6.2: a scope added to this project
+        in future is invisible to a player's screen until somebody decides otherwise. A new
+        kind of fact should have to earn its way onto a device rather than appear there
+        because nobody remembered to exclude it. `npc_belief` stays out — what a character
+        privately thinks, including things never said aloud, and P4.6 exists to let those
+        change without anyone announcing it. `gm_only` stays out and needs no argument: it
+        is the scope whose entire definition is that this must not happen, and keeping it
+        out here means even a row somehow marked discovered cannot reach a screen.
 
-        - **`world`.** The ledger is the world, not the party's notes. A fact being in it
-          does not mean anybody has discovered it, and the undiscovered half of the world
-          is most of what a campaign is made of.
-        - **`npc_belief`.** What a character privately thinks, including things they have
-          never said out loud. P4.6 exists to let those change without anyone announcing
-          it; rendering the register onto the table's screen would undo that in one line.
-
-        `gm_only` is excluded too, but it needs no argument — it is the scope whose entire
-        definition is that this must not happen.
+        *And discovery*, which is the half this used to get wrong. `world` was excluded
+        outright before 2026-09-14, on the true reasoning that the ledger is the world and
+        not the party's notes — and the consequence was that a party which had discovered
+        six things about the town they were standing in saw none of them, because `world`
+        and `player_known` were one field doing two jobs (the 2026-09-03 (h) finding).
+        Splitting the axis lets the correct half of `world` through and still keeps the
+        undiscovered half, which is most of what a campaign is made of.
         """
-        return [entry for entry in self.active() if entry.scope in _FOR_PLAYERS]
+        return [
+            entry
+            for entry in self.active()
+            if entry.scope in _FOR_PLAYERS and entry.discovered
+        ]
 
     def mint_id(self, scope: CanonScope, hint: str) -> str:
         """A stable, readable id that does not collide with one already in the ledger.
@@ -297,6 +372,14 @@ def npc_issues(npc: NPC, ledger: CanonLedger) -> list[str]:
                 f"knows {entry_id!r}, which is {entry.scope.value} and will never be shown "
                 f"to an NPC. If {npc.name} genuinely knows it, record it as world canon or "
                 f"as their belief (scope npc_belief, subject {npc.name})."
+            )
+        elif entry.found_in_play:
+            # Silently refusing it is right; refusing it *without saying so* leaves an
+            # author believing a character knows something they do not.
+            issues.append(
+                f"knows {entry_id!r}, which the party found out in play and will never be "
+                f"shown to an NPC. If {npc.name} genuinely knows it, record it as world "
+                f"canon or as their belief (scope npc_belief, subject {npc.name})."
             )
         elif entry.scope is CanonScope.NPC_BELIEF and (
             not entry.subject or entry.subject.casefold() != npc.name.casefold()

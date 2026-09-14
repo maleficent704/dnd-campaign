@@ -667,6 +667,87 @@ nothing in the log could say why.
     nothing" is `text == ""` joined to this new field, and it is a better question with
     `stop_reason` present than a worse status value could make it.
 
+**Amended 2026-09-14 (b) (the P6.2 (h) ruling, doc-first per this decision's own rule).**
+Fable ruled the builder's option (2): *a second axis on `CanonEntry` recording knowledge
+state, not a prompt change and not an inference.* The measurement that demanded it is in
+the 2026-09-03 (h) entry — The Salt Road holds **six `world` facts the party demonstrably
+found out and zero `player_known` ones**, because `world` and `player_known` were being
+used as one axis when they are two. "Is this true" and "have the players found out" are
+independent, and every fact learned in play is both.
+
+30. **`canon_entry.discovered`** (bool) and **`discovered_in`** (session id or absent) —
+    the second axis. `discovered` is the axis; `discovered_in` is its provenance, and
+    absent with `discovered: true` means *known from the start* (a co-creation backstory
+    fact, or something hand-authored as common knowledge). The pair mirrors `scope` and
+    its existing `session`/`turn` provenance rather than inventing a second shape.
+
+    Turn-level precision is deliberately **not** recorded. Nothing consumes it, and a
+    field nothing reads is vocabulary ahead of code — the failure the P3.3 amendment's own
+    timing was chosen to avoid.
+
+    **`CanonScope.PLAYER_KNOWN` is retired to a legacy alias.** Keeping it would leave the
+    ledger with two ways to say one thing and the GM choosing between them every turn,
+    which is the conflation this amendment exists to end. It is normalised on construction
+    to `world` + `discovered: true`, so an old file still loads and nothing can write one
+    again. The value has zero instances across both live campaigns (verified 2026-09-14 —
+    Salt Road `character: 6, world: 6, npc_belief: 3`, Ravenwood `character: 5`), which is
+    what makes retiring it a migration rather than a breaking change.
+
+    **One writer did emit it, and it is the reason this amendment is right.** P2.3's
+    end-of-session sweep pins `SWEEP_SCOPE = player_known` as a *constant in the code
+    rather than a rule in the prompt*, on the reasoning that it reads narration, narration
+    is by definition what the table was told, and so that was the only scope its evidence
+    supported. That is a discovery claim wearing a scope's clothes, made two phases before
+    anybody named the axis. It becomes `scope: world` + `discovered: true`, forced the same
+    way and for the same reason; the three guarantees the constant buys — the sweep cannot
+    mint a secret, cannot put words in an NPC's mouth, cannot declare world truth nobody
+    has seen — are all preserved, the last one now stated in the field that means it.
+
+31. **`[[LEARNED: <the fact, as one plain sentence>]]`** — the tenth use of the `[[TAG:]]`
+    convention `[[CHECK]]` established, and the way the axis is *declared* rather than
+    guessed at. Two verbs rather than a field on `[[CANON]]`, on the `[[GAIN]]`/`[[LOSE]]`
+    precedent: whether the party watched a thing happen is not recoverable from the
+    sentence, and a direction the model can get subtly wrong is declared.
+
+    One verb covers both cases, because the ledger already knows which it is:
+
+    - **The ledger does not hold the fact** — it is established as `world` +
+      `discovered: true`. This is the ordinary case and the one the six Salt Road facts
+      needed.
+    - **The ledger already holds it** (same `normalise` match the contradiction rule
+      uses) — this is a **reveal**, and it goes through supersession rather than mutation:
+      the existing entry stays on file pointing at a `world` + `discovered` replacement.
+      That is what makes a withheld fact becoming known a *recorded* event with the
+      withholding still legible, instead of a row quietly changing its mind. It is also
+      the only correct way to move a `gm_only` fact, which must leave that scope when the
+      party learns it or `for_players` would keep hiding something nobody is hiding.
+
+32. **`canon_write.discovered`**, and **`CanonOperation.reveal`** for the second case
+    above. A reveal is not a `supersede`: supersession says *the world changed*, a reveal
+    says *the world did not change and the party caught up*. Phase 7's question "what does
+    this party know, and when did they learn it" is answerable from these rows and from
+    nothing else in the log.
+
+    **What sets the axis, exhaustively — three mechanisms and no inference:**
+
+    - `[[LEARNED:]]`, the GM declaring it (`gm_tag`).
+    - **Co-creation** (`co_creation`), for `character` facts: a player's own backstory is
+      known to the player who wrote it.
+    - **The sweep** (`sweep`). Not an exception to the no-inference rule: the sweep's tag
+      carries no scope at all, it only ever proposes `world` facts, and **its source is
+      the transcript the players themselves read**. A fact extracted from what was
+      narrated to the table was, by construction, narrated to the table.
+
+    Everything else defaults to `discovered: false`, including every `gm_only` fact, which
+    is what that scope means.
+
+33. **`CanonLedger.for_players` gains the axis as a second condition** and keeps its
+    allow-list shape: `active` **and** `discovered` **and** `scope in {world, character}`.
+    P6.2's argument is unchanged — a scope added to this project in future is invisible to
+    a device until somebody decides otherwise — and `gm_only` stays absolutely excluded, so
+    a `gm_only` row somehow marked discovered still cannot reach a screen. Two conditions
+    that must both hold, rather than one widened one.
+
 **Rationale.** Same discipline as the mystery; the additions (canon_write provenance,
 cost, escalation) are what Phase 7's instruments — canon-drift measurement, ruling
 logs, cost-per-session — consume. Pending-state logging lesson from the mystery
@@ -680,3 +761,50 @@ OD-1 ruleset=SRD 5e · OD-2 dual-backend toggle (→D-004) · OD-3 Sonnet defaul
 threshold (→D-004) · OD-4 hot-seat until Phase 6 · OD-5 runtime on kelly-pc,
 Ollama endpoints toto-llm + sam-pc in config · OD-6 guided co-creation (→D-005).
 All ratified 2026-07-27. Canonical text: the race-control planning doc.
+
+**OD-17 — two-screen turn control. Ruled 2026-09-14 (claude-ai), in three parts.**
+OD-4's deferral (*"hot-seat until the Phase 6 GUI"*) expired when Phase 6 shipped shared
+screens with a shared hot-seat, which answered nothing.
+
+1. **Auto-rotate is rejected permanently.** Turn order taken from the party roster is
+   wrong the moment one character should act twice; ordered turns are combat's job
+   (initiative), not conversation's.
+2. **Claim, if ever adopted, is a soft per-device default and never an identity** — a
+   client-side preference (cookie/localStorage) pre-selecting which character this
+   device's turns act as, overridable on any turn, invisible to the server's trust model.
+   The token gate's *everyone holding the key is the same person* design is deliberate and
+   stays: no per-device identity, no locks, no conflict semantics, and two devices
+   defaulting to the same character is legal and merely redundant. A claim that **keeps** a
+   character would smuggle authentication into a gate built not to have it.
+3. **Whether soft-claim is worth building is decided by evidence, not preference** — one
+   real two-device evening on explicit `/switch`, counting wrong-character actions and
+   stop-and-switch moments. Near zero: keep `/switch` and close OD-17 with no build. Real
+   friction: build exactly part 2 and nothing more. **The playtest note is the
+   instrument**; nothing is built speculatively.
+
+**`--watch-only` as a property of the URL — ruled 2026-09-14: not built.** Protection by
+absence (P6.3) stands as deployed: a spectator server that never constructs the write
+routes is strictly stronger than routes that exist and get refused per viewer. The real
+spectator case is already served by a second watch-only instance on another port, at no
+security cost. Revisit only if that proves operationally annoying with an actual spectator,
+who does not yet exist.
+
+**Q1 — may the GM declare a change of mind before the character concedes aloud? Ruled
+2026-09-14: leave it.** Nine correct declines under deliberate pressure are evidence of
+judgment, not a defect: a man wavering has not changed his mind, and *structurally
+stubborn* is a trait the belief text chose rather than a loop to break. **Reopen
+condition, exactly:** an NPC line that concedes in words with no `[[BELIEF]]` tag
+following. Until that transcript exists the machinery is correct and rare.
+
+**Q3 — should a `blocked` NPC line cost the turn? Ruled 2026-09-14: the neutral position
+is now the permanent one.** Zero blocks across 31 live-and-control cases says the gate
+revises rather than silences. What a block costs gets decided when a block exists, against
+its own transcript.
+
+**Q2 — may the GM quote a player character's words? Ruled 2026-09-14 by Kelly: no —
+describe, never quote.** Fable explicitly reserved this as table-feel about chairs it has
+never sat in, and recorded a lean for the middle option; Kelly took it. The GM may narrate
+that a character spoke and what it accomplished, and may not render their words as speech.
+The NPC tier is what made the old behaviour asymmetric — the cast speak in their own
+voices, and the player characters were the only people at the table being ventriloquised.
+A `system_core.md` change, and reversible in an evening if it reads worse at the table.

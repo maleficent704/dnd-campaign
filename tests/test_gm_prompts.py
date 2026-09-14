@@ -158,6 +158,27 @@ def test_system_prompt_separates_true_from_known(builder):
     assert "concealed" in system
 
 
+def test_system_prompt_specifies_the_learned_form(builder):
+    """The second axis is only worth having if the GM is told how to declare it (D-008
+    item 31). A fact nobody marks as learned is invisible to the players' own screens,
+    however many times it has been narrated."""
+    system = builder.system()
+
+    assert "[[LEARNED:" in system
+    # And that it is the unsealing route, not a second way to write world canon — a GM
+    # that re-tags a secret as `[[CANON: world]]` loses the record of it having been one.
+    assert "reveal" in system.lower()
+
+
+def test_system_prompt_forbids_quoting_a_player_character(builder):
+    """Q2, ruled by Kelly 2026-09-14: describe, never quote. The NPC tier is what made the
+    old behaviour asymmetric — the cast speak for themselves, and the player characters
+    were the only people at the table being ventriloquised."""
+    system = builder.system().lower()
+
+    assert "never put a player character's words in quotation marks" in system
+
+
 def test_system_prompt_forbids_published_modules(builder):
     """D-007 — original content only."""
     assert "module" in builder.system().lower()
