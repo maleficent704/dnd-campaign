@@ -25,7 +25,7 @@ from dndc.models.mock import MockBackend
 from dndc.rules.checks import CheckResult, resolve_check
 from dndc.rules.dice import Advantage, D20Result
 from dndc.rules.severity import check_severity, damage_severity, describe_check
-from dndc.schema.events import EventType
+from dndc.schema.events import CallStatus, EventType
 from dndc.schema.sheet import (
     AbilityScores,
     CharacterSheet,
@@ -495,3 +495,114 @@ def test_the_opening_uses_its_own_instruction():
     request = engine.backend.calls[-1]
     assert "nobody has spoken yet" in request.messages[-1].content
     assert "Do not ask for a check" in request.messages[-1].content
+
+
+# --- a turn that reached the table with nothing in it -----------------------
+
+
+def test_a_turn_that_narrated_nothing_says_which_silence_it_was():
+    """The 2026-09-13 (c) defect, in the play seat.
+
+    The call returns 200 with `text: ""`, the ceiling having gone entirely to reasoning.
+    Before this the loop appended an empty narration and asked for the next line.
+    """
+    backend = MockBackend([GMResponse(text="", model="m", stop_reason="max_tokens")])
+    engine = TurnEngine(backend, campaign_with(), rng=random.Random(1))
+
+    result = engine.run("I listen at the door.", player="Kelly", sheet=sheet())
+
+    assert result.silence == "truncated"
+    assert result.truncated is True
+
+
+def test_an_empty_turn_is_told_apart_from_a_severed_one():
+    backend = MockBackend([GMResponse(text="", model="m", stop_reason="end_turn")])
+    engine = TurnEngine(backend, campaign_with(), rng=random.Random(1))
+
+    result = engine.run("I listen at the door.", player="Kelly", sheet=sheet())
+
+    assert result.silence == "empty"
+    assert result.truncated is False
+
+
+def test_a_refusal_with_nothing_behind_it_is_silence_too():
+    backend = MockBackend([GMResponse(text="", model="m", refused=True)])
+    engine = TurnEngine(backend, campaign_with(), rng=random.Random(1))
+
+    result = engine.run("something objectionable", player="Kelly", sheet=sheet())
+
+    assert result.silence == "refused"
+
+
+def test_a_silent_turn_is_not_written_into_the_window():
+    """Recording it would teach every later prompt that silence is a turn shape."""
+    backend = MockBackend([GMResponse(text="", model="m", stop_reason="max_tokens")])
+    campaign = campaign_with()
+    engine = TurnEngine(backend, campaign, rng=random.Random(1))
+
+    engine.run("I listen at the door.", player="Kelly", sheet=sheet())
+
+    assert campaign.history == []
+
+
+def test_a_turn_that_spoke_is_not_silence():
+    backend = MockBackend(["The hall is silent."])
+    campaign = campaign_with()
+    engine = TurnEngine(backend, campaign, rng=random.Random(1))
+
+    result = engine.run("I listen.", player="Kelly", sheet=sheet())
+
+    assert result.silence is None
+    assert len(campaign.history) == 1
+
+
+def test_prose_cut_off_mid_sentence_still_lands_and_is_flagged():
+    """The failure that looks most like success: there is something on screen to read."""
+    backend = MockBackend(
+        [GMResponse(text="The hall is silent, and the door", model="m", stop_reason="max_tokens")]
+    )
+    campaign = campaign_with()
+    engine = TurnEngine(backend, campaign, rng=random.Random(1))
+
+    result = engine.run("I listen.", player="Kelly", sheet=sheet())
+
+    assert result.truncated is True
+    assert result.silence is None
+    assert len(campaign.history) == 1
+
+
+def test_an_opening_scene_nobody_was_shown_is_not_recorded_as_one():
+    backend = MockBackend([GMResponse(text="", model="m", stop_reason="max_tokens")])
+    campaign = campaign_with(PartyMember(name="Brannoc", player="Kelly"))
+    engine = TurnEngine(backend, campaign, rng=random.Random(1))
+
+    result = engine.open_scene()
+
+    assert result.silence == "truncated"
+    assert campaign.history == []
+
+
+def test_the_narration_row_records_why_generation_stopped(tmp_path):
+    """D-008 item 29. Diagnosing the live defect needed a token count read off the cost
+    row beside it, because this field did not exist."""
+    from dndc.logging import SessionLog
+
+    log = SessionLog.open(tmp_path)
+    backend = MockBackend([GMResponse(text="", model="m", stop_reason="max_tokens")])
+    engine = TurnEngine(backend, campaign_with(), rng=random.Random(1), log=log)
+
+    engine.run("I listen.", player="Kelly", sheet=sheet())
+
+    rows = [
+        row
+        for row in read_log(log.path)
+        if row.type is EventType.GM_NARRATION and row.status is CallStatus.COMPLETE
+    ]
+    assert [row.stop_reason for row in rows] == ["max_tokens"]
+    # And the pending row that preceded it has nothing to report yet.
+    pending = [
+        row
+        for row in read_log(log.path)
+        if row.type is EventType.GM_NARRATION and row.status is CallStatus.PENDING
+    ]
+    assert [row.stop_reason for row in pending] == [None]

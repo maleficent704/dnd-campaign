@@ -39,7 +39,13 @@ from dndc.game.saves import Resume, SaveStore, restore
 from dndc.game.turn import TurnEngine, TurnResult
 from dndc.gm.context import CampaignContext, GMPromptBuilder
 from dndc.logging import SessionLog
-from dndc.models.base import GMBackend, GMBackendError
+from dndc.models.base import (
+    SILENCE_EMPTY,
+    SILENCE_REFUSED,
+    SILENCE_TRUNCATED,
+    GMBackend,
+    GMBackendError,
+)
 from dndc.schema.sheet import CharacterSheet
 
 #: Ceiling for a randomly drawn session seed. Same value the CLI has always used; it
@@ -107,6 +113,21 @@ class Table(Protocol):
     def sweep(self, session: PlaySession) -> None: ...
 
     def chronicle(self, session: PlaySession) -> None: ...
+
+
+#: What the table is told when a turn arrives empty. The engine names the cause
+#: (`turn.py`); the words are here, beside the other sentence this module already puts in
+#: front of players, and they are three different sentences because they are three
+#: different situations: one is the model's judgement, one is our own configuration, and
+#: one is a call that did nothing and cost money anyway.
+SILENCE = {
+    SILENCE_REFUSED: "the model declined that turn — nothing was narrated",
+    SILENCE_TRUNCATED: (
+        "that turn hit the length ceiling before any of it was written — "
+        "the reply is not short, it is missing"
+    ),
+    SILENCE_EMPTY: "the GM returned nothing at all",
+}
 
 
 @dataclass
@@ -231,6 +252,11 @@ class PlaySession:
         recovering from a traceback is still a worse table than being told to say it
         again. The turn is not lost silently — the engine has already logged a `pending`
         row with no terminal, which is exactly what a failed call should look like.
+
+        **A call that came back with nothing in it is also a failed turn**, and is the
+        harder one, because it does not raise: the backend returns 200, the cost row is
+        written, and the reply is an empty string (2026-09-13 (c)). Reported rather than
+        swallowed, with a sentence that says which of the three silences it was.
         """
         self.player_turns += 1
         narration = table.narration()
@@ -250,6 +276,31 @@ class PlaySession:
             table.error(f"that turn failed: {type(exc).__name__}: {exc}")
             return None
         narration.finish()
+
+        if result.silence is not None:
+            # A turn that said nothing is a failed turn, and is reported the same way: the
+            # loop gives it no trailing spacing and no scaffolding hint, because there is
+            # nothing to react to. `error` is the channel both seats share — the terminal
+            # prints it and the sofa is sent it — which is the whole point, since the seat
+            # this fails on most often is the one with no terminal to print to.
+            table.error(SILENCE[result.silence])
+            self.record()
+            return None
+
+        if result.refused:
+            # Partial: the model declined partway through and some prose did arrive. Said
+            # here rather than inside the console table's `played`, which is where it used
+            # to live and which under `serve` prints into a docker log — the same shape as
+            # the slash-command defect fixed 2026-09-14.
+            table.notice("[yellow]the model declined that turn[/yellow]")
+
+        if result.truncated:
+            # Prose arrived and stops mid-sentence. The turn stands — it is in the window
+            # and in the log — but the players have to be told that the ending they did
+            # not get was a ceiling rather than the GM's choice.
+            table.notice(
+                "[yellow]that reply hit the length ceiling and stops mid-sentence[/yellow]"
+            )
 
         table.played(result)
         table.inventory(result.inventory, self.acting, len(self.campaign.history))

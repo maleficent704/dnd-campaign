@@ -24,7 +24,7 @@ from dndc.game.session import (
 )
 from dndc.game.turn import TurnEngine
 from dndc.gm.context import CampaignContext, PartyMember
-from dndc.models.base import GMBackendError
+from dndc.models.base import GMBackendError, GMResponse
 from dndc.models.mock import MockBackend
 from dndc.schema.sheet import (
     AbilityScores,
@@ -412,3 +412,66 @@ def test_the_engine_builder_hands_both_front_ends_the_same_engine():
 
     assert engine.builder.scaffolding == "off"
     assert engine.campaign is campaign
+
+
+# --- a turn that said nothing reaches the table anyway ----------------------
+
+
+def test_a_silent_turn_is_reported_to_the_table_and_is_not_a_turn():
+    """The seat this fails on hardest is the one with no terminal.
+
+    `error` is the channel both front ends read — the console prints it, the mirror
+    pushes it to the sofa. Until 2026-09-14 an empty GM reply reached neither.
+    """
+    table = Paper()
+    subject = session(MockBackend([GMResponse(text="", model="m", stop_reason="max_tokens")]))
+
+    assert subject.take_turn("I wade in", table) is None
+    assert [kind for kind in table.kinds() if kind == "played"] == []
+    errors = [event[1] for event in table.events if event[0] == "error"]
+    assert len(errors) == 1
+    assert "length ceiling" in errors[0]
+
+
+def test_the_three_silences_do_not_read_alike():
+    """One is the model's judgement, one is our own configuration, one is a call that did
+    nothing and billed for it. A single 'that turn failed' would hide which."""
+    said = {}
+    for stop, refused, word in (
+        ("max_tokens", False, "truncated"),
+        ("end_turn", False, "empty"),
+        ("refusal", True, "refused"),
+    ):
+        table = Paper()
+        subject = session(
+            MockBackend([GMResponse(text="", model="m", stop_reason=stop, refused=refused)])
+        )
+        subject.take_turn("I wade in", table)
+        said[word] = [event[1] for event in table.events if event[0] == "error"][0]
+
+    assert len(set(said.values())) == 3
+
+
+def test_a_turn_cut_off_mid_sentence_lands_and_says_so():
+    table = Paper()
+    subject = session(
+        MockBackend([GMResponse(text="The ford is loud, and the", model="m",
+                                stop_reason="max_tokens")])
+    )
+
+    result = subject.take_turn("I wade in", table)
+
+    assert result is not None
+    assert "played" in table.kinds()
+    notices = [event[1] for event in table.events if event[0] == "notice"]
+    assert any("mid-sentence" in text for text in notices)
+
+
+def test_a_turn_that_spoke_says_nothing_extra():
+    table = Paper()
+    subject = session(MockBackend(["The ford is loud tonight."]))
+
+    subject.take_turn("I wade in", table)
+
+    assert [kind for kind in table.kinds() if kind == "error"] == []
+    assert [event[1] for event in table.events if event[0] == "notice"] == []

@@ -84,6 +84,7 @@ from dndc.game.inventory import InventoryStore, describe_change, proposals_for
 from dndc.game.party import resolve_member
 from dndc.game.saves import Resume
 from dndc.game.session import (
+    SILENCE,
     PlaySession,
 )
 from dndc.game.evening import SCAFFOLDING_CHOICES, run_evening
@@ -1952,8 +1953,6 @@ class ConsoleTable:
     def played(self, result) -> None:
         self.console.print()
         _render_unvoiced(self.console, result)
-        if result.refused:
-            self.console.print("[yellow]the model declined that turn[/yellow]")
         _render_mechanics(self.console, result.mechanics)
         _render_canon(self.console, result.canon)
         _render_beliefs(self.console, result.beliefs)
@@ -2692,11 +2691,24 @@ def _cmd_create_character(console: Console, args: argparse.Namespace) -> int:
 
 def _creation_reply(console: Console, reply, stream: bool) -> None:
     """Show one exchange. Already-streamed prose is not printed twice."""
+    if reply.silence is not None:
+        # The interview is where this failure was found: an answer came back empty, the
+        # blank was printed, and the prompt was drawn again. It reads exactly like a hang
+        # — Kelly reported it twice as one — so the only honest thing is to say so, and to
+        # say that the question still stands.
+        console.print()
+        console.print(f"[red]{SILENCE[reply.silence]}[/red]")
+        console.print("[dim]nothing was recorded — say that again[/dim]")
+        console.print()
+        return
+
     if not stream:
         console.print(reply.text, markup=False, highlight=False, soft_wrap=True)
     console.print()
 
     if reply.refused:
+        # A partial refusal: some prose arrived before the model stopped. A refusal with
+        # nothing behind it never reaches here — it is silence, and was reported above.
         console.print("[yellow]the model declined that[/yellow]")
     if reply.background is not None:
         console.print(

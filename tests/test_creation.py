@@ -21,6 +21,7 @@ from dndc.game.creation import (
 from dndc.gm.canon import CanonScope
 from dndc.gm.creation import CreationPromptBuilder, render_options
 from dndc.logging import SessionLog, read_log
+from dndc.models.base import GMResponse
 from dndc.models.mock import MockBackend
 from dndc.schema.events import EventType
 from dndc.schema.sheet import Ability
@@ -364,3 +365,81 @@ def test_the_nudge_stops_once_a_character_exists(repo):
     convo.say("a soldier")       # builds the sheet
     convo.say("tell me more")    # turn 2, but there is already a character
     assert not any("Engine:" in m.content for m in convo.messages)
+
+
+# --- an answer that came back empty (the 2026-09-13 (c) defect, where it was found) ---
+
+
+def test_an_empty_answer_is_reported_rather_than_printed_as_a_blank(repo):
+    """This is the failure Kelly reported twice as a freeze.
+
+    1024 output tokens went entirely to reasoning, `_to_response` joined zero text blocks
+    into `""`, and the interview drew its prompt again. Nothing on screen said so.
+    """
+    subject = session(repo, [
+        "What kind of person are they?",
+        GMResponse(text="", model="m", stop_reason="max_tokens"),
+    ])
+    subject.open()
+
+    reply = subject.say("A tinker who talks too much.")
+
+    assert reply.silence == "truncated"
+    assert reply.text == ""
+
+
+def test_an_empty_answer_does_not_enter_the_interview_history(repo):
+    """D-005 makes this transcript a scoped exception to the no-transcript rule, so an
+    empty assistant turn would be carried into every later call — and the API rejects a
+    message with no content in it at all."""
+    subject = session(repo, [
+        "What kind of person are they?",
+        GMResponse(text="", model="m", stop_reason="end_turn"),
+        "Tell me more.",
+    ])
+    subject.open()
+    before = list(subject.messages)
+
+    subject.say("A tinker who talks too much.")
+
+    assert subject.messages == before
+    assert all(message.content.strip() for message in subject.messages)
+
+
+def test_the_question_still_stands_after_an_empty_answer(repo):
+    """Saying it again has to work — the player's line was never answered."""
+    subject = session(repo, [
+        "What kind of person are they?",
+        GMResponse(text="", model="m", stop_reason="end_turn"),
+        "A tinker. Good. What do they want?",
+    ])
+    subject.open()
+    subject.say("A tinker who talks too much.")
+
+    again = subject.say("A tinker who talks too much.")
+
+    assert again.silence is None
+    assert again.text.startswith("A tinker.")
+
+
+def test_an_answer_that_arrived_is_not_silence(repo):
+    subject = session(repo, ["What kind of person are they?"])
+
+    reply = subject.open()
+
+    assert reply.silence is None
+
+
+def test_the_creation_row_records_why_generation_stopped(repo, tmp_path):
+    """D-008 item 29, on the seat the defect was measured on."""
+    log = SessionLog.open(tmp_path)
+    subject = session(repo, [GMResponse(text="", model="m", stop_reason="max_tokens")], log=log)
+
+    subject.open()
+
+    rows = [
+        row
+        for row in read_log(log.path)
+        if row.type is EventType.GM_NARRATION and row.stop_reason is not None
+    ]
+    assert [row.stop_reason for row in rows] == ["max_tokens"]

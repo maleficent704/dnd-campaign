@@ -32,6 +32,7 @@ from dndc.models import (
     to_messages,
 )
 from dndc.models.api import FALLBACK_BETA
+from dndc.models.base import GMResponse
 from dndc.models.pricing import ModelPrice
 from dndc.models.subscription import METERED_ENV_VARS
 
@@ -777,3 +778,41 @@ def test_the_seat_runs_restricted_rather_than_trusting_the_list():
     assert "--restricted" in command
     # The GM has no use for an MCP server either, and `--restricted` alone keeps them.
     assert "--strict-mcp-config" in command
+
+
+# --- a call that came back with nothing in it (D-008 item 29) ---------------
+
+
+def test_a_ceiling_is_reported_as_truncation_not_as_an_ending():
+    """`max_tokens` is a severed reply, however complete the last sentence looks."""
+    cut = GMResponse(text="The door groans op", model="m", stop_reason="max_tokens")
+    done = GMResponse(text="The door groans open.", model="m", stop_reason="end_turn")
+
+    assert cut.truncated is True
+    assert done.truncated is False
+
+
+def test_an_empty_response_names_why_it_said_nothing():
+    """Three situations, three words. Measured live 2026-09-13 (c): the middle one is
+    what an interview got, and it was logged as `complete` and billed for."""
+    refused = GMResponse(text="", model="m", stop_reason="refusal", refused=True)
+    ceiling = GMResponse(text="", model="m", stop_reason="max_tokens")
+    nothing = GMResponse(text="", model="m", stop_reason="end_turn")
+
+    assert refused.silence == "refused"
+    assert ceiling.silence == "truncated"
+    assert nothing.silence == "empty"
+
+
+def test_whitespace_is_not_an_answer():
+    blank = GMResponse(text="   " + chr(10) + chr(10) + "  ", model="m", stop_reason="end_turn")
+    assert blank.silence == "empty"
+
+
+def test_a_response_that_said_something_is_not_silence():
+    """Including one that is nothing but a tag: the turn loop decides whether a tag-only
+    reply left the table with nothing, because mid-turn it is the GM doing its job."""
+    tag_only = GMResponse(text="[[CHECK: Dexterity DC 12 — the ledge]]", model="m")
+
+    assert tag_only.silence is None
+    assert GMResponse(text="The door groans open.", model="m").silence is None

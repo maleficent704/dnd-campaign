@@ -498,6 +498,119 @@ the drift instrument's own log is a finding worth the two-line fix.
 
 ---
 
+## 2026-09-14 (b) — A call that returns 200, bills for it, and says nothing (Claude Code, kelly-pc)
+
+The defect carried forward from 2026-09-13 (c) and deliberately left for its own session,
+because the guard sits in the path every GM seat uses. No phase work; one fix, in three
+places, plus the log field that would have made the original diagnosis a lookup.
+
+### What was actually broken
+
+Raising the ceiling to `DEFAULT_MAX_TOKENS` removed the *realistic* case and none of the
+failure mode. A GM call can still come back `HTTP 200`, with a `cost` row, and an empty
+string in it — `stop_reason: "max_tokens"` with the whole budget spent reasoning, or a
+refusal with nothing behind it, or a model that simply emitted no text block. Every one
+of those looked identical from a chair:
+
+- **the turn loop** appended an empty narration, recorded the turn, and asked for the
+  next line;
+- **the creation interview** printed the blank and drew its prompt again — which is what
+  Kelly reported, twice, as a freeze;
+- **the browser** was told nothing at all, because the one message that did exist (`the
+  model declined that turn`) was printed by the console table, and under `serve` the
+  console is a docker log.
+
+### The shape of the fix
+
+**The condition is named where it is produced.** `GMResponse` gains `truncated` and
+`silence` (`refused` · `truncated` · `empty`) — a property of a *call*, because three
+callers each have to tell the same three situations apart, and none of them should be
+re-deriving `stop_reason == "max_tokens"` for itself.
+
+**Whether anyone should be told is decided at the turn**, in `TurnEngine._settle`. That
+split is the load-bearing part: a response with no prose is perfectly legitimate
+mid-turn — a reply that is only `[[CHECK: ...]]` cleans down to an empty string and is
+the GM doing its job — so the per-call test would have fired on correct behaviour. What
+is never legitimate is a *turn* ending with nothing said. Dialogue counts as having
+spoken: a GM that writes only `[[SPEAK: Maren]]` narrated nothing and the table still
+heard the innkeeper.
+
+**A silent turn is no longer written into the campaign's history.** Recording it puts
+*the player said X, the GM said nothing* into the window every later prompt is built
+from, teaching the next call that silence is a turn shape — to carry a fact the log
+already holds in full. The `player_input` row still stands: she did say it.
+
+**The report goes out on the channel both seats read.** `take_turn` calls `table.error`,
+which the terminal prints and the mirror pushes to the sofa. The three silences get three
+different sentences, because one is the model's judgement, one is our own configuration,
+and one is a call that did nothing and charged for it — a single "that turn failed" would
+have hidden which. The pre-existing `the model declined that turn` moved out of the
+console table's `played` for the same reason the slash commands moved this morning.
+
+**Truncation that *did* deliver prose is flagged and kept.** The turn stands — it is in
+the window and in the log — but a paragraph that stops mid-sentence is the failure that
+looks most like success, so the table is told the missing ending was a ceiling and not
+the GM's choice.
+
+### D-008 item 29 — `gm_narration.stop_reason`
+
+Doc-first, per that decision's own rule. `GMResponse` has carried it since Phase 1 and
+the event never wrote it down, which is why diagnosing the live defect needed a token
+count read off the neighbouring `cost` row plus an inference that 1024 exactly is a
+ceiling rather than a stopping point. Recorded verbatim and untranslated on all three
+terminal-row emitters (play, creation, combat).
+
+`CallStatus` was deliberately **not** extended. It is about the call's lifecycle — the
+pending-state discipline the crash-reconstruction argument rests on — not about whether
+the payload was any good. "Which calls delivered nothing" is `text == ""` joined to the
+new field, and that is a better question than a fourth status value could make it.
+
+### Two more 1024s, removed
+
+`TurnEngine.__init__` and `CreationSession.__init__` both still defaulted to `1024` —
+latent copies of yesterday's bug, harmless only because the CLI always overrides them.
+Both defer to `DEFAULT_MAX_TOKENS` now.
+
+### One thing the mock could not have caught
+
+`CreationSession` appended the empty reply to `self.messages` as an assistant turn. That
+transcript is D-005's scoped exception to the no-transcript rule, so the blank would have
+ridden into every later call — and the API rejects a message with no content at all. The
+exchange is now unwound to the question, and the test asserts every message in the
+interview has content, not merely that the reply was reported.
+
+### Verification
+
+**22 new tests, 1681 total.** Each was checked by reverting the specific piece of the fix
+it covers and watching it fail — seven separate reverts, not one. Worth recording that
+the *verification script itself* nearly cost the session: its cleanup was `git checkout
+-- src/`, which against uncommitted work restores from HEAD rather than from before the
+revert, and it silently wiped every source change. Rebuilt from the patch scripts;
+afterwards the backup was a copy in the scratchpad, not a git command.
+
+### Known issues
+
+- **An empty NPC line is still silent.** The 70B seat has its own failure profile and its
+  own `blocked` / `unchecked` vocabulary; a successful-but-empty reply falls through
+  none of them. Narrower than the GM case and not touched here. Jotted.
+- **Phase 6 has had exactly one evening on it.** Still the oldest thing on this list.
+
+### FOR DESIGN
+
+None new. Carried unchanged: the two-screen turn-ownership question raised this morning
+(explicit handoff · claim · auto-rotate); the change-of-mind trigger; whether the GM
+should voice PCs; whether a `blocked` line costs the turn; whether a closed save restores
+the turn window; the (h) truth-vs-discovery scope question; and `--watch-only` as a
+property of the URL.
+
+### Recommended next task
+
+**Play again.** Unchanged from this morning and now with one more reason: the failure
+this session fixed is only observable at a table, and the turn-ownership ruling wants an
+evening's evidence more than it wants a decision.
+
+---
+
 ## 2026-09-14 — A slash command answering into a log nobody was reading (Claude Code, kelly-pc)
 
 Ravenwood's first evening, played. The table worked; the turn never left Marrow.

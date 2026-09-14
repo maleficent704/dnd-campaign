@@ -43,7 +43,15 @@ from dndc.game.npcturn import NPCReply, NPCVoice
 from dndc.logging import SessionLog
 from dndc.memory.canon_store import CanonStore
 from dndc.models import GM_SEAT
-from dndc.models.base import GMBackend, GMResponse, new_call_id
+from dndc.models.base import (
+    DEFAULT_MAX_TOKENS,
+    SILENCE_EMPTY,
+    SILENCE_REFUSED,
+    SILENCE_TRUNCATED,
+    GMBackend,
+    GMResponse,
+    new_call_id,
+)
 from dndc.models.pricing import estimate_cost
 from dndc.rules.checks import CheckResult, resolve_check, resolve_save
 from dndc.rules.severity import describe_check
@@ -131,6 +139,16 @@ class TurnResult:
     adjudication: CheckRequest | None = None
     responses: list[GMResponse] = field(default_factory=list)
     refused: bool = False
+    #: Set when the turn reached the table with no prose and no dialogue in it: one of
+    #: `refused` · `truncated` · `empty`, or None when somebody said something. A GM call
+    #: can return 200, bill for its tokens and deliver an empty string — measured live
+    #: 2026-09-13 (c) — and before this the loop appended nothing and asked for the next
+    #: line, which from a chair is indistinguishable from the table ignoring you.
+    silence: str | None = None
+    #: At least one call in this turn stopped at the ceiling rather than at an ending.
+    #: True even when prose arrived: a paragraph cut off mid-sentence is the failure that
+    #: looks most like success, because there is something on screen to read.
+    truncated: bool = False
     #: Facts this turn added to the ledger. Restatements of known canon are not here —
     #: they were suppressed at the store, having established nothing.
     canon: list[CanonEntry] = field(default_factory=list)
@@ -172,7 +190,7 @@ class TurnEngine:
         builder: GMPromptBuilder | None = None,
         rng: random.Random | None = None,
         log: SessionLog | None = None,
-        max_tokens: int = 1024,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
         billing: str = "api",
         prices: dict | None = None,
         canon: CanonStore | None = None,
@@ -231,15 +249,16 @@ class TurnEngine:
         # as they come through the door is the most natural first beat there is.
         self._shift(result, find_belief_tags(response.text))
         self._speak(result, find_speak_directions(response.text), "", on_dialogue)
-        self.campaign.record(
-            Turn(
-                player_input="",
-                narration=narration,
-                speaker="",
-                opening=True,
-                dialogue=_spoken(result.dialogue),
+        if self._settle(result):
+            self.campaign.record(
+                Turn(
+                    player_input="",
+                    narration=narration,
+                    speaker="",
+                    opening=True,
+                    dialogue=_spoken(result.dialogue),
+                )
             )
-        )
         return result
 
     def run(
@@ -304,17 +323,51 @@ class TurnEngine:
         # contradiction first and the correction a turn later, which is the whole failure.
         self._shift(result, shifts)
         self._speak(result, directions, player_input, on_dialogue)
-        self.campaign.record(
-            Turn(
-                player_input=player_input,
-                narration=result.narration,
-                speaker=speaker,
-                dialogue=_spoken(result.dialogue),
+        if self._settle(result):
+            self.campaign.record(
+                Turn(
+                    player_input=player_input,
+                    narration=result.narration,
+                    speaker=speaker,
+                    dialogue=_spoken(result.dialogue),
+                )
             )
-        )
         return result
 
     # --- pieces ------------------------------------------------------------
+
+    def _settle(self, result: TurnResult) -> bool:
+        """Did this turn reach the table? Returns True when there is a turn to record.
+
+        Three ways a GM call comes back having said nothing, and until 2026-09-14 all
+        three looked identical from a chair: the loop appended an empty narration, drew
+        the prompt again, and waited. A refusal at least printed a line to the terminal —
+        which under `serve` is a docker log, so even that reached nobody at the sofa.
+
+        The check is on the *turn* and not on any one call, because a response with no
+        prose in it is perfectly legitimate mid-turn: a reply that is nothing but
+        `[[CHECK: ...]]` cleans down to an empty string and is the GM doing its job. What
+        is never legitimate is the turn ending with nothing said and nobody told.
+
+        Dialogue counts as having spoken. A GM that writes only `[[SPEAK: Maren]]` has
+        narrated nothing and the table still heard the innkeeper, which is a thin turn
+        rather than a broken one.
+
+        **A silent turn is not recorded in the campaign's history.** Writing it would put
+        `the player said X, the GM said nothing` into the window that every later prompt
+        is built from — teaching the next call that silence is a turn shape, to carry a
+        fact the log already holds in full.
+        """
+        result.truncated = any(response.truncated for response in result.responses)
+        if result.narration.strip() or result.dialogue:
+            return True
+        if result.refused:
+            result.silence = SILENCE_REFUSED
+        elif result.truncated:
+            result.silence = SILENCE_TRUNCATED
+        else:
+            result.silence = SILENCE_EMPTY
+        return False
 
     def _call(
         self,
@@ -359,6 +412,7 @@ class TurnEngine:
             status=CallStatus.COMPLETE,
             call_id=response.call_id,
             scaffolding=self.builder.scaffolding,
+            stop_reason=response.stop_reason,
         )
         self._emit_cost(response)
         # Extraction happens here rather than in `run`/`open_scene` because this is the

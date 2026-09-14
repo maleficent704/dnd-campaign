@@ -179,6 +179,12 @@ class GMNarration(_Event):
     #: pairing survives Phase 1 but breaks under Phase 4's interleaved NPC calls.
     call_id: str | None = None
     scaffolding: str | None = None
+    #: The backend's own word for why generation stopped — `end_turn`, `max_tokens`,
+    #: `refusal`, whatever a future model returns — verbatim and untranslated (D-008
+    #: item 29). Set on terminal rows only; a `pending` row has nothing to report yet.
+    #: `text: ""` with `status: "complete"` is a real and unremarkable-looking row, and
+    #: this is the only field that says whether the model finished or was cut off.
+    stop_reason: str | None = None
 
 
 class NPCTurn(_Event):

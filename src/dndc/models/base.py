@@ -119,6 +119,14 @@ class GMRequest:
         return f"{self.system}\n\n{self.system_volatile}"
 
 
+#: Why a response said nothing. Named here rather than in the turn loop because it is a
+#: property of a call, and three different callers — play, combat and the creation
+#: interview — each have to tell the same three situations apart.
+SILENCE_REFUSED = "refused"
+SILENCE_TRUNCATED = "truncated"
+SILENCE_EMPTY = "empty"
+
+
 @dataclass(frozen=True)
 class GMResponse:
     """What a backend returns. `refused` is checked before `text` is trusted."""
@@ -138,6 +146,33 @@ class GMResponse:
     reported_usd: float | None = None
     #: Wall-clock milliseconds, for the session cost report.
     duration_ms: int | None = None
+
+    @property
+    def truncated(self) -> bool:
+        """The ceiling stopped it, not the model.
+
+        `max_tokens` means the prose is cut off mid-sentence — or absent entirely, if the
+        whole budget went to reasoning before a single text block was emitted. Measured
+        live 2026-09-13: 1024 output tokens, zero text blocks, `text == ""`, and a row
+        that said `complete`. A caller that reads `text` without checking this cannot tell
+        a short answer from a severed one.
+        """
+        return self.stop_reason == "max_tokens"
+
+    @property
+    def silence(self) -> str | None:
+        """Why this response said nothing — `refused` · `truncated` · `empty` — or None.
+
+        Deliberately per-response and deliberately narrow. Whether a *turn* said nothing
+        is a larger question the turn loop asks for itself: a reply consisting of nothing
+        but `[[CHECK: ...]]` is empty here and entirely correct there. This names the
+        cause; it does not decide whether anyone should be told.
+        """
+        if self.text.strip():
+            return None
+        if self.refused:
+            return SILENCE_REFUSED
+        return SILENCE_TRUNCATED if self.truncated else SILENCE_EMPTY
 
 
 class GMBackendError(RuntimeError):

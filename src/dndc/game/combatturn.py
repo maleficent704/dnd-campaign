@@ -360,6 +360,7 @@ class CombatEngine:
             status=CallStatus.COMPLETE,
             call_id=response.call_id,
             scene="combat",
+            stop_reason=response.stop_reason,
         )
         self._emit_cost(response)
 

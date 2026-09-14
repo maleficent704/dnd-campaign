@@ -311,6 +311,9 @@ class Recording:
     def notice(self, text: str) -> None:
         self.notices.append(text)
 
+    def error(self, text: str) -> None:
+        self.notices.append(text)
+
 
 def mirror_table(floor: Floor, mirror: Mirror):
     from dndc.game.cli import MirrorTable
@@ -450,3 +453,25 @@ def test_a_recap_survives_a_narration_with_a_bracket_in_it():
 
     said = [json.loads(watcher.queue.get_nowait())["text"] for _ in range(2)]
     assert "[i]" in said[-1], said
+
+
+def test_a_turn_that_said_nothing_reaches_the_sofa():
+    """The second half of the chain: `take_turn` reports a silent turn through `error`
+    (pinned in `test_session.py`), and `error` has to arrive at the sofa.
+
+    This is the seat the failure matters most on. A hosted evening (P6.7c) has no
+    terminal at all — its console goes to a docker log nobody is reading — so a GM call
+    that came back empty left the browser showing the screen it already had, which is
+    indistinguishable from the table ignoring the line that was just typed.
+    """
+    from dndc.game.session import SILENCE
+
+    mirror = Mirror()
+    table, _ = mirror_table(Floor(), mirror)
+    watcher = mirror.subscribe()
+
+    table.error(SILENCE["truncated"])
+
+    message = json.loads(watcher.queue.get_nowait())
+    assert message["kind"] == "note"
+    assert "length ceiling" in message["text"]

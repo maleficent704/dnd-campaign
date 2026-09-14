@@ -34,7 +34,14 @@ from dndc.logging import SessionLog
 from dndc.memory.canon_store import CANON_FILENAME
 from dndc.memory.chronicle import CHRONICLE_FILENAME
 from dndc.models import GM_SEAT
-from dndc.models.base import GMBackend, GMResponse, Message, new_call_id
+from dndc.models.base import (
+    DEFAULT_MAX_TOKENS,
+    SILENCE_REFUSED,
+    GMBackend,
+    GMResponse,
+    Message,
+    new_call_id,
+)
 from dndc.models.pricing import estimate_cost
 from dndc.rules.background import BackgroundError, describe_grants, validate_background
 from dndc.rules.build import BuildError, build_character
@@ -96,6 +103,11 @@ class CreationReply:
     error: str | None = None
     responses: list[GMResponse] = field(default_factory=list)
     refused: bool = False
+    #: Set when the reply came back with nothing in it: one of `refused` · `truncated` ·
+    #: `empty`, or None when the GM said something. This is where the 2026-09-13 (c)
+    #: defect was actually found — an interview that appeared to freeze on the third
+    #: answer had in fact been handed `""` and drawn its prompt again.
+    silence: str | None = None
 
 
 class CreationSession:
@@ -108,7 +120,7 @@ class CreationSession:
         player: str,
         builder: CreationPromptBuilder | None = None,
         log: SessionLog | None = None,
-        max_tokens: int = 1024,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
         billing: str = "api",
         prices: dict | None = None,
         backgrounds: BackgroundBook | None = None,
@@ -166,6 +178,20 @@ class CreationSession:
     ) -> CreationReply:
         self.messages.append(message)
         response = self._call(on_text)
+
+        if not response.text.strip():
+            # Nothing came back. The player's own line stays in the history — they said
+            # it — but **the empty reply must not**: this interview is D-005's scoped
+            # exception to the no-transcript rule, so an empty assistant turn would be
+            # carried into every later call, and the API rejects a message with no content
+            # in it anyway. So the exchange is undone down to the question and the player
+            # is told, rather than being shown a blank line and the prompt again.
+            self.messages.pop()
+            reply = CreationReply(text="", responses=[response])
+            reply.refused = response.refused
+            reply.silence = response.silence
+            return reply
+
         self.messages.append(assistant(response.text))
 
         reply = CreationReply(
@@ -173,6 +199,7 @@ class CreationSession:
         )
         if response.refused:
             reply.refused = True
+            reply.silence = SILENCE_REFUSED
             return reply
 
         reply.facts = self._record_facts(response.text)
@@ -338,6 +365,7 @@ class CreationSession:
             status=CallStatus.COMPLETE,
             call_id=response.call_id,
             scene=CREATION_SCENE,
+            stop_reason=response.stop_reason,
         )
         self._emit_cost(response)
         return response

@@ -641,6 +641,32 @@ a system that has beliefs but no tier ladder.
     else in the log can be checked against what a model was asked; this can only be
     checked against what the table was told.
 
+**Amended 2026-09-14 (doc-first, from the 2026-09-13 (c) defect).** A GM call can return
+HTTP 200, bill for its tokens, and deliver no prose — measured live during character
+creation, where 1024 output tokens went entirely to reasoning and `_to_response` joined
+zero text blocks into `""`. The row written for that call said `status: "complete"`, and
+nothing in the log could say why.
+
+29. **`gm_narration` gains `stop_reason`** — the backend's own word for why generation
+    stopped, verbatim and untranslated: `end_turn`, `max_tokens`, `stop_sequence`,
+    `refusal`, or whatever a future model returns. `GMResponse` has carried it since Phase
+    1 and the event never wrote it down, which is why diagnosing an empty narration needed
+    a token count read off the `cost` row beside it and an inference that 1024 exactly is a
+    ceiling rather than a stopping point.
+
+    Untranslated on purpose. A field that mapped provider strings onto our own vocabulary
+    would need updating every time a provider adds one, and the failure mode of forgetting
+    is an unknown reason recorded as a known one. `refused` stays a separate boolean
+    because it is acted on in the turn loop; `stop_reason` is what the log carries for
+    anyone asking later.
+
+    **`status` stays `pending` | `complete` | `failed` and is not extended.** `CallStatus`
+    is about the call's lifecycle — the pending-state discipline in the original ruling —
+    not about whether the payload was any good. A fourth value would overload the one field
+    whose meaning the crash-reconstruction argument depends on. "Which calls delivered
+    nothing" is `text == ""` joined to this new field, and it is a better question with
+    `stop_reason` present than a worse status value could make it.
+
 **Rationale.** Same discipline as the mystery; the additions (canon_write provenance,
 cost, escalation) are what Phase 7's instruments — canon-drift measurement, ruling
 logs, cost-per-session — consume. Pending-state logging lesson from the mystery
