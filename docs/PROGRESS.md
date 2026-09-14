@@ -498,6 +498,80 @@ the drift instrument's own log is a finding worth the two-line fix.
 
 ---
 
+## 2026-09-14 — A slash command answering into a log nobody was reading (Claude Code, kelly-pc)
+
+Ravenwood's first evening, played. The table worked; the turn never left Marrow.
+
+### What was wrong, and what was not
+
+**`/switch` is the only thing that moves `session.acting`**, and `play_mode` has only
+`"hotseat"` implemented — `schema/campaign.py:52` is a bare `str` default with no other
+value anywhere in the code. So two players on two screens share one hotseat. That part is
+working as designed and is **not** fixed here; it is a design question, below.
+
+The defect sitting on top of it: **`/switch` answered into the container's stdout.**
+`_play_command` took a `Console`, which on a plain terminal is the player's screen and
+under `serve` is the docker log. So the confirmation went somewhere nobody was looking —
+and so did *"no character called 'Vess'"*. A mistyped name was answered into a log, and to
+the person at the table that is indistinguishable from the table ignoring them.
+
+Kelly's report was *"it doesn't seem to go to Vess' turn"*. The GM had been quietly
+covering for it in prose — *"Vess is still back under the eave… watching you do this alone
+with the particular patience of someone who already knows how this evening ends."*
+
+### The fix
+
+`_play_command` and its three helpers now take **`say: Callable[[str], None]`** rather
+than a `Console`. The narrowest thing they need is one line of text somewhere a player
+will see it; under `serve` that is `table.notice` (container log *and* browser), on a
+terminal it is the console's own printer. A whole `Table` would have demanded a `cfg` and
+an `args` no slash command has any use for.
+
+Two things fell out of doing it properly:
+
+- **A pre-existing bug in every note.** `Mirror.note` pushes its string into the page,
+  which renders it as text and strips nothing — so `evening.py`'s own
+  `"[yellow]no commands here[/yellow]"` had been reaching the sofa wearing its tags. Notes
+  are now flattened with rich's own parser on the way to the mirror, and only there: the
+  console keeps its colour.
+- **`/recap` had to stop relying on `markup=False`.** `say` takes text and nothing else, so
+  the narration is escaped instead. Not theoretical: `[i]`, `[b]` and `[dim]` are real
+  tags, and an inscription rendered `The rune [i] glows` would have lost the character the
+  sentence was about.
+
+Four tests, 1659 total. **All four were checked by reverting the fix and watching them
+fail** — and the first draft of the recap test passed without it, because `[The Boar's
+Rest]` is not a valid tag and rich leaves it alone. It proved nothing until it used a tag
+rich actually eats.
+
+### FOR DESIGN: what should a two-screen table do with the turn?
+
+OD-4 deferred this — *"hotseat until Phase 6 GUI"* — and Phase 6 shipped shared screens
+with a shared hotseat, so the question is still open rather than answered. Three shapes,
+none obviously right:
+
+- **explicit handoff** (today): `/switch`, now visible. Honest, and someone must remember.
+- **claim**: a device says "I'm Vess" and keeps her. Fits two rooms; needs an identity the
+  token gate deliberately does not have — everyone holding the key is the same person.
+- **auto-rotate**: order comes off the party. Simple, and wrong the moment one character
+  should act twice.
+
+Not resolved here. `--watch-only` as a property of the URL is the neighbouring question
+and has the same shape.
+
+### Known issues
+
+- Empty/truncated GM responses are **still silent** — carried from 2026-09-13 (c), and
+  still the right call to fix deliberately rather than in the margins of an evening.
+- `gm_narration` still does not record `stop_reason`.
+
+### Recommended next task
+
+**Play again**, now that the keyboard can be handed over in sight of both players. The
+turn-ownership ruling above wants an evening's evidence more than it wants a decision.
+
+---
+
 ## 2026-09-13 (c) — A ceiling of 1024 that reported success and delivered nothing (Claude Code, kelly-pc)
 
 The first session that existed to get a table playing rather than to build one. Kelly and

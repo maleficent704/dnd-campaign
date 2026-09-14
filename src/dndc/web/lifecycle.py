@@ -268,7 +268,7 @@ class Lifecycle:
                 table,
                 floor=floor,
                 herald=self._herald,
-                commands=self._commands(evening) if self._commands else None,
+                commands=self._commands(evening, table) if self._commands else None,
                 keyboard=keyboard,
                 sweep=not self._args.no_sweep,
                 chronicle=not self._args.no_chronicle,

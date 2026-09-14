@@ -372,3 +372,81 @@ def test_the_question_is_taken_down_even_when_nobody_answered():
 
     assert mirror.snapshot()["question"] is None
     assert floor.asking is False
+
+
+# --- what a slash command says, and where it lands --------------------------
+#
+# Found during Ravenwood's first evening, 2026-09-13. Two players, two screens, and the
+# turn never left Marrow: `/switch` is the only thing that moves it. It worked -- but its
+# answer went to `console`, which under `serve` is the container's stdout. A typo'd name
+# was therefore answered into a log nobody was reading, and to the person at the table it
+# was indistinguishable from the table ignoring them.
+
+
+def test_a_notice_reaches_the_sofa_with_its_markup_rendered_away():
+    """`Mirror.note` goes straight into the page as text, which strips nothing itself."""
+    mirror = Mirror()
+    table, notices = mirror_table(Floor(), mirror)
+    watcher = mirror.subscribe()
+
+    table.notice("[dim]Kelly has the keyboard — Vess Quickwick[/dim]")
+
+    message = json.loads(watcher.queue.get_nowait())
+    assert message["kind"] == "note"
+    assert message["text"] == "Kelly has the keyboard — Vess Quickwick"
+    # The console keeps its colour; only the browser's copy is flattened.
+    assert notices == ["[dim]Kelly has the keyboard — Vess Quickwick[/dim]"]
+
+
+def test_switch_tells_the_browser_who_has_the_keyboard():
+    from dndc.game.cli import _play_command
+
+    mirror = Mirror()
+    table, _ = mirror_table(Floor(), mirror)
+    watcher = mirror.subscribe()
+
+    outcome = _play_command(table.notice, "/switch Corin", campaign(), builder=None)
+
+    assert outcome.active == "Corin Vale"
+    assert "Corin Vale" in json.loads(watcher.queue.get_nowait())["text"]
+
+
+def test_a_switch_that_matches_nobody_is_not_silent_on_the_sofa():
+    """The actual defect. A name that matches nothing must say so where it was typed."""
+    from dndc.game.cli import _play_command
+
+    mirror = Mirror()
+    table, _ = mirror_table(Floor(), mirror)
+    watcher = mirror.subscribe()
+
+    outcome = _play_command(table.notice, "/switch Nobody", campaign(), builder=None)
+
+    assert outcome.active is None
+    said = json.loads(watcher.queue.get_nowait())["text"]
+    assert "Nobody" in said and "Corin Vale" in said, said
+
+
+def test_a_recap_survives_a_narration_with_a_bracket_in_it():
+    """`say` takes text, so `/recap` escapes rather than passing `markup=False`."""
+    from dndc.game.cli import _play_command
+
+    from dndc.gm.context import Turn
+
+    context = campaign()
+    context.history.append(Turn(
+        speaker="Kelly (Corin Vale)",
+        player_input="I look",
+        # `[i]` is a real rich tag, so an unescaped recap swallows it and the
+        # inscription loses the very character it is about. `[The Boar's Rest]`
+        # would have survived on its own and proved nothing.
+        narration="The rune [i] glows faintly where the mason cut it.",
+    ))
+
+    mirror = Mirror()
+    table, _ = mirror_table(Floor(), mirror)
+    watcher = mirror.subscribe()
+
+    _play_command(table.notice, "/recap", context, builder=None)
+
+    said = [json.loads(watcher.queue.get_nowait())["text"] for _ in range(2)]
+    assert "[i]" in said[-1], said

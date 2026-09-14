@@ -16,11 +16,12 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Callable, Sequence
 
 import yaml
 from pydantic import ValidationError
 from rich.console import Console
+from rich.markup import escape as markup_escape, render as markup_render
 from rich.prompt import Prompt
 from rich.table import Table
 
@@ -2018,6 +2019,17 @@ class _ConsoleNarration:
         self.stream.finish()
 
 
+def _plain(text: str) -> str:
+    """Rich markup rendered down to the characters a browser should show.
+
+    `Mirror.note` pushes its string straight into the page, which renders it as text and
+    strips nothing — so a console-shaped notice arrived at the sofa still wearing its
+    tags, reading literally `[dim]Kelly has the keyboard[/dim]`. Rich's own parser does
+    the conversion, because anything else is a second opinion about its syntax.
+    """
+    return markup_render(text).plain
+
+
 class MirrorTable:
     """The terminal, plus everyone watching from the sofa (P6.3).
 
@@ -2044,11 +2056,11 @@ class MirrorTable:
 
     def notice(self, text: str) -> None:
         self.inner.notice(text)
-        self.mirror.note(text)
+        self.mirror.note(_plain(text))
 
     def error(self, text: str) -> None:
         self.inner.error(text)
-        self.mirror.note(text)
+        self.mirror.note(_plain(text))
 
     def narration(self):
         return _MirroredNarration(self.inner.narration(), self.mirror)
@@ -2280,9 +2292,12 @@ def _cmd_serve(console: Console, args: argparse.Namespace) -> int:
             evening.session,
             floor,
         ),
-        commands=lambda evening: (
+        # The table, not the console: under `serve` the console is the container's
+        # stdout, so a `/switch` typo answered there looked to the browser exactly like
+        # the table ignoring the line.
+        commands=lambda evening, table: (
             lambda text: _play_command(
-                console,
+                table.notice,
                 text,
                 evening.campaign,
                 evening.engine.builder,
@@ -2407,7 +2422,7 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
         floor=floor,
         herald=herald,
         commands=lambda text: _play_command(
-            console, text, campaign, engine.builder, items=items, acting=session.acting,
+            table.notice, text, campaign, engine.builder, items=items, acting=session.acting,
         ),
         keyboard=keyboard,
         sweep=not args.no_sweep,
@@ -2431,14 +2446,22 @@ def _cmd_play(console: Console, args: argparse.Namespace) -> int:
 
 
 def _play_command(
-    console: Console,
+    say: Callable[[str], None],
     text: str,
     campaign,
     builder,
     items: InventoryStore | None = None,
     acting: str | None = None,
 ) -> CommandResult:
-    """Slash commands. The loop acts on what comes back."""
+    """Slash commands. The loop acts on what comes back.
+
+    `say` is the narrowest thing this needs: one line of text, somewhere a player will
+    actually see it. Under `serve` that is `table.notice`, which reaches the container
+    log and the browser both; on a plain terminal it is the console's own printer.
+    Taking a whole `Table` would demand a `cfg` and an `args` no slash command has any
+    use for, and taking a `Console` is how these lines came to be written to a stdout
+    that, once the table moved into a browser, nobody was reading.
+    """
     parts = text.split(maxsplit=1)
     command = parts[0].lower()
     argument = parts[1].strip() if len(parts) > 1 else ""
@@ -2446,33 +2469,35 @@ def _play_command(
     if command in {"/quit", "/exit"}:
         return CommandResult(quit=True)
     if command == "/help":
-        console.print(PLAY_HELP)
+        say(PLAY_HELP)
     elif command == "/who":
         for member in campaign.party:
-            console.print(f"  {member.render()}")
+            say(f"  {member.render()}")
     elif command == "/inventory":
-        _inventory_command(console, argument, items, acting)
+        _inventory_command(say, argument, items, acting)
     elif command == "/switch":
-        return _switch_command(console, argument, campaign)
+        return _switch_command(say, argument, campaign)
     elif command == "/scaffolding":
-        _scaffolding_command(console, argument, builder)
+        _scaffolding_command(say, argument, builder)
     elif command == "/scene":
         if argument:
             campaign.scene = argument
-            console.print("[dim]scene set[/dim]")
+            say("[dim]scene set[/dim]")
         else:
-            console.print(campaign.scene or "[dim](no scene set)[/dim]")
+            say(campaign.scene or "[dim](no scene set)[/dim]")
     elif command == "/recap":
         for turn in campaign.history[-DEFAULT_WINDOW:]:
-            console.print(f"[dim]{turn.speaker}:[/dim] {turn.player_input}")
-            console.print(turn.narration, markup=False, highlight=False, soft_wrap=True)
+            say(f"[dim]{turn.speaker}:[/dim] {markup_escape(turn.player_input)}")
+            # Escaped rather than `markup=False`: `say` takes text and nothing
+            # else, and a narration with a bracket in it would be eaten as a tag.
+            say(markup_escape(turn.narration))
     else:
-        console.print(f"[yellow]unknown command {command}[/yellow] — /help")
+        say(f"[yellow]unknown command {command}[/yellow] — /help")
     return CommandResult()
 
 
 def _inventory_command(
-    console: Console, argument: str, items: InventoryStore | None, acting: str | None
+    say: Callable[[str], None], argument: str, items: InventoryStore | None, acting: str | None
 ) -> None:
     """What a character is carrying — the interface's answer, from the sheet.
 
@@ -2481,54 +2506,54 @@ def _inventory_command(
     from state, and the model is never the one saying what it is.
     """
     if items is None:
-        console.print("[dim]no sheets loaded[/dim]")
+        say("[dim]no sheets loaded[/dim]")
         return
     sheet = items.resolve(argument or None, default=acting)
     if sheet is None:
-        console.print(f"[yellow]no character matching {argument!r}[/yellow] — /who")
+        say(f"[yellow]no character matching {argument!r}[/yellow] — /who")
         return
     if not sheet.inventory:
-        console.print(f"[dim]{sheet.name} is carrying nothing[/dim]")
+        say(f"[dim]{sheet.name} is carrying nothing[/dim]")
         return
-    console.print(f"[bold]{sheet.name}[/bold] [dim]({sheet.carried_weight:g} lb)[/dim]")
+    say(f"[bold]{sheet.name}[/bold] [dim]({sheet.carried_weight:g} lb)[/dim]")
     for held in sheet.inventory:
         count = f" ×{held.quantity}" if held.quantity > 1 else ""
-        console.print(f"  {held.name}{count}{' [dim](equipped)[/dim]' if held.equipped else ''}")
+        say(f"  {held.name}{count}{' [dim](equipped)[/dim]' if held.equipped else ''}")
 
 
-def _switch_command(console: Console, argument: str, campaign) -> CommandResult:
+def _switch_command(say: Callable[[str], None], argument: str, campaign) -> CommandResult:
     if not argument:
-        console.print("[yellow]who?[/yellow] — /switch <name>, or /who to see the party")
+        say("[yellow]who?[/yellow] — /switch <name>, or /who to see the party")
         return CommandResult()
 
     matches = resolve_member(argument, campaign.party)
     if not matches:
         known = ", ".join(member.name for member in campaign.party)
-        console.print(f"[yellow]no character called {argument!r}[/yellow] — {known}")
+        say(f"[yellow]no character called {argument!r}[/yellow] — {known}")
         return CommandResult()
     if len(matches) > 1:
         options = ", ".join(member.name for member in matches)
-        console.print(f"[yellow]{argument!r} could be:[/yellow] {options}")
+        say(f"[yellow]{argument!r} could be:[/yellow] {options}")
         return CommandResult()
 
     member = matches[0]
-    console.print(f"[dim]{member.player} has the keyboard — {member.name}[/dim]")
+    say(f"[dim]{member.player} has the keyboard — {member.name}[/dim]")
     return CommandResult(active=member.name)
 
 
-def _scaffolding_command(console: Console, argument: str, builder) -> None:
+def _scaffolding_command(say: Callable[[str], None], argument: str, builder) -> None:
     """D-006 as amended by OD-15: the players lower it, nothing lowers it for them."""
     if not argument:
-        console.print(f"[dim]scaffolding: {builder.scaffolding}[/dim] — /scaffolding {SCAFFOLDING_CHOICES}")
+        say(f"[dim]scaffolding: {builder.scaffolding}[/dim] — /scaffolding {SCAFFOLDING_CHOICES}")
         return
     try:
         builder.set_scaffolding(argument.lower())
     except ValueError:
-        console.print(
+        say(
             f"[yellow]{argument!r} is not a scaffolding level[/yellow] — {SCAFFOLDING_CHOICES}"
         )
         return
-    console.print(f"[dim]scaffolding: {builder.scaffolding}[/dim]")
+    say(f"[dim]scaffolding: {builder.scaffolding}[/dim]")
 
 
 # --- create-character ------------------------------------------------------

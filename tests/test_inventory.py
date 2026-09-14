@@ -530,7 +530,7 @@ def _play(text: str, store: InventoryStore | None, acting="Corin Vale") -> str:
 
     recorder = Console(force_terminal=False, no_color=True, record=True, width=100)
     campaign = CampaignContext(name="c", party=[PartyMember(name="Corin Vale", player="Kelly")])
-    _play_command(recorder, text, campaign, builder=None, items=store, acting=acting)
+    _play_command(recorder.print, text, campaign, builder=None, items=store, acting=acting)
     return recorder.export_text()
 
 

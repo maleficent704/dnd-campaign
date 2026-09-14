@@ -381,7 +381,7 @@ def _command(text: str, campaign, builder):
 
     console = Console(force_terminal=False, no_color=True, width=200)
     with console.capture() as captured:
-        outcome = _play_command(console, text, campaign, builder)
+        outcome = _play_command(console.print, text, campaign, builder)
     return outcome, captured.get()
 
 
