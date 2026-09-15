@@ -62,5 +62,16 @@ One plain sentence per fact, in the present tense where it is a standing truth. 
 names the transcript uses. No hedging, no "the GM said", no numbering, no introduction,
 no commentary, no closing remark.
 
+**Only what happened, never what might.** If a sentence needs *may*, *might*, *possibly*,
+*could*, *potentially*, or *perhaps* to be true, it is a guess about the future and not a
+fact about this transcript. Drop it. A notice board somebody *could* consult, a reward
+somebody *may* offer — neither has happened, and neither belongs in a record of what did.
+
+**Where the party is standing is not a fact about the world.** Who they are talking to,
+what they are holding, where they are stood, what is about to happen next — all of that is
+the scene, and the scene has moved on by the time anybody reads this. Record what is still
+true a month from now: a place, a person, who runs what, something that happened and stays
+happened.
+
 If the transcript genuinely established nothing durable, answer with the single word
 NONE.

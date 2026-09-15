@@ -528,6 +528,116 @@ the drift instrument's own log is a finding worth the two-line fix.
 
 ---
 
+## 2026-09-15 — The first real playtest, and the four things it found (Claude Code, kelly-pc)
+
+Kelly played 29 turns of The Salt Road in the terminal on 2026-09-14 evening — a deliberate
+baseline before touching the UI, so a terminal behaviour and a browser bug could be told
+apart. **She does this professionally and it showed: the evening found more than the last
+three build sessions did.** `logs/20260914-185743.jsonl`. 1708 tests.
+
+### The headline: `[[LEARNED:]]` works
+
+Built that morning against nothing but a prompt instruction, and the first real evening
+exercised it unprompted. Three of the GM's seven tags carried the axis, and the
+discrimination was right in both directions:
+
+```
+discovered   A mule near the far end of the caravan line carries a burlap-wrapped bundle…
+discovered   Jorun stole the crate from wagon three, intending to sell it…
+discovered   The accused teamster had nothing to do with the theft.
+not          [npc_belief] The caravan master believes Jorun stole the crate…
+not          A small settlement with lit windows lies along the salt road…
+not          The settlement … is called Fenlow's Rest…
+not          A provisioner named Yarrow keeps a shop in Fenlow's Rest…
+```
+
+The three marked are what the party uncovered. The four not marked are a character's
+private belief and three facts about a town a night's walk north that they have not reached.
+**Nothing had to be tuned.** The one to watch is the settlement with lit windows — if they
+could see it, arguably they knew it; the GM was conservative, which is the safe direction.
+
+No reveals, as expected: The Salt Road holds no `gm_only` entries, so that path stayed
+unexercised and still has never run against a real model.
+
+### What the sweep got wrong
+
+33 proposals at the end of the evening, and Kelly could not verify them from memory at that
+hour — which is itself the finding. Four things, of which **one was mine and one was not a
+defect at all**:
+
+**1. A reworded restatement of existing canon went in, and the ledger said Brakewater
+twice.** `holds()` is an exact match on normalised text, so it catches a verbatim repeat and
+nothing else. The reworded version scored **0.786** against the entry it was restating,
+against a threshold of 0.6 — the machinery to see it already existed and had only ever been
+pointed at the other proposals in the same batch, never at the ledger.
+
+**Fixed by flagging, not by dropping.** Fable's 2026-08-14 ruling is explicit that fuzzy
+matching must not silently suppress a fact, and that binds harder here than it does for
+clustering: this compares against the *whole ledger*, so a false positive would bury
+something genuinely new. The proposal is still shown, still numbered, still filed if the
+table says so — it now arrives with *"the ledger may already say this: …"* under it.
+`SweepProposal.echoes`, computed in `_echoed`, surfaced in `choose_proposals`.
+
+**2. Speculation proposed as fact** — *"possibly a notice board … which could provide"*,
+*"the caravan master may want to thank whoever untangled this"*. The prompt already said
+"no hedging" and the model ignored it, so it now says what a guess looks like and to drop
+it.
+
+**3. Scene state proposed as world canon** — *"Hammond and Corin Vale are currently standing
+on the salt road between the well-house and…"*. True for ten minutes. The prompt said "skip
+the scene, keep the world" and now says what that means.
+
+**4. Not a defect, and I called it one.** I reported two near-duplicate Jorun proposals as a
+clustering failure. They score **0.357** — well under threshold — and reading them again
+they are two different facts that share a subject: one is that he handles the pack mules
+since Verstock, the other that he meant to sell the crate. `cluster()` was right and its
+docstring already said why: given a choice between over- and under-clustering, take the
+longer list.
+
+### The ledger repair
+
+Scanned all 29 entries pairwise for the same failure. **Exactly one pair** above threshold —
+the Brakewater duplicate at 0.933, nothing else. `world-brakewater-is-a-waystation` is
+retired in favour of `world-brakewater`, which already said it: the row stays on file (D-002
+— a superseded entry is the record of what was true before) and leaves the prompt and the
+screens. 28 active, 21 known to the party, one Brakewater line in the prompt.
+
+### Sweep precision, first honest number
+
+Kelly accepted 7 of 33 and declined 26 — and that is not a bad sweep so much as a repetitive
+one. Of the 26 declines, at least 3 were restatements of canon the ledger already held, 2
+were speculation and 1 was scene state; all six of those are what this session fixed. At
+least 2 of her declines were good facts she simply could not place at the time (the caravan
+master's appearance, the tavern-keeper in Fenlow's Rest), which is an argument for the
+flagging fix and against asking the question at the end of a long evening at all.
+
+### Known issues
+
+- **The VM backfill is still unapplied** (carried from 2026-09-14 (c)) — the permission
+  classifier declined the `docker cp`. Ravenwood's screens show no canon until it runs.
+  Files staged at `/tmp/*.canon.yaml`; backup at
+  `~/services/dndc/campaigns-before-discovery-axis-20260914.tar.gz`.
+- **No `dndc sweep` subcommand**, so a declined fact cannot be re-proposed against its own
+  log without hand-editing `canon.yaml`. Felt for the first time tonight, when the answer to
+  "should I accept these?" was "decline and we will read the log later" and there was no
+  path back. Jotted.
+- **The reveal path has never run against a real model.** Needs a `gm_only` fact that the
+  party then uncovers; The Salt Road has none to uncover.
+- An empty NPC line is still silent (carried from 2026-09-14 (b)).
+
+### FOR DESIGN
+
+Nothing new. Carried: whether an NPC may be authored into a fact the party discovered
+(raised 2026-09-14 (c)).
+
+### Recommended next task
+
+**Play again, and open the UI this time** — the terminal baseline exists now, which was the
+whole point of the evening. OD-17's sheet is still blank and is the only thing that can
+close it.
+
+---
+
 ## 2026-09-14 (c) — Fable's rulings applied: truth and discovery are two axes now (Claude Code, kelly-pc)
 
 Fable ruled six things overnight and Kelly ruled the seventh this morning. This session

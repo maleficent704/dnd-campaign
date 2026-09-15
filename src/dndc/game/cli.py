@@ -1105,7 +1105,20 @@ def choose_proposals(
         kind=CANON,
         prompt="file which?",
         choices=tuple(
-            Choice(text=group[0].text, detail=tuple(other.text for other in group[1:]))
+            Choice(
+                text=group[0].text,
+                # The alternate phrasings, and — when the ledger looks like it already
+                # holds this — what it holds. Shown rather than acted on: the sweep must
+                # not suppress a fact on a similarity score, and at the end of an evening
+                # nobody can be expected to remember all of canon (measured 2026-09-14, a
+                # restatement of Brakewater went in and the ledger now says it twice).
+                detail=tuple(other.text for other in group[1:])
+                + (
+                    (f"the ledger may already say this: {group[0].echoes}",)
+                    if group[0].echoes
+                    else ()
+                ),
+            )
             for group in groups
         ),
     )

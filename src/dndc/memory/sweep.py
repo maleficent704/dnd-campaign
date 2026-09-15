@@ -112,6 +112,10 @@ class SweepProposal:
     #: Always `SWEEP_SCOPE`. Present so a proposal reads like the thing it becomes.
     scope: CanonScope = SWEEP_SCOPE
     raw: str = ""
+    #: An entry the ledger already holds that this may be restating, in its own words.
+    #: **Shown, never acted on** — see `_echoed`. The table decides; this only means they
+    #: are not deciding blind at the end of an evening.
+    echoes: str | None = None
 
 
 @dataclass
@@ -240,8 +244,39 @@ class CanonSweep:
                 continue
             if self.store.holds(statement, SWEEP_SCOPE):
                 continue
-            proposals.append(SweepProposal(text=statement, raw=tag.raw))
+            proposals.append(
+                SweepProposal(text=statement, raw=tag.raw, echoes=self._echoed(statement))
+            )
         return proposals, ungrounded
+
+    def _echoed(self, statement: str) -> str | None:
+        """An active ledger entry this proposal may be saying again in other words.
+
+        `holds` is an exact match on normalised text, so it catches a proposal repeated
+        verbatim and nothing else. Measured live 2026-09-14: the sweep proposed *"Brakewater
+        is a waystation town on the salt flats with low stone buildings crouched around a
+        well"* against a ledger already holding *"Brakewater is a waystation town on the
+        salt flats — low stone buildings crouched around a well, with a well-house at one
+        end…"*. Similarity 0.786 against a threshold of 0.6 — the machinery to see it
+        existed and had only ever been pointed at the other proposals in the same batch. It
+        went in, and the ledger now says Brakewater twice.
+
+        **Flagged and never dropped.** Fable's 2026-08-14 ruling is explicit that fuzzy
+        matching must not silently suppress a fact (the npc-village lesson), and that
+        applies with more force here than it does to clustering: this compares against the
+        *whole ledger*, so a false positive would silently bury a genuinely new fact. The
+        table still sees the proposal, still numbers it, still files it if they say so.
+        What changes is that they are told what it looks like.
+        """
+        words = _content_words(statement)
+        if len(words) < MIN_CLUSTER_WORDS:
+            return None
+        best, score = None, SIMILAR_ENOUGH
+        for entry in self.store.ledger.active():
+            overlap = _similarity(words, _content_words(entry.text))
+            if overlap >= score:
+                best, score = entry.text, overlap
+        return best
 
     def _request(self, transcript: str, extra_known: Sequence[str]) -> GMRequest:
         return GMRequest(

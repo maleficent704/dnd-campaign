@@ -568,3 +568,98 @@ def test_the_alternates_are_shown_not_hidden(monkeypatch):
 
     output = " ".join(recorder.export_text().split())
     assert "also:" in output and RAIL[1] in output
+
+
+# --- a restatement of canon the ledger already holds (found live 2026-09-14) ---
+
+
+def _held(text: str) -> CanonStore:
+    return CanonStore(CanonLedger(entries=[CanonEntry(id="world-known", text=text)]))
+
+
+#: The ledger's wording. The proposal below says the same thing in its own words, which is
+#: the live 2026-09-14 shape: near the whole of the entry, reordered. Drawn from NARRATION
+#: so it passes grounding, which is checked before this flag is ever computed.
+HELD = "Halda Orrin has kept the waystation at Ashmill, where the salt road bends north, for eleven years."
+RESTATED = "The waystation at Ashmill sits where the salt road bends north and Halda Orrin has kept it for eleven years."
+
+
+def test_a_reworded_restatement_is_flagged_against_the_entry_it_echoes():
+    """`holds` is exact on normalised text, so it catches a verbatim repeat and nothing
+    else. Measured live: a reworded Brakewater scored 0.786 against the ledger entry it was
+    restating, went in unflagged, and the ledger now says Brakewater twice."""
+    backend = MockBackend([f"[[CANON: {RESTATED}]]"])
+
+    (proposal,) = sweep(backend, _held(HELD)).propose(session()).proposals
+
+    assert proposal.echoes == HELD
+
+
+def test_a_flagged_restatement_is_still_offered():
+    """The load-bearing half. Fable's 2026-08-14 ruling is that fuzzy matching must not
+    silently suppress a fact, and this compares against the *whole* ledger — so a false
+    positive here would bury something genuinely new."""
+    backend = MockBackend([f"[[CANON: {RESTATED}]]"])
+
+    report = sweep(backend, _held(HELD)).propose(session())
+
+    assert len(report.proposals) == 1
+
+
+def test_a_genuinely_new_fact_is_not_flagged():
+    backend = MockBackend(["[[CANON: The mill burned down last winter.]]"])
+
+    (proposal,) = sweep(backend, _held(HELD)).propose(session()).proposals
+
+    assert proposal.echoes is None
+
+
+def test_a_short_fact_is_never_flagged():
+    """Same reason `cluster` leaves short statements alone: "the bridge is out" and "the
+    bridge is fine" share their only long word and are opposites."""
+    backend = MockBackend(["[[CANON: The mill burned down.]]"])
+
+    (proposal,) = sweep(backend, _held("The mill is fine.")).propose(session()).proposals
+
+    assert proposal.echoes is None
+
+
+def test_the_table_is_told_what_the_ledger_may_already_say():
+    """The flag is worth nothing if it stops at the dataclass — the point is the person
+    answering at the end of an evening, who cannot be expected to hold all of canon."""
+    from dndc.game.asking import Answer
+
+    proposals = [SweepProposal(text="Ashmill sits on the salt road.", echoes=HELD)]
+
+    class Asked:
+        def ask(self, question):
+            self.question = question
+            return Answer(chosen=frozenset())
+
+    table = Asked()
+    choose_proposals(table, proposals)
+
+    (choice,) = table.question.choices
+    assert any("the ledger may already say this" in line for line in choice.detail)
+    assert any(HELD in line for line in choice.detail)
+
+
+# --- the prompt's two new rules --------------------------------------------
+
+
+def test_the_sweep_prompt_refuses_speculation():
+    """Live run proposed "possibly a notice board ... which could provide" and "may want to
+    thank whoever untangled this". Neither has happened."""
+    from dndc.gm.templates import load_template
+
+    body = load_template("sweep").lower()
+
+    assert "possibly" in body and "might" in body
+    assert "never what might" in body
+
+
+def test_the_sweep_prompt_excludes_the_scene():
+    """Live run proposed where the two characters were standing. True for ten minutes."""
+    from dndc.gm.templates import load_template
+
+    assert "is not a fact about the world" in load_template("sweep").lower()
